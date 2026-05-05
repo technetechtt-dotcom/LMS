@@ -1,0 +1,13 @@
+# Railway config when this service uses the backend/ directory as root.
+# https://docs.railway.app/reference/config-as-code
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm ci --include=dev && npm run build"
+
+[deploy]
+startCommand = "npm run start:railway"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5

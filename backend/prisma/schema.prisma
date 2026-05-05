@@ -1,0 +1,552 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrganisationType {
+  SDIO
+  EMPLOYER
+  SETA
+}
+
+enum LearnerLifecycleStatus {
+  ENROLLED
+  TRAINING
+  WORKPLACE
+  ASSESSMENT
+  MODERATION
+  COMPLETED
+}
+
+enum CompetencyResult {
+  C
+  NYC
+}
+
+enum ModerationDecision {
+  APPROVED
+  REJECTED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  EXCUSED
+  LATE
+}
+
+enum WorkflowAction {
+  START_TRAINING
+  MOVE_TO_WORKPLACE
+  START_ASSESSMENT
+  SUBMIT_FOR_MODERATION
+  COMPLETE_ENROLLMENT
+  REOPEN
+}
+
+/// Knowledge PoE artefact classification (guide, homework, formal assessment).
+enum PoeLearningArtifactKind {
+  LEARNER_GUIDE
+  WORKBOOK
+  SUMMATIVE
+}
+
+/// Facilitator (blue) → Assessor allocation (red) → Moderator (green).
+enum PoeLearningArtifactStatus {
+  DRAFT
+  ISSUED_TO_LEARNER
+  LEARNER_SUBMITTED
+  FACILITATOR_MARKED
+  ALLOCATED_TO_ASSESSOR
+  ASSESSOR_SATISFACTORY
+  SUBMITTED_TO_MODERATOR
+  MODERATION_COMPLETE
+}
+
+enum PoeModerationOutcome {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id           String             @id @default(uuid()) @db.Uuid
+  email        String             @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  isActive     Boolean            @default(true)
+  /// SDP-assigned facilitator job capacity (optional).
+  facilitatorRole FacilitatorRole?
+  lastLoginAt  DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  deletedAt    DateTime?
+  memberships  UserOrganisation[]
+  enrollments  Enrollment[]       @relation("LearnerEnrollments")
+  evidence     Evidence[]         @relation("EvidenceUploadedBy")
+  verifiedDocs Document[]         @relation("DocumentVerifiedBy")
+  audits       AuditLog[]
+  poeArtifactsCreated          PoeLearningArtifact[] @relation("PoeArtifactCreatedBy")
+  poeArtifactsFacilitatorMarked PoeLearningArtifact[] @relation("PoeArtifactFacilitatorMarkedBy")
+  poeArtifactsAllocatedAsAssessor PoeLearningArtifact[] @relation("PoeArtifactAssessor")
+  poeArtifactsSubmittedToModerator PoeLearningArtifact[] @relation("PoeArtifactSubmittedForModerationBy")
+  poeArtifactsModerated        PoeLearningArtifact[] @relation("PoeArtifactModerator")
+  uploadedLearningMaterials     LearningMaterial[]     @relation("LearningMaterialUploadedBy")
+  refreshTokens                 RefreshToken[]
+  passwordResetTokens           PasswordResetToken[]
+  inAppNotifications            InAppNotification[]
+}
+
+model Role {
+  id          String             @id @default(uuid()) @db.Uuid
+  code        String             @unique
+  name        String
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  deletedAt   DateTime?
+  memberships UserOrganisation[]
+}
+
+model Organisation {
+  id            String             @id @default(uuid()) @db.Uuid
+  name          String
+  registrationNo String?
+  type          OrganisationType
+  metadata      Json?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  deletedAt     DateTime?
+  memberships   UserOrganisation[]
+  programmes    Programme[]
+  sdioEnrollments   Enrollment[]       @relation("SdioOrganisationEnrollment")
+  employerEnrollments Enrollment[]     @relation("EmployerOrganisationEnrollment")
+  documents     Document[]
+  learningMaterials LearningMaterial[]
+}
+
+model UserOrganisation {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @db.Uuid
+  roleId         String       @db.Uuid
+  organisationId String       @db.Uuid
+  isPrimary      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  deletedAt      DateTime?
+  user           User         @relation(fields: [userId], references: [id])
+  role           Role         @relation(fields: [roleId], references: [id])
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([userId, roleId, organisationId])
+  @@index([organisationId, roleId])
+}
+
+model Qualification {
+  id            String         @id @default(uuid()) @db.Uuid
+  saqaId        String         @unique
+  title         String
+  nqfLevel      Int
+  totalCredits  Int
+  field         String?
+  programmes    Programme[]
+  unitStandards UnitStandard[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+}
+
+model UnitStandard {
+  id              String         @id @default(uuid()) @db.Uuid
+  code            String         @unique
+  title           String
+  credits         Int
+  level           Int
+  qualificationId String         @db.Uuid
+  qualification   Qualification  @relation(fields: [qualificationId], references: [id])
+  outcomes        Outcome[]
+  assessments     Assessment[]
+  assessmentQuestions AssessmentQuestion[]
+  evidence        Evidence[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  deletedAt       DateTime?
+}
+
+model Outcome {
+  id             String        @id @default(uuid()) @db.Uuid
+  unitStandardId String        @db.Uuid
+  code           String
+  description    String
+  unitStandard   UnitStandard  @relation(fields: [unitStandardId], references: [id])
+  evidence       Evidence[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  @@unique([unitStandardId, code])
+}
+
+enum ProgrammeKind {
+  SKILLS_PROGRAMME
+  OCCUPATIONAL_PROGRAMME
+}
+
+/// SDP facilitator capacity (only set when user holds the FACILITATOR role).
+enum FacilitatorRole {
+  LEAD_FACILITATOR
+  ASSISTANT_FACILITATOR
+  SUBJECT_SPECIALIST
+  WORKPLACE_COORDINATOR
+}
+
+model Programme {
+  id               String         @id @default(uuid()) @db.Uuid
+  organisationId   String         @db.Uuid
+  qualificationId  String         @db.Uuid
+  code             String
+  title            String
+  programmeKind    ProgrammeKind  @default(OCCUPATIONAL_PROGRAMME)
+  startDate        DateTime?
+  endDate          DateTime?
+  metadata         Json?
+  organisation     Organisation   @relation(fields: [organisationId], references: [id])
+  qualification    Qualification  @relation(fields: [qualificationId], references: [id])
+  enrollments      Enrollment[]
+  learningMaterials LearningMaterial[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  deletedAt        DateTime?
+
+  @@unique([organisationId, code])
+}
+
+model Enrollment {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  learnerId             String                 @db.Uuid
+  programmeId           String                 @db.Uuid
+  sdioOrganisationId    String                 @db.Uuid
+  employerOrganisationId String?               @db.Uuid
+  status                LearnerLifecycleStatus @default(ENROLLED)
+  startedAt             DateTime?
+  completedAt           DateTime?
+  metadata              Json?
+  learner               User                   @relation("LearnerEnrollments", fields: [learnerId], references: [id])
+  programme             Programme              @relation(fields: [programmeId], references: [id])
+  sdioOrganisation      Organisation           @relation("SdioOrganisationEnrollment", fields: [sdioOrganisationId], references: [id])
+  employerOrganisation  Organisation?          @relation("EmployerOrganisationEnrollment", fields: [employerOrganisationId], references: [id])
+  evidence              Evidence[]
+  workplaceLogs         WorkplaceLog[]
+  assessments           Assessment[]
+  attendance            Attendance[]
+  workflowTransitions   EnrollmentWorkflow[]
+  documents             Document[]
+  poeLearningArtifacts PoeLearningArtifact[]
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  deletedAt             DateTime?
+
+  @@index([programmeId, status])
+  @@index([learnerId, status])
+}
+
+/// Learner Guide (textbook), Workbook (facilitator-built homework), or Summative — with PoE marking workflow.
+model PoeLearningArtifact {
+  id                       String                     @id @default(uuid()) @db.Uuid
+  enrollmentId             String                     @db.Uuid
+  kind                     PoeLearningArtifactKind
+  title                    String
+  description              String?
+  status                   PoeLearningArtifactStatus  @default(DRAFT)
+  createdById              String                     @db.Uuid
+  facilitatorMarkedAt      DateTime?
+  facilitatorMarkedById    String?                    @db.Uuid
+  /// Convention: facilitator feedback corresponds to blue pen on physical PoE.
+  facilitatorFeedback      String?
+  allocatedToAssessorAt    DateTime?
+  assessorId               String?                    @db.Uuid
+  assessorMarkedAt        DateTime?
+  /// Convention: assessor feedback corresponds to red pen.
+  assessorFeedback        String?
+  submittedToModeratorAt  DateTime?
+  submittedForModerationById String?                  @db.Uuid
+  moderatorId             String?                    @db.Uuid
+  moderatedAt              DateTime?
+  /// Convention: moderator feedback corresponds to green pen.
+  moderatorFeedback       String?
+  moderationOutcome       PoeModerationOutcome        @default(PENDING)
+  storageKey               String?
+  url                      String?
+  metadata                 Json?
+  enrollment               Enrollment                  @relation(fields: [enrollmentId], references: [id])
+  createdBy                User                      @relation("PoeArtifactCreatedBy", fields: [createdById], references: [id])
+  facilitatorMarkedBy      User?                     @relation("PoeArtifactFacilitatorMarkedBy", fields: [facilitatorMarkedById], references: [id])
+  assessor                 User?                     @relation("PoeArtifactAssessor", fields: [assessorId], references: [id])
+  submittedForModerationBy User?                     @relation("PoeArtifactSubmittedForModerationBy", fields: [submittedForModerationById], references: [id])
+  moderator                User?                     @relation("PoeArtifactModerator", fields: [moderatorId], references: [id])
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  deletedAt                DateTime?
+
+  @@index([enrollmentId, status])
+  @@index([assessorId, status])
+  @@index([kind, status])
+}
+
+model Evidence {
+  id             String      @id @default(uuid()) @db.Uuid
+  enrollmentId   String      @db.Uuid
+  unitStandardId String      @db.Uuid
+  outcomeId      String?     @db.Uuid
+  fileName       String
+  fileType       String
+  fileSize       Int
+  storageKey     String
+  url            String
+  metadata       Json?
+  latitude       Decimal?    @db.Decimal(10, 7)
+  longitude      Decimal?    @db.Decimal(10, 7)
+  uploadedById   String      @db.Uuid
+  verifiedById   String?     @db.Uuid
+  uploadedAt     DateTime    @default(now())
+  verifiedAt     DateTime?
+  enrollment     Enrollment  @relation(fields: [enrollmentId], references: [id])
+  unitStandard   UnitStandard @relation(fields: [unitStandardId], references: [id])
+  outcome        Outcome?    @relation(fields: [outcomeId], references: [id])
+  uploadedBy     User        @relation("EvidenceUploadedBy", fields: [uploadedById], references: [id])
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  deletedAt      DateTime?
+
+  @@index([enrollmentId, unitStandardId])
+}
+
+model WorkplaceLog {
+  id              String      @id @default(uuid()) @db.Uuid
+  enrollmentId    String      @db.Uuid
+  logDate         DateTime
+  hoursWorked     Decimal     @db.Decimal(5, 2)
+  activity        String
+  supervisorName  String
+  supervisorEmail String?
+  supervisorSignedAt DateTime?
+  metadata        Json?
+  enrollment      Enrollment  @relation(fields: [enrollmentId], references: [id])
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
+
+  @@index([enrollmentId, logDate])
+}
+
+model Assessment {
+  id              String           @id @default(uuid()) @db.Uuid
+  enrollmentId    String           @db.Uuid
+  unitStandardId  String           @db.Uuid
+  assessorId      String           @db.Uuid
+  result          CompetencyResult
+  feedback        String?
+  evidenceLinks   Json?
+  assessedAt      DateTime         @default(now())
+  version         Int              @default(1)
+  enrollment      Enrollment       @relation(fields: [enrollmentId], references: [id])
+  unitStandard    UnitStandard     @relation(fields: [unitStandardId], references: [id])
+  moderation      Moderation?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  deletedAt       DateTime?
+
+  @@index([enrollmentId, assessedAt])
+  @@index([unitStandardId, result])
+}
+
+model Moderation {
+  id            String             @id @default(uuid()) @db.Uuid
+  assessmentId  String             @unique @db.Uuid
+  moderatorId   String             @db.Uuid
+  decision      ModerationDecision
+  feedback      String?
+  moderatedAt   DateTime           @default(now())
+  trail         Json?
+  assessment    Assessment         @relation(fields: [assessmentId], references: [id])
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  deletedAt     DateTime?
+}
+
+model Attendance {
+  id           String           @id @default(uuid()) @db.Uuid
+  enrollmentId String           @db.Uuid
+  sessionDate  DateTime
+  status       AttendanceStatus
+  latitude     Decimal?         @db.Decimal(10, 7)
+  longitude    Decimal?         @db.Decimal(10, 7)
+  notes        String?
+  enrollment   Enrollment       @relation(fields: [enrollmentId], references: [id])
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  deletedAt    DateTime?
+
+  @@index([enrollmentId, sessionDate])
+}
+
+model Document {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String?      @db.Uuid
+  enrollmentId   String?      @db.Uuid
+  category       String
+  name           String
+  storageKey     String
+  url            String
+  metadata       Json?
+  verifiedById   String?      @db.Uuid
+  verifiedAt     DateTime?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+  enrollment     Enrollment?  @relation(fields: [enrollmentId], references: [id])
+  verifiedBy     User?        @relation("DocumentVerifiedBy", fields: [verifiedById], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  @@index([enrollmentId, category])
+  @@index([organisationId, category])
+}
+
+/// SDP programme library (guides, assessment instruments, templates). Workbook/summative PDFs use poeComponent Assessment; learner guides use Knowledge — not the per-enrollment PoE workflow instance.
+model LearningMaterial {
+  id                 String         @id @default(uuid()) @db.Uuid
+  organisationId     String         @db.Uuid
+  programmeId        String?        @db.Uuid
+  title              String
+  description        String?
+  moduleCode         String?
+  /// Matches frontend: learner-guide | learner-workbook | summative | other
+  artifactSlug       String         @default("other")
+  artifactTypeLabel  String?
+  /// Knowledge | Practical | Workplace | Compliance | Assessment (workbook/summative KM artefacts)
+  poeComponent       String         @default("Knowledge")
+  moduleKey          String?
+  moduleLabel        String?
+  /// video | pdf | document | interactive | audio
+  mediaKind          String         @default("pdf")
+  formatLabel        String         @default("PDF")
+  fileName           String?
+  fileSizeBytes      Int            @default(0)
+  storageKey         String?
+  url                String
+  viewCount          Int            @default(0)
+  downloadCount      Int            @default(0)
+  completionCount    Int            @default(0)
+  isApproved         Boolean        @default(true)
+  isAIEnhanced       Boolean        @default(false)
+  uploadedById       String         @db.Uuid
+  organisation       Organisation   @relation(fields: [organisationId], references: [id])
+  programme          Programme?     @relation(fields: [programmeId], references: [id])
+  uploadedBy         User           @relation("LearningMaterialUploadedBy", fields: [uploadedById], references: [id])
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  deletedAt          DateTime?
+
+  @@index([organisationId, poeComponent])
+  @@index([organisationId, artifactSlug])
+  @@index([programmeId])
+}
+
+model WorkflowState {
+  id          String              @id @default(uuid()) @db.Uuid
+  code        LearnerLifecycleStatus @unique
+  label       String
+  order       Int                 @unique
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}
+
+model EnrollmentWorkflow {
+  id               String                 @id @default(uuid()) @db.Uuid
+  enrollmentId     String                 @db.Uuid
+  fromState        LearnerLifecycleStatus
+  toState          LearnerLifecycleStatus
+  action           WorkflowAction
+  reason           String?
+  changedById      String                 @db.Uuid
+  changedAt        DateTime               @default(now())
+  enrollment       Enrollment             @relation(fields: [enrollmentId], references: [id])
+
+  @@index([enrollmentId, changedAt])
+}
+
+/// Per–unit-standard question bank surfaced as GET /assessments/:id/questions (by assessment → unit standard).
+model AssessmentQuestion {
+  id             String       @id @default(uuid()) @db.Uuid
+  unitStandardId String       @db.Uuid
+  orderIndex     Int
+  prompt         String
+  questionType   String       @default("mcq_single")
+  options        Json?
+  points         Int          @default(1)
+  unitStandard   UnitStandard @relation(fields: [unitStandardId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  @@index([unitStandardId, orderIndex])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model InAppNotification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  type      String
+  title     String
+  body      String?
+  readAt    DateTime?
+  metadata  Json?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model AuditLog {
+  id             String      @id @default(uuid()) @db.Uuid
+  organisationId String?     @db.Uuid
+  actorId        String?     @db.Uuid
+  entityType     String
+  entityId       String?
+  action         String
+  beforeValue    Json?
+  afterValue     Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime    @default(now())
+  actor          User?       @relation(fields: [actorId], references: [id])
+
+  @@index([organisationId, entityType, createdAt])
+  @@index([actorId, createdAt])
+}
