@@ -1,0 +1,60 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Repo: SkillForge LMS (Nest API + Vite SPA, Neon Postgres external)
+
+services:
+  - type: web
+    name: lms-api
+    runtime: node
+    rootDir: backend
+    plan: starter
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start:railway
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - backend/**
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 1d
+      - key: REFRESH_TOKEN_TTL_DAYS
+        value: "7"
+      - key: FRONTEND_ORIGIN
+        fromService:
+          name: lms-web
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+
+  - type: web
+    name: lms-web
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    buildFilter:
+      paths:
+        - src/**
+        - public/**
+        - index.html
+        - vite.config.ts
+        - package.json
+        - package-lock.json
+        - tailwind.config.js
+        - postcss.config.js
+        - tsconfig.json
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          name: lms-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
