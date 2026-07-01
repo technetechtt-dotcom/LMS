@@ -2,6 +2,8 @@
 
 This walks through a **PostgreSQL plugin** attached to your **Nest API** running from the `backend/` folder.
 
+**Using [Neon](https://neon.com/) instead of Railway Postgres?** Skip step 1 and set `DATABASE_URL` (pooled) + `DIRECT_URL` (direct) on the API service from the Neon console. See **[NEON.md](./NEON.md)**.
+
 ## 1. Create the database
 
 1. In [Railway](https://railway.app/), open your project (**New Project** if needed).
@@ -28,7 +30,7 @@ You do **not** need to create tables by hand; Prisma applies migrations on deplo
 | `FRONTEND_ORIGIN` | Your SPA origins, comma-separated: `https://your-app.vercel.app` or Railway static URL once you know it. |
 | `PORT` | **Leave unset** — Railway sets `PORT`; Nest listens on it. |
 
-Optional: `REFRESH_TOKEN_TTL_DAYS`, `PASSWORD_RESET_TTL_MINUTES`, `AWS_*` for real S3 uploads (see `DEPLOYMENT.md`).
+Optional: `REFRESH_TOKEN_TTL_DAYS`, `PASSWORD_RESET_TTL_MINUTES`, `ADMIN_ENDPOINTS_ENABLED=false` (locks admin maintenance APIs), `AWS_*` for real S3 uploads (see `DEPLOYMENT.md`).
 
 4. **Deploy**: Railway reads `backend/railway.toml`:
    - **Build**: `npm ci --include=dev && npm run build` (needs devDeps for TypeScript + Nest CLI).

@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { AdminOnlyEndpoint } from '../common/decorators/admin-only-endpoint.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CreateOrganisationDto } from './organisations.dto';
 import { OrganisationsService } from './organisations.service';
@@ -15,6 +16,7 @@ export class OrganisationsController {
     return this.organisations.list();
   }
 
+  @AdminOnlyEndpoint()
   @Roles('ADMIN')
   @Post()
   create(@Body() dto: CreateOrganisationDto) {

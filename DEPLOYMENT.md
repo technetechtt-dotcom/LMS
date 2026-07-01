@@ -4,7 +4,7 @@
 
 - **SPA**: Vite + React (`npm run build` → static assets).
 - **API**: NestJS in `backend/` (`npm run build` in backend → `node dist/main.js`).
-- **Database**: PostgreSQL via Prisma.
+- **Database**: PostgreSQL via Prisma ([Neon](https://neon.com/) recommended; see **[NEON.md](./NEON.md)**).
 
 ## Environment
 
@@ -13,13 +13,15 @@
 | Variable | Required in production | Notes |
 |----------|------------------------|--------|
 | `NODE_ENV` | Recommended | `production` enables stricter config validation. |
-| `DATABASE_URL` | Yes | PostgreSQL connection string. |
+| `DATABASE_URL` | Yes | PostgreSQL connection string (Neon **pooled** URL in production). |
+| `DIRECT_URL` | Yes | Direct Postgres URL for Prisma migrations (Neon **direct** URL; for local dev, same as `DATABASE_URL`). |
 | `JWT_SECRET` | Yes | Min 32 characters; must not be a placeholder. |
 | `JWT_EXPIRES_IN` | No | Access token TTL (e.g. `15m`, `1h`). |
 | `FRONTEND_ORIGIN` | Yes | Comma-separated browser origins for CORS. |
 | `PORT` | No | Default `8787`. |
 | `REFRESH_TOKEN_TTL_DAYS` | No | Default `7`. |
 | `PASSWORD_RESET_TTL_MINUTES` | No | Default `60`. |
+| `ADMIN_ENDPOINTS_ENABLED` | No | Default `true`. Set `false` to return **403** on admin maintenance APIs: **`/users`** (all methods), **`POST /programmes`**, **`POST /organisations`**. Reads and other roles’ routes are unchanged. |
 | `LOG_PASSWORD_RESET_LINK` | No | Set `true` only in non-prod to log reset URLs to server logs when email is not wired. |
 | `AWS_REGION` | For real uploads | e.g. `af-south-1`. |
 | `AWS_S3_BUCKET` | For real uploads | Target bucket for `FileStorageService`. |

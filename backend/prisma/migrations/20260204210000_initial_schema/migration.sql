@@ -1,4 +1,4 @@
-﻿-- CreateEnum
+-- CreateEnum
 CREATE TYPE "OrganisationType" AS ENUM ('SDIO', 'EMPLOYER', 'SETA');
 
 -- CreateEnum

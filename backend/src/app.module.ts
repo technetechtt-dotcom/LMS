@@ -22,6 +22,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { AdminEndpointsGuard } from './common/guards/admin-endpoints.guard';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { validateEnv } from './config/env.validation';
@@ -56,6 +57,7 @@ import { HealthController } from './health/health.controller';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: TenantGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: AdminEndpointsGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],
 })
