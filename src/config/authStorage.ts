@@ -2,8 +2,9 @@
 export const AUTH_STORAGE_KEY = 'skillforge_auth_v1';
 
 type StoredAuth = {
-  user?: unknown;
+  user?: { organisationId?: string; [key: string]: unknown };
   accessToken?: string;
+  /** @deprecated Refresh tokens are HttpOnly cookies; ignored if present. */
   refreshToken?: string;
   linkedLearnerId?: string | null;
 };
@@ -20,21 +21,30 @@ export function getStoredAccessToken(): string | undefined {
   }
 }
 
-export function getStoredRefreshToken(): string | undefined {
+/** Active organisation id from persisted user profile (for X-Organisation-Id). */
+export function getStoredOrganisationId(): string | undefined {
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as StoredAuth;
-    const t = parsed?.refreshToken;
-    return typeof t === 'string' && t.length > 0 ? t : undefined;
+    const id = parsed?.user?.organisationId;
+    return typeof id === 'string' && id.length > 0 ? id : undefined;
   } catch {
     return undefined;
   }
 }
 
+/**
+ * Refresh tokens are no longer read from localStorage (HttpOnly cookie).
+ * Kept for backward-compatible silent refresh fallback during migration.
+ */
+export function getStoredRefreshToken(): string | undefined {
+  return undefined;
+}
+
 export function applyRefreshedTokens(
   accessToken: string,
-  refreshToken?: string,
+  _refreshToken?: string,
   user?: unknown,
 ) {
   try {
@@ -42,12 +52,13 @@ export function applyRefreshedTokens(
     const prev = raw
       ? (JSON.parse(raw) as Record<string, unknown>)
       : {};
-    const next = {
+    const next: Record<string, unknown> = {
       ...prev,
       accessToken,
-      ...(refreshToken !== undefined ? { refreshToken } : {}),
       ...(user !== undefined ? { user } : {}),
     };
+    // Never persist refresh tokens client-side.
+    delete next.refreshToken;
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(next));
   } catch {
     /* quota / private mode */

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Send, Paperclip, MoreVertical } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -7,76 +7,112 @@ import { Avatar } from '../components/ui/Avatar';
 import { Modal } from '../components/ui/Modal';
 import { FileUpload } from '../components/ui/FileUpload';
 import { Select } from '../components/ui/Select';
-import { api } from '../services/api';
+import { messagingService } from '../services/api';
+import type { Message } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
 export function MessagingPage() {
-  const [selectedChat, setSelectedChat] = useState<string | null>('1');
+  const { user } = useAuth();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [showAttachmentModal, setShowAttachmentModal] = useState(false);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
-  // Mock conversations
-  const conversations = [
-  {
-    id: '1',
-    user: 'Sarah Khumalo',
-    role: 'Facilitator',
-    subject: 'Assessment Feedback',
-    preview: 'Please review the comments on your latest submission...',
-    time: '2h ago',
-    unread: true,
-    avatar: 'SK'
-  },
-  {
-    id: '2',
-    user: 'David Naidoo',
-    role: 'Workplace Mentor',
-    subject: 'Logbook Sign-off',
-    preview: 'I have signed off on your Month 2 logbook.',
-    time: '1d ago',
-    unread: false,
-    avatar: 'DN'
-  },
-  {
-    id: '3',
-    user: 'System Admin',
-    role: 'Admin',
-    subject: 'Platform Maintenance',
-    preview: 'The LMS will be undergoing scheduled maintenance...',
-    time: '2d ago',
-    unread: false,
-    avatar: 'SA'
-  }];
+  const [loading, setLoading] = useState(true);
 
-  const messages = [
-  {
-    id: 1,
-    sender: 'Sarah Khumalo',
-    text: 'Hi John, please review the comments on your latest submission. You need to expand on the CSS Grid section.',
-    time: '10:30 AM',
-    isMe: false
-  },
-  {
-    id: 2,
-    sender: 'Me',
-    text: 'Thanks Sarah, I will make the changes and resubmit by tomorrow.',
-    time: '10:45 AM',
-    isMe: true
-  },
-  {
-    id: 3,
-    sender: 'Sarah Khumalo',
-    text: 'Great, let me know if you need any help with the flexbox layout examples.',
-    time: '11:00 AM',
-    isMe: false
-  }];
+  useEffect(() => {
+    let cancelled = false;
+    void messagingService
+      .getConversations()
+      .then((res) => {
+        if (!cancelled) setMessages(res.data ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Could not load messages');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const conversations = useMemo(() => {
+    const byPeer = new Map<string, Message>();
+    for (const m of messages) {
+      const peerId = m.fromId === user?.id ? m.toId : m.fromId;
+      const existing = byPeer.get(peerId);
+      if (!existing || m.createdAt > existing.createdAt) {
+        byPeer.set(peerId, m);
+      }
+    }
+    return Array.from(byPeer.values()).map((m) => {
+      const isIncoming = m.toId === user?.id;
+      const peerName = isIncoming ? m.fromName : m.toName;
+      const initials = peerName
+        .split(/\s+/)
+        .map((p) => p[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase();
+      return {
+        id: m.id,
+        peerId: isIncoming ? m.fromId : m.toId,
+        user: peerName,
+        role: isIncoming ? m.fromRole : 'User',
+        subject: 'Message',
+        preview: m.content.slice(0, 80),
+        time: new Date(m.createdAt).toLocaleString(),
+        unread: isIncoming && !m.isRead,
+        avatar: initials || 'U',
+      };
+    });
+  }, [messages, user?.id]);
+
+  const threadMessages = useMemo(() => {
+    if (!selectedChat) return [];
+    const root = messages.find((m) => m.id === selectedChat);
+    if (!root) return [];
+    const peerId = root.fromId === user?.id ? root.toId : root.fromId;
+    return messages
+      .filter(
+        (m) =>
+          (m.fromId === user?.id && m.toId === peerId) ||
+          (m.fromId === peerId && m.toId === user?.id),
+      )
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((m, index) => ({
+        id: index + 1,
+        sender: m.fromId === user?.id ? 'Me' : m.fromName,
+        text: m.content,
+        time: new Date(m.createdAt).toLocaleTimeString(undefined, {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        isMe: m.fromId === user?.id,
+      }));
+  }, [messages, selectedChat, user?.id]);
+
+  useEffect(() => {
+    if (!selectedChat && conversations.length > 0) {
+      setSelectedChat(conversations[0].id);
+    }
+  }, [conversations, selectedChat]);
+
+  const activeConversation = conversations.find((c) => c.id === selectedChat);
 
   const handleSendReply = async () => {
-    if (!replyText.trim()) return;
+    if (!replyText.trim() || !activeConversation) return;
     try {
-      await api.messages.send('1', 'Reply', replyText);
+      const res = await messagingService.send(
+        activeConversation.peerId,
+        replyText,
+      );
+      setMessages((prev) => [...prev, res.data]);
       toast.success('Message sent');
       setReplyText('');
-    } catch (e) {
+    } catch {
       toast.error('Failed to send message');
     }
   };
@@ -163,7 +199,10 @@ export function MessagingPage() {
 
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
-              {messages.map((msg) =>
+              {loading ? (
+                <p className="text-sm text-gray-500">Loading messages…</p>
+              ) : (
+              threadMessages.map((msg) =>
             <div
               key={msg.id}
               className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
@@ -179,7 +218,7 @@ export function MessagingPage() {
                     </p>
                   </div>
                 </div>
-            )}
+            ))}
             </div>
 
             {/* Reply Area */}

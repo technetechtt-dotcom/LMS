@@ -1,7 +1,7 @@
 import { API_BASE_URL } from '../config/env';
 import {
   getStoredAccessToken,
-  getStoredRefreshToken,
+  getStoredOrganisationId,
   applyRefreshedTokens,
 } from '../config/authStorage';
 
@@ -17,20 +17,26 @@ export class ApiNetworkError extends Error {
 }
 
 function resolveAuthHeader(
-  options?: RequestInit & { accessToken?: string | null }
+  options?: RequestInit & { accessToken?: string | null },
 ): string | undefined {
   if (options?.accessToken) return options.accessToken;
   return getStoredAccessToken();
 }
 
+function withTenantHeaders(headers: Headers) {
+  const orgId = getStoredOrganisationId();
+  if (orgId && !headers.has('X-Organisation-Id')) {
+    headers.set('X-Organisation-Id', orgId);
+  }
+}
+
 async function trySilentRefresh(): Promise<string | undefined> {
-  const refresh = getStoredRefreshToken();
-  if (!refresh) return undefined;
   const url = `${API_BASE_URL}/auth/refresh`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken: refresh }),
+    credentials: 'include',
+    body: JSON.stringify({}),
   });
   const text = await res.text();
   if (!res.ok || !text) return undefined;
@@ -41,11 +47,7 @@ async function trySilentRefresh(): Promise<string | undefined> {
       user?: unknown;
     };
     if (!data.accessToken) return undefined;
-    applyRefreshedTokens(
-      data.accessToken,
-      data.refreshToken,
-      data.user,
-    );
+    applyRefreshedTokens(data.accessToken, undefined, data.user);
     return data.accessToken;
   } catch {
     return undefined;
@@ -58,7 +60,7 @@ function shouldRetryWithRefresh(path: string, status: number): boolean {
   if (p.startsWith('/auth/login') || p.startsWith('/auth/refresh')) {
     return false;
   }
-  return Boolean(getStoredRefreshToken());
+  return true;
 }
 
 /** Query string builder for GET requests */
@@ -72,13 +74,12 @@ export function buildQuery(params: Record<string, string | undefined>): string {
 }
 
 /**
- * JSON API calls when VITE_API_URL is set.
- * Bearer token: explicit `accessToken`, else last token from login (`localStorage`).
- * Refreshes session once on 401 when a refresh token is present (non-auth paths).
+ * JSON API calls. Bearer access token + HttpOnly refresh cookie (credentials include).
+ * Sends X-Organisation-Id for tenant scoping.
  */
 export async function apiFetchJSON<T>(
   path: string,
-  options?: RequestInit & { accessToken?: string | null }
+  options?: RequestInit & { accessToken?: string | null },
 ): Promise<T> {
   if (!API_BASE_URL) {
     throw new Error('apiFetchJSON requires VITE_API_URL or default API_BASE_URL');
@@ -99,8 +100,13 @@ export async function apiFetchJSON<T>(
     if (bearer) {
       headers.set('Authorization', `Bearer ${bearer}`);
     }
+    withTenantHeaders(headers);
 
-    const res = await fetch(url, { ...options, headers });
+    const res = await fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include',
+    });
     const text = await res.text();
 
     if (
@@ -119,7 +125,7 @@ export async function apiFetchJSON<T>(
       throw new ApiNetworkError(
         text || `Request failed (${res.status})`,
         res.status,
-        text
+        text,
       );
     }
     if (!text) return {} as T;
@@ -136,10 +142,12 @@ export async function apiFetchJSON<T>(
 export async function apiFetchFormData<T>(
   path: string,
   formData: FormData,
-  options?: { method?: string; accessToken?: string | null }
+  options?: { method?: string; accessToken?: string | null },
 ): Promise<T> {
   if (!API_BASE_URL) {
-    throw new Error('apiFetchFormData requires VITE_API_URL or default API_BASE_URL');
+    throw new Error(
+      'apiFetchFormData requires VITE_API_URL or default API_BASE_URL',
+    );
   }
   const url = `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
   let bearer = options?.accessToken ?? getStoredAccessToken();
@@ -147,10 +155,12 @@ export async function apiFetchFormData<T>(
   for (let attempt = 0; attempt < 2; attempt++) {
     const headers = new Headers();
     if (bearer) headers.set('Authorization', `Bearer ${bearer}`);
+    withTenantHeaders(headers);
     const res = await fetch(url, {
       method: options?.method ?? 'POST',
       body: formData,
       headers,
+      credentials: 'include',
     });
     const text = await res.text();
 
@@ -170,7 +180,7 @@ export async function apiFetchFormData<T>(
       throw new ApiNetworkError(
         text || `Upload failed (${res.status})`,
         res.status,
-        text
+        text,
       );
     }
     if (!text) return {} as T;

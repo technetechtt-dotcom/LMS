@@ -119,6 +119,8 @@ export interface User extends BaseEntity {
   role: UserRole;
   initials: string;
   organisation: string;
+  /** Active SDP organisation UUID for tenant-scoped API calls. */
+  organisationId?: string;
   avatarUrl?: string;
   isActive: boolean;
   lastLoginAt?: string;

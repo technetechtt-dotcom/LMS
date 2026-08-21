@@ -10,6 +10,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import type { LoginDto, RegisterDto } from './auth.dto';
 import { mapUserToApiProfile, type UserWithMemberships } from './user-mapper';
+import { MailService } from '../mail/mail.service';
 import {
   generateOpaqueRefreshToken,
   hashOpaqueToken,
@@ -23,6 +24,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly mail: MailService,
   ) {}
 
   private refreshExpiryDate(): Date {
@@ -205,16 +207,28 @@ export class AuthService {
       },
     });
 
+    const base =
+      this.config.get<string>('FRONTEND_ORIGIN')?.split(',')[0]?.trim() ??
+      'http://localhost:5173';
+    const resetUrl = `${base}/reset-password?token=${raw}`;
+
     const reveal =
       (this.config.get<string>('LOG_PASSWORD_RESET_LINK') ?? '').toLowerCase() ===
       'true';
     if (reveal) {
-      const base =
-        this.config.get<string>('FRONTEND_ORIGIN')?.split(',')[0]?.trim() ??
-        'http://localhost:5173';
-      this.logger.warn(
-        `[dev] Password reset link for ${email}: ${base}/reset-password?token=${raw}`,
+      this.logger.warn(`[dev] Password reset link for ${email}: ${resetUrl}`);
+    }
+
+    try {
+      await this.mail.sendPasswordReset(email, resetUrl);
+    } catch (err) {
+      this.logger.error(
+        `Failed to send password reset email to ${email}`,
+        err instanceof Error ? err.stack : undefined,
       );
+      if (this.config.get<string>('NODE_ENV') === 'production') {
+        throw err;
+      }
     }
 
     return { success: true };

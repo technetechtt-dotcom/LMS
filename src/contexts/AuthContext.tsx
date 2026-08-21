@@ -14,7 +14,6 @@ import { authService, auditService } from '../services/api';
 interface PersistedAuth {
   user: User;
   accessToken?: string;
-  refreshToken?: string;
   linkedLearnerId: string | null;
 }
 
@@ -44,8 +43,6 @@ function loadPersisted(): PersistedAuth | null {
     return {
       user: parsed.user,
       accessToken: parsed.accessToken,
-      refreshToken:
-        typeof parsed.refreshToken === 'string' ? parsed.refreshToken : undefined,
       linkedLearnerId:
         parsed.linkedLearnerId ??
         linkedLearnerFromUser(parsed.user) ??
@@ -95,10 +92,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const learnerId = linkedLearnerFromUser(fresh);
             setUser(fresh);
             setLinkedLearnerId(learnerId);
-            persistState({
+      persistState({
               user: fresh,
               accessToken: persisted.accessToken,
-              refreshToken: persisted.refreshToken,
               linkedLearnerId: learnerId,
             });
           }
@@ -131,7 +127,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       persistState({
         user: nextUser,
         accessToken: token ?? undefined,
-        refreshToken: res.refreshToken,
         linkedLearnerId: learnerId,
       });
       await auditService.log('login', 'user', nextUser.id, nextUser.email);

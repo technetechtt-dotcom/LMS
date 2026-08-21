@@ -300,9 +300,77 @@ export const assessmentService = {
       responses,
     });
   },
+
+  listInstances: async (
+    status?: string,
+  ): Promise<ApiResponse<AssessmentInstance[]>> => {
+    const query = buildQuery({ status });
+    const raw = await apiFetchJSON<
+      ApiResponse<AssessmentInstance[]> | AssessmentInstance[]
+    >(`/assessment-instances${query}`);
+    const list = unwrapData(raw);
+    return { data: Array.isArray(list) ? list : [], success: true };
+  },
+
+  getInstance: async (
+    id: string,
+  ): Promise<ApiResponse<AssessmentInstance>> => {
+    const raw = await apiFetchJSON<
+      ApiResponse<AssessmentInstance> | AssessmentInstance
+    >(`/assessment-instances/${encodeURIComponent(id)}`);
+    return { data: unwrapData(raw), success: true };
+  },
+};
+
+export const certificateService = {
+  getAll: async (
+    enrollmentId?: string,
+  ): Promise<ApiResponse<Record<string, unknown>[]>> => {
+    const query = buildQuery({ enrollmentId });
+    const raw = await apiFetchJSON<
+      | ApiResponse<Record<string, unknown>[]>
+      | Record<string, unknown>[]
+    >(`/certificates${query}`);
+    const list = unwrapData(raw);
+    return { data: Array.isArray(list) ? list : [], success: true };
+  },
+
+  issue: async (body: {
+    enrollmentId: string;
+    title?: string;
+    programmeName?: string;
+    learnerName?: string;
+  }): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>('/certificates/issue', body);
+  },
 };
 
 export const poeService = {
+  getOverview: async (
+    learnerId: string,
+  ): Promise<
+    ApiResponse<{
+      moderatorAssigned: boolean;
+      rows: Array<Record<string, unknown>>;
+      documents: POEDocument[];
+    }>
+  > => {
+    const raw = await apiFetchJSON<
+      | ApiResponse<{
+          moderatorAssigned: boolean;
+          rows: Array<Record<string, unknown>>;
+          documents: POEDocument[];
+        }>
+      | {
+          moderatorAssigned: boolean;
+          rows: Array<Record<string, unknown>>;
+          documents: POEDocument[];
+        }
+    >(`/learners/${encodeURIComponent(learnerId)}/poe-overview`);
+    const data = unwrapData(raw);
+    return { data, success: true };
+  },
+
   getByLearner: async (
     learnerId: string,
   ): Promise<ApiResponse<POEDocument[]>> => {

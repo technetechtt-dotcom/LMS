@@ -31,6 +31,12 @@ services:
           name: lms-web
           type: web
           envVarKey: RENDER_EXTERNAL_URL
+      - key: MAIL_PROVIDER
+        value: log
+      - key: FILE_STORAGE
+        value: mock
+      - key: LOG_PASSWORD_RESET_LINK
+        value: "false"
 
   - type: web
     name: lms-web

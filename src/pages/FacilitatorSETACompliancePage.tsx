@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   ShieldCheck,
@@ -11,13 +11,15 @@ import {
   CheckCircle,
   Calendar,
   FileText,
-  Upload } from
-'lucide-react';
+  Upload,
+} from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Select';
+import { Modal } from '../components/ui/Modal';
+import { FileUpload } from '../components/ui/FileUpload';
 import {
   PieChart,
   Pie,
@@ -29,289 +31,342 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend } from
-'recharts';
+  Legend,
+} from 'recharts';
+import { complianceService, reportsService } from '../services/api';
+import type {
+  ComplianceDocument,
+  DocumentStatus,
+  SETASubmission,
+  SubmissionStatus,
+} from '../types';
+
+type BadgeVariant = 'success' | 'warning' | 'danger' | 'info' | 'neutral';
+
+type DocRow = {
+  id: string;
+  name: string;
+  category: string;
+  status: string;
+  statusVariant: BadgeVariant;
+  lastUpdated: string;
+  expiry: string;
+  fileUrl?: string;
+};
+
+type SubmissionRow = {
+  id: string;
+  type: string;
+  ref: string;
+  due: string;
+  status: string;
+  statusVariant: BadgeVariant;
+  submittedBy: string;
+  response: string;
+  action: string;
+  fileUrl?: string;
+};
+
+function formatDate(value?: string | null): string {
+  if (!value) return 'N/A';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function mapDocStatus(status: DocumentStatus | string): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  switch (status) {
+    case 'verified':
+    case 'approved':
+      return { label: 'Verified', variant: 'success' };
+    case 'pending_review':
+      return { label: 'Pending Review', variant: 'warning' };
+    case 'expiring_soon':
+      return { label: 'Expiring Soon', variant: 'warning' };
+    case 'expired':
+      return { label: 'Expired', variant: 'danger' };
+    case 'missing':
+      return { label: 'Missing', variant: 'danger' };
+    default:
+      return { label: String(status).replace(/_/g, ' '), variant: 'neutral' };
+  }
+}
+
+function mapSubmissionStatus(status: SubmissionStatus | string): {
+  label: string;
+  variant: BadgeVariant;
+} {
+  switch (status) {
+    case 'submitted':
+    case 'accepted':
+      return { label: status === 'accepted' ? 'Accepted' : 'Submitted', variant: 'success' };
+    case 'pending':
+      return { label: 'Pending', variant: 'warning' };
+    case 'overdue':
+      return { label: 'Overdue', variant: 'danger' };
+    case 'upcoming':
+      return { label: 'Upcoming', variant: 'info' };
+    case 'rejected':
+      return { label: 'Rejected', variant: 'danger' };
+    default:
+      return { label: String(status), variant: 'neutral' };
+  }
+}
+
+function toDocRow(doc: ComplianceDocument): DocRow {
+  const mapped = mapDocStatus(doc.status);
+  return {
+    id: doc.id,
+    name: doc.name,
+    category: doc.category.replace(/^compliance[-_]?/i, '') || doc.category,
+    status: mapped.label,
+    statusVariant: mapped.variant,
+    lastUpdated: formatDate(doc.lastUpdated || doc.updatedAt),
+    expiry: formatDate(doc.expiryDate),
+    fileUrl: doc.fileUrl,
+  };
+}
+
+function toSubmissionRow(sub: SETASubmission): SubmissionRow {
+  const mapped = mapSubmissionStatus(sub.status);
+  const canView = Boolean(sub.fileUrl) || mapped.label === 'Submitted' || mapped.label === 'Accepted';
+  return {
+    id: sub.id,
+    type: sub.type,
+    ref: sub.reference,
+    due: formatDate(sub.dueDate),
+    status: mapped.label,
+    statusVariant: mapped.variant,
+    submittedBy: sub.submittedBy || '-',
+    response: sub.setaResponse || '-',
+    action: canView ? 'View Details' : 'Submit',
+    fileUrl: sub.fileUrl,
+  };
+}
+
 export function FacilitatorSETACompliancePage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [showFilters, setShowFilters] = useState(false);
   const [showDocFilters, setShowDocFilters] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [docCategoryFilter, setDocCategoryFilter] = useState('all');
+  const [docStatusFilter, setDocStatusFilter] = useState('all');
+  const [loading, setLoading] = useState(true);
+  const [documentsApi, setDocumentsApi] = useState<ComplianceDocument[]>([]);
+  const [submissionsApi, setSubmissionsApi] = useState<SETASubmission[]>([]);
+  const [snapshot, setSnapshot] = useState<{
+    enrollments: number;
+    docs: number;
+    assessments: number;
+  } | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadName, setUploadName] = useState('');
+  const [uploadCategory, setUploadCategory] = useState('compliance');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
   const tabs = [
-  {
-    id: 'overview',
-    label: 'Overview'
-  },
-  {
-    id: 'documents',
-    label: 'Documents'
-  },
-  {
-    id: 'submissions',
-    label: 'Submissions'
-  },
-  {
-    id: 'audits',
-    label: 'Audits & Verifications'
-  }];
+    { id: 'overview', label: 'Overview' },
+    { id: 'documents', label: 'Documents' },
+    { id: 'submissions', label: 'Submissions' },
+    { id: 'audits', label: 'Audits & Verifications' },
+  ];
+
+  const loadCompliance = async () => {
+    setLoading(true);
+    try {
+      const [docsRes, subsRes, snapRes] = await Promise.all([
+        complianceService.getDocuments(),
+        complianceService.getSubmissions(),
+        reportsService.getSetaSnapshot().catch(() => null),
+      ]);
+      setDocumentsApi(docsRes.data ?? []);
+      setSubmissionsApi(subsRes.data ?? []);
+      if (snapRes?.data) {
+        setSnapshot({
+          enrollments: snapRes.data.enrollments,
+          docs: snapRes.data.docs,
+          assessments: snapRes.data.assessments,
+        });
+      }
+    } catch {
+      toast.error('Could not load compliance data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadCompliance();
+  }, []);
+
+  const documents = useMemo(
+    () => documentsApi.map(toDocRow),
+    [documentsApi],
+  );
+
+  const submissions = useMemo(
+    () => submissionsApi.map(toSubmissionRow),
+    [submissionsApi],
+  );
+
+  const filteredDocuments = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return documents.filter((doc) => {
+      const matchesSearch =
+        !q ||
+        doc.name.toLowerCase().includes(q) ||
+        doc.category.toLowerCase().includes(q);
+      const matchesCategory =
+        docCategoryFilter === 'all' ||
+        doc.category.toLowerCase().includes(docCategoryFilter.toLowerCase());
+      const matchesStatus =
+        docStatusFilter === 'all' ||
+        doc.status.toLowerCase().includes(docStatusFilter.replace(/_/g, ' '));
+      return matchesSearch && matchesCategory && matchesStatus;
+    });
+  }, [documents, searchQuery, docCategoryFilter, docStatusFilter]);
+
+  const verifiedDocs = documents.filter((d) => d.status === 'Verified').length;
+  const pendingDocs = documents.filter((d) =>
+    d.status.toLowerCase().includes('pending'),
+  ).length;
+  const gapDocs = documents.filter((d) =>
+    ['Missing', 'Expired', 'Expiring Soon'].includes(d.status),
+  ).length;
+  const compliancePct =
+    documents.length === 0
+      ? 0
+      : Math.round((verifiedDocs / documents.length) * 100);
+
+  const upcomingSubs = submissions.filter((s) =>
+    ['Pending', 'Upcoming'].includes(s.status),
+  ).length;
+  const overdueSubs = submissions.filter((s) => s.status === 'Overdue').length;
+  const completedSubs = submissions.filter((s) =>
+    ['Submitted', 'Accepted'].includes(s.status),
+  ).length;
 
   const stats = [
-  {
-    label: 'Overall Compliance',
-    value: '85%',
-    sub: 'Good Standing',
-    subColor: 'text-green-600',
-    icon: <ShieldCheck className="h-5 w-5 text-green-600" />
-  },
-  {
-    label: 'Upcoming Deadlines',
-    value: '3',
-    sub: 'Within 30 days',
-    subColor: 'text-amber-600',
-    icon: <Clock className="h-5 w-5 text-amber-500" />
-  },
-  {
-    label: 'Compliance Gaps',
-    value: '2',
-    sub: 'Needs Attention',
-    subColor: 'text-red-600',
-    icon: <AlertCircle className="h-5 w-5 text-red-500" />
-  },
-  {
-    label: 'Next SETA Visit',
-    value: '42 days',
-    sub: 'Scheduled',
-    subColor: 'text-blue-600',
-    icon: <Bell className="h-5 w-5 text-blue-500" />
-  }];
+    {
+      label: 'Overall Compliance',
+      value: `${compliancePct}%`,
+      sub:
+        documents.length === 0
+          ? 'No documents yet'
+          : compliancePct >= 80
+            ? 'Good Standing'
+            : 'Needs Attention',
+      subColor: compliancePct >= 80 ? 'text-green-600' : 'text-amber-600',
+      icon: <ShieldCheck className="h-5 w-5 text-green-600" />,
+    },
+    {
+      label: 'Upcoming Deadlines',
+      value: String(upcomingSubs),
+      sub: 'Pending / upcoming submissions',
+      subColor: 'text-amber-600',
+      icon: <Clock className="h-5 w-5 text-amber-500" />,
+    },
+    {
+      label: 'Compliance Gaps',
+      value: String(gapDocs + overdueSubs),
+      sub: 'Missing docs or overdue items',
+      subColor: 'text-red-600',
+      icon: <AlertCircle className="h-5 w-5 text-red-500" />,
+    },
+    {
+      label: 'Tracked Records',
+      value: String(snapshot?.docs ?? documents.length),
+      sub: snapshot
+        ? `${snapshot.enrollments} enrolments · ${snapshot.assessments} assessments`
+        : `${submissions.length} SETA submissions`,
+      subColor: 'text-blue-600',
+      icon: <Bell className="h-5 w-5 text-blue-500" />,
+    },
+  ];
 
   const compliancePieData = [
-  {
-    name: 'Compliant',
-    value: 85,
-    color: '#10b981'
-  },
-  {
-    name: 'Pending',
-    value: 10,
-    color: '#f59e0b'
-  },
-  {
-    name: 'Non-Compliant',
-    value: 5,
-    color: '#ef4444'
-  }];
+    { name: 'Compliant', value: verifiedDocs || (documents.length === 0 ? 1 : 0), color: '#10b981' },
+    { name: 'Pending', value: pendingDocs, color: '#f59e0b' },
+    { name: 'Non-Compliant', value: gapDocs, color: '#ef4444' },
+  ].filter((d) => d.value > 0);
+  const pieData =
+    compliancePieData.length > 0
+      ? compliancePieData
+      : [{ name: 'No data', value: 1, color: '#d1d5db' }];
 
-  const submissionsChartData = [
-  {
-    month: 'Jan',
-    compliant: 5,
-    pending: 0
-  },
-  {
-    month: 'Feb',
-    compliant: 4,
-    pending: 1
-  },
-  {
-    month: 'Mar',
-    compliant: 6,
-    pending: 2
-  },
-  {
-    month: 'Apr',
-    compliant: 3,
-    pending: 0
-  },
-  {
-    month: 'May',
-    compliant: 5,
-    pending: 1
-  },
-  {
-    month: 'Jun',
-    compliant: 4,
-    pending: 0
-  }];
+  const submissionsChartData = useMemo(() => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const buckets = months.map((month) => ({ month, compliant: 0, pending: 0 }));
+    for (const sub of submissionsApi) {
+      const d = new Date(sub.dueDate || sub.createdAt);
+      if (Number.isNaN(d.getTime())) continue;
+      const bucket = buckets[d.getMonth()];
+      if (['submitted', 'accepted'].includes(sub.status)) bucket.compliant += 1;
+      else bucket.pending += 1;
+    }
+    const withData = buckets.filter((b) => b.compliant + b.pending > 0);
+    return withData.length > 0 ? withData : buckets.slice(0, 6);
+  }, [submissionsApi]);
 
-  const complianceItems = [
-  {
-    label: 'Learner Registration Forms',
-    desc: 'All 24 active learners registered with SETA',
-    ok: true
-  },
-  {
-    label: 'Quarterly Progress Reports',
-    desc: 'Q1 and Q2 reports submitted on time',
-    ok: true
-  },
-  {
-    label: 'Workplace Assessment Documentation',
-    desc: '3 learners missing workplace evaluations',
-    ok: false
-  },
-  {
-    label: 'POE Verification',
-    desc: 'All POEs verified and backed up',
-    ok: true
-  },
-  {
-    label: 'QCTO Alignment Documentation',
-    desc: 'All modules aligned with latest QCTO requirements',
-    ok: true
-  }];
+  const complianceItems = useMemo(() => {
+    if (documents.length === 0) {
+      return [
+        {
+          label: 'Compliance documents',
+          desc: 'Upload required SETA documentation to start tracking',
+          ok: false,
+        },
+      ];
+    }
+    return documents.slice(0, 6).map((doc) => ({
+      label: doc.name,
+      desc: `${doc.category} · ${doc.status}`,
+      ok: doc.status === 'Verified',
+    }));
+  }, [documents]);
 
-  const actionItems = [
-  {
-    task: 'Submit Q2 Learner Progress Reports',
-    due: '15 Jun 2023',
-    priority: 'High',
-    priorityColor: 'bg-red-100 text-red-700',
-    assigned: 'Sarah Johnson',
-    done: false
-  },
-  {
-    task: 'Update Workplace Assessment Documentation',
-    due: '30 Jun 2023',
-    priority: 'Medium',
-    priorityColor: 'bg-amber-100 text-amber-700',
-    assigned: 'Sarah Johnson',
-    done: false
-  },
-  {
-    task: 'Complete QCTO Alignment Documentation',
-    due: '15 Jul 2023',
-    priority: 'Low',
-    priorityColor: 'bg-blue-100 text-blue-700',
-    assigned: 'Unassigned',
-    done: false
-  },
-  {
-    task: 'Verify Learner Registration Forms',
-    due: '22 Jun 2023',
-    priority: 'Medium',
-    priorityColor: 'bg-amber-100 text-amber-700',
-    assigned: 'Sarah Johnson',
-    done: true
-  },
-  {
-    task: 'Schedule External Moderator Visit',
-    due: '05 Jul 2023',
-    priority: 'High',
-    priorityColor: 'bg-red-100 text-red-700',
-    assigned: 'Unassigned',
-    done: false
-  }];
-
-  const documents = [
-  {
-    name: 'Learner Registration Forms',
-    category: 'Registration',
-    status: 'Verified',
-    statusVariant: 'success' as const,
-    lastUpdated: '15 May 2023',
-    expiry: 'N/A'
-  },
-  {
-    name: 'Facilitator Accreditation',
-    category: 'Accreditation',
-    status: 'Verified',
-    statusVariant: 'success' as const,
-    lastUpdated: '03 Apr 2023',
-    expiry: '03 Apr 2025'
-  },
-  {
-    name: 'Workplace Assessment Guide',
-    category: 'Assessment',
-    status: 'Pending Review',
-    statusVariant: 'warning' as const,
-    lastUpdated: '10 Jun 2023',
-    expiry: 'N/A'
-  },
-  {
-    name: 'SETA Program Approval',
-    category: 'Accreditation',
-    status: 'Verified',
-    statusVariant: 'success' as const,
-    lastUpdated: '22 Jan 2023',
-    expiry: '22 Jan 2026'
-  },
-  {
-    name: 'External Moderator Reports',
-    category: 'Moderation',
-    status: 'Missing',
-    statusVariant: 'danger' as const,
-    lastUpdated: 'N/A',
-    expiry: 'N/A'
-  },
-  {
-    name: 'Training Provider Accreditation',
-    category: 'Accreditation',
-    status: 'Expiring Soon',
-    statusVariant: 'warning' as const,
-    lastUpdated: '15 Jul 2021',
-    expiry: '15 Jul 2023'
-  }];
-
-  const submissions = [
-  {
-    type: 'Quarterly Learner Progress Report',
-    ref: 'QPR-2023-Q1',
-    due: '15 Apr 2023',
-    status: 'Submitted',
-    statusVariant: 'success' as const,
-    submittedBy: 'Sarah Johnson',
-    response: 'Accepted',
-    action: 'View Details'
-  },
-  {
-    type: 'Quarterly Learner Progress Report',
-    ref: 'QPR-2023-Q2',
-    due: '15 Jul 2023',
-    status: 'Pending',
-    statusVariant: 'warning' as const,
-    submittedBy: '-',
-    response: '-',
-    action: 'Submit'
-  },
-  {
-    type: 'Workplace Assessment Verification',
-    ref: 'WAV-2023-05',
-    due: '30 May 2023',
-    status: 'Overdue',
-    statusVariant: 'danger' as const,
-    submittedBy: '-',
-    response: '-',
-    action: 'Submit'
-  },
-  {
-    type: 'Annual Training Report',
-    ref: 'ATR-2023',
-    due: '31 Mar 2023',
-    status: 'Submitted',
-    statusVariant: 'success' as const,
-    submittedBy: 'Sarah Johnson',
-    response: 'Accepted with Comments',
-    action: 'View Details'
-  },
-  {
-    type: 'Workplace Skills Plan',
-    ref: 'WSP-2023',
-    due: '30 Apr 2023',
-    status: 'Submitted',
-    statusVariant: 'success' as const,
-    submittedBy: 'Sarah Johnson',
-    response: 'Accepted',
-    action: 'View Details'
-  },
-  {
-    type: 'Moderation Summary Report',
-    ref: 'MSR-2023-Q2',
-    due: '15 Jul 2023',
-    status: 'Upcoming',
-    statusVariant: 'info' as const,
-    submittedBy: '-',
-    response: '-',
-    action: 'Submit'
-  }];
+  const actionItems = useMemo(() => {
+    const fromSubs = submissions
+      .filter((s) => ['Pending', 'Overdue', 'Upcoming'].includes(s.status))
+      .slice(0, 5)
+      .map((s) => ({
+        task: s.type,
+        due: s.due,
+        priority: s.status === 'Overdue' ? 'High' : s.status === 'Pending' ? 'Medium' : 'Low',
+        priorityColor:
+          s.status === 'Overdue'
+            ? 'bg-red-100 text-red-700'
+            : s.status === 'Pending'
+              ? 'bg-amber-100 text-amber-700'
+              : 'bg-blue-100 text-blue-700',
+        assigned: s.submittedBy !== '-' ? s.submittedBy : 'Unassigned',
+        done: false,
+      }));
+    const fromGaps = documents
+      .filter((d) => ['Missing', 'Expired', 'Expiring Soon', 'Pending Review'].includes(d.status))
+      .slice(0, 3)
+      .map((d) => ({
+        task: `Update ${d.name}`,
+        due: d.expiry !== 'N/A' ? d.expiry : d.lastUpdated,
+        priority: d.status === 'Missing' || d.status === 'Expired' ? 'High' : 'Medium',
+        priorityColor:
+          d.status === 'Missing' || d.status === 'Expired'
+            ? 'bg-red-100 text-red-700'
+            : 'bg-amber-100 text-amber-700',
+        assigned: 'Facilitator',
+        done: false,
+      }));
+    return [...fromSubs, ...fromGaps].slice(0, 6);
+  }, [documents, submissions]);
 
   const audits = [
   {
@@ -410,6 +465,61 @@ export function FacilitatorSETACompliancePage() {
     desc: 'Full compliance with occupational qualification requirements. Commendation for practical training facilities.'
   }];
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await complianceService.exportSETA('mict-seta', 'pdf');
+      toast.success(
+        res.data?.url
+          ? `SETA export ready: ${res.data.url}`
+          : 'SETA export generated',
+      );
+    } catch {
+      toast.error('SETA export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleUploadSubmit = async () => {
+    if (!uploadFile) {
+      toast.error('Choose a file to upload');
+      return;
+    }
+    if (!uploadName.trim()) {
+      toast.error('Document name is required');
+      return;
+    }
+    setUploading(true);
+    try {
+      await complianceService.uploadDocument(uploadFile, {
+        name: uploadName.trim(),
+        category: uploadCategory.startsWith('compliance')
+          ? uploadCategory
+          : `compliance-${uploadCategory}`,
+        status: 'pending_review',
+      });
+      toast.success('Document uploaded');
+      setUploadOpen(false);
+      setUploadFile(null);
+      setUploadName('');
+      setUploadCategory('compliance');
+      await loadCompliance();
+    } catch {
+      toast.error('Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const openDocUrl = (url?: string, label = 'document') => {
+    if (!url || url === '/materials/placeholder') {
+      toast.info(`No file URL available for this ${label}`);
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'Verified':
@@ -430,6 +540,7 @@ export function FacilitatorSETACompliancePage() {
     }
   };
   return (
+    <>
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">SETA Compliance</h1>
@@ -448,7 +559,10 @@ export function FacilitatorSETACompliancePage() {
           <div className="w-56">
             <Input
               placeholder="Search documents..."
-              icon={<Search className="h-4 w-4" />} />
+              icon={<Search className="h-4 w-4" />}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
             
           </div>
           <Button
@@ -461,7 +575,8 @@ export function FacilitatorSETACompliancePage() {
           </Button>
           <Button
             leftIcon={<Download className="h-4 w-4" />}
-            onClick={() => toast.success('Exporting report...')}>
+            onClick={() => void handleExport()}
+            isLoading={exporting}>
             
             Export Report
           </Button>
@@ -577,15 +692,15 @@ export function FacilitatorSETACompliancePage() {
               <ResponsiveContainer width="100%" height={250}>
                 <PieChart>
                   <Pie
-                  data={compliancePieData}
+                  data={pieData}
                   cx="50%"
                   cy="50%"
                   innerRadius={60}
                   outerRadius={100}
                   dataKey="value"
-                  label={({ name, value }) => `${name} ${value}%`}>
+                  label={({ name, value }) => `${name}: ${value}`}>
                   
-                    {compliancePieData.map((entry, i) =>
+                    {pieData.map((entry, i) =>
                   <Cell key={i} fill={entry.color} />
                   )}
                   </Pie>
@@ -717,9 +832,7 @@ export function FacilitatorSETACompliancePage() {
               </Button>
               <Button
               leftIcon={<Upload className="h-4 w-4" />}
-              onClick={() =>
-                toast.info('Document upload will open when storage is connected.')
-              }>
+              onClick={() => setUploadOpen(true)}>
               
                 Upload Document
               </Button>
@@ -735,15 +848,20 @@ export function FacilitatorSETACompliancePage() {
                 <button
               className="text-sm text-brand-blue hover:underline"
               onClick={() => {
-                toast.success('Filters cleared');
-                setShowDocFilters(false);
-              }}>
+              setDocCategoryFilter('all');
+              setDocStatusFilter('all');
+              setSearchQuery('');
+              toast.success('Filters cleared');
+              setShowDocFilters(false);
+            }}>
               
                   Clear all
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <Select
+              value={docCategoryFilter}
+              onChange={(e) => setDocCategoryFilter(e.target.value)}
               options={[
               {
                 value: 'all',
@@ -756,10 +874,20 @@ export function FacilitatorSETACompliancePage() {
               {
                 value: 'assessment',
                 label: 'Assessment'
+              },
+              {
+                value: 'accreditation',
+                label: 'Accreditation'
+              },
+              {
+                value: 'moderation',
+                label: 'Moderation'
               }]
               } />
             
                 <Select
+              value={docStatusFilter}
+              onChange={(e) => setDocStatusFilter(e.target.value)}
               options={[
               {
                 value: 'all',
@@ -770,8 +898,16 @@ export function FacilitatorSETACompliancePage() {
                 label: 'Verified'
               },
               {
+                value: 'pending',
+                label: 'Pending'
+              },
+              {
                 value: 'missing',
                 label: 'Missing'
+              },
+              {
+                value: 'expiring',
+                label: 'Expiring'
               }]
               } />
             
@@ -813,8 +949,21 @@ export function FacilitatorSETACompliancePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {documents.map((doc, i) =>
-                <tr key={i} className="hover:bg-gray-50">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-8 text-sm text-gray-500 text-center">
+                        Loading documents…
+                      </td>
+                    </tr>
+                  ) : filteredDocuments.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-8 text-sm text-gray-500 text-center">
+                        No compliance documents yet. Upload the first one to get started.
+                      </td>
+                    </tr>
+                  ) : (
+                  filteredDocuments.map((doc) =>
+                <tr key={doc.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
                           <FileText className="h-5 w-5 text-gray-400 mr-3 flex-shrink-0" />
@@ -844,32 +993,34 @@ export function FacilitatorSETACompliancePage() {
                         <div className="flex space-x-3 text-sm">
                           <button
                         className="text-brand-blue hover:underline"
-                        onClick={() =>
-                        toast.info('Opening document viewer...')
-                        }>
+                        onClick={() => openDocUrl(doc.fileUrl, 'document')}>
                         
                             View
                           </button>
                           <button
                         className="text-brand-blue hover:underline"
-                        onClick={() =>
-                        toast.info('Opening document uploader...')
-                        }>
+                        onClick={() => {
+                          setUploadName(doc.name);
+                          setUploadCategory(
+                            doc.category.toLowerCase().includes('compliance')
+                              ? doc.category
+                              : `compliance-${doc.category.toLowerCase()}`,
+                          );
+                          setUploadOpen(true);
+                        }}>
                         
                             Update
                           </button>
                           <button
                         className="text-brand-blue hover:underline"
-                        onClick={() =>
-                        toast.success('Downloading document...')
-                        }>
+                        onClick={() => openDocUrl(doc.fileUrl, 'download')}>
                         
                             Download
                           </button>
                         </div>
                       </td>
                     </tr>
-                )}
+                ))}
                 </tbody>
               </table>
             </div>
@@ -903,7 +1054,7 @@ export function FacilitatorSETACompliancePage() {
                     All requirements met
                   </p>
                 </div>
-                <p className="text-3xl font-bold text-green-700">18</p>
+                <p className="text-3xl font-bold text-green-700">{completedSubs}</p>
               </div>
             </div>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
@@ -914,7 +1065,7 @@ export function FacilitatorSETACompliancePage() {
                     Due within 30 days
                   </p>
                 </div>
-                <p className="text-3xl font-bold text-amber-700">3</p>
+                <p className="text-3xl font-bold text-amber-700">{upcomingSubs}</p>
               </div>
             </div>
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -925,7 +1076,7 @@ export function FacilitatorSETACompliancePage() {
                     Requires immediate attention
                   </p>
                 </div>
-                <p className="text-3xl font-bold text-red-700">1</p>
+                <p className="text-3xl font-bold text-red-700">{overdueSubs}</p>
               </div>
             </div>
           </div>
@@ -944,8 +1095,21 @@ export function FacilitatorSETACompliancePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {submissions.map((sub, i) =>
-                <tr key={i} className="hover:bg-gray-50">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-8 text-sm text-gray-500 text-center">
+                        Loading submissions…
+                      </td>
+                    </tr>
+                  ) : submissions.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-8 text-sm text-gray-500 text-center">
+                        No SETA submissions recorded yet.
+                      </td>
+                    </tr>
+                  ) : (
+                  submissions.map((sub) =>
+                <tr key={sub.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
                         <p className="text-sm font-medium text-gray-900">
                           {sub.type}
@@ -970,22 +1134,22 @@ export function FacilitatorSETACompliancePage() {
                       <td className="px-6 py-4">
                         <Button
                       size="sm"
-                      variant={
-                      sub.action === 'View Details' ?
-                      'primary' :
-                      'primary'
-                      }
-                      onClick={() =>
-                      sub.action === 'View Details' ?
-                      toast.info('Opening submission details...') :
-                      toast.info('Opening submission form...')
-                      }>
+                      variant="primary"
+                      onClick={() => {
+                        if (sub.action === 'View Details') {
+                          openDocUrl(sub.fileUrl, 'submission');
+                        } else {
+                          setUploadName(sub.type);
+                          setUploadCategory('seta-submission');
+                          setUploadOpen(true);
+                        }
+                      }}>
                       
                           {sub.action}
                         </Button>
                       </td>
                     </tr>
-                )}
+                ))}
                 </tbody>
               </table>
             </div>
@@ -1141,6 +1305,59 @@ export function FacilitatorSETACompliancePage() {
           </div>
         </div>
       }
-    </div>);
+    </div>
 
+      <Modal
+        isOpen={uploadOpen}
+        onClose={() => {
+          if (uploading) return;
+          setUploadOpen(false);
+        }}
+        title="Upload compliance document"
+        footer={
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setUploadOpen(false)}
+              disabled={uploading}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleUploadSubmit()} isLoading={uploading}>
+              Upload
+            </Button>
+          </div>
+        }>
+        <div className="space-y-4">
+          <Input
+            label="Document name"
+            value={uploadName}
+            onChange={(e) => setUploadName(e.target.value)}
+            placeholder="e.g. Facilitator Accreditation"
+          />
+          <Select
+            label="Category"
+            value={uploadCategory}
+            onChange={(e) => setUploadCategory(e.target.value)}
+            options={[
+              { value: 'compliance', label: 'General compliance' },
+              { value: 'compliance-registration', label: 'Registration' },
+              { value: 'compliance-accreditation', label: 'Accreditation' },
+              { value: 'compliance-assessment', label: 'Assessment' },
+              { value: 'compliance-moderation', label: 'Moderation' },
+              { value: 'seta-submission', label: 'SETA submission' },
+            ]}
+          />
+          <FileUpload
+            multiple={false}
+            maxSizeMB={25}
+            accept=".pdf,.doc,.docx,.jpg,.png"
+            onUpload={(files) => setUploadFile(files[0] ?? null)}
+          />
+          {uploadFile && (
+            <p className="text-xs text-gray-500">Selected: {uploadFile.name}</p>
+          )}
+        </div>
+      </Modal>
+    </>
+  );
 }

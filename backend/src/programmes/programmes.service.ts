@@ -2,14 +2,17 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProgrammeDto } from './programmes.dto';
 import { mapProgrammeToApi, type ProgrammeWithRelations } from './programme.mapper';
+import type { AuthUser } from '../common/types/request-with-user';
+import { requireOrganisationId } from '../common/tenant/tenant-scope';
 
 @Injectable()
 export class ProgrammesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list() {
+  async list(user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
     const rows = await this.prisma.programme.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, organisationId },
       include: {
         qualification: true,
         organisation: true,
@@ -19,9 +22,10 @@ export class ProgrammesService {
     return rows.map((p) => mapProgrammeToApi(p as ProgrammeWithRelations));
   }
 
-  async byId(id: string) {
+  async byId(id: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
     const row = await this.prisma.programme.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, deletedAt: null, organisationId },
       include: {
         qualification: true,
         organisation: true,
@@ -33,10 +37,12 @@ export class ProgrammesService {
     return mapProgrammeToApi(row as ProgrammeWithRelations);
   }
 
-  create(dto: CreateProgrammeDto) {
+  create(dto: CreateProgrammeDto, user?: AuthUser) {
+    const organisationId = dto.organisationId || requireOrganisationId(user);
     return this.prisma.programme.create({
       data: {
         ...dto,
+        organisationId,
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
         endDate: dto.endDate ? new Date(dto.endDate) : undefined,
       },

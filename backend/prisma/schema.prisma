@@ -101,6 +101,8 @@ model User {
   refreshTokens                 RefreshToken[]
   passwordResetTokens           PasswordResetToken[]
   inAppNotifications            InAppNotification[]
+  messagesSent                  Message[]              @relation("MessagesSent")
+  messagesReceived              Message[]              @relation("MessagesReceived")
 }
 
 model Role {
@@ -246,6 +248,7 @@ model Enrollment {
   workflowTransitions   EnrollmentWorkflow[]
   documents             Document[]
   poeLearningArtifacts PoeLearningArtifact[]
+  assessmentSubmissions AssessmentSubmission[]
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   deletedAt             DateTime?
@@ -356,12 +359,49 @@ model Assessment {
   enrollment      Enrollment       @relation(fields: [enrollmentId], references: [id])
   unitStandard    UnitStandard     @relation(fields: [unitStandardId], references: [id])
   moderation      Moderation?
+  submissions     AssessmentSubmission[]
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   deletedAt       DateTime?
 
   @@index([enrollmentId, assessedAt])
   @@index([unitStandardId, result])
+}
+
+model AssessmentSubmission {
+  id           String     @id @default(uuid()) @db.Uuid
+  enrollmentId String     @db.Uuid
+  assessmentId String     @db.Uuid
+  status       String     @default("submitted")
+  responses    Json       @default("[]")
+  score        Float?
+  percentage   Float?
+  feedback     String?
+  submittedAt  DateTime?
+  gradedAt     DateTime?
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
+  assessment   Assessment @relation(fields: [assessmentId], references: [id])
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([enrollmentId, assessmentId])
+  @@index([assessmentId, status])
+}
+
+model Message {
+  id        String   @id @default(uuid()) @db.Uuid
+  fromId    String   @db.Uuid
+  toId      String   @db.Uuid
+  content   String
+  isRead    Boolean  @default(false)
+  metadata  Json?
+  from      User     @relation("MessagesSent", fields: [fromId], references: [id])
+  to        User     @relation("MessagesReceived", fields: [toId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([fromId, createdAt])
+  @@index([toId, isRead, createdAt])
 }
 
 model Moderation {

@@ -16,11 +16,13 @@ import { ProgressBar } from '../components/ui/ProgressBar';
 import { FileUpload } from '../components/ui/FileUpload';
 import { Modal } from '../components/ui/Modal';
 import { assessmentService } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import type {
   Question,
   MultipleChoiceQuestion,
   EssayQuestion,
   FileUploadQuestion,
+  AssessmentInstance,
 } from '../types';
 
 function responseText(v: unknown): string {
@@ -30,15 +32,18 @@ function responseText(v: unknown): string {
 export function AssessmentTakingPage() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { linkedLearnerId } = useAuth();
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [responses, setResponses] = useState<Record<string, unknown>>({});
   const [markedForReview, setMarkedForReview] = useState<Set<string>>(new Set());
   const [timeLeft, setTimeLeft] = useState(60 * 60); // 60 minutes in seconds
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [headerTitle, setHeaderTitle] = useState('Assessment');
   const [headerSubtitle, setHeaderSubtitle] = useState('');
+  const [enrollmentId, setEnrollmentId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingAssessment, setLoadingAssessment] = useState(true);
 
@@ -61,6 +66,7 @@ export function AssessmentTakingPage() {
             '',
         );
         setQuestions(a.questions ?? []);
+        setEnrollmentId(a.enrollmentId ?? linkedLearnerId ?? null);
         setLoadError(null);
       })
       .catch(() => {
@@ -72,12 +78,43 @@ export function AssessmentTakingPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, linkedLearnerId]);
 
-  const handleSubmit = useCallback(() => {
-    setIsSubmitted(true);
-    setShowSubmitModal(false);
-  }, []);
+  const handleSubmit = useCallback(async () => {
+    if (!id || submitting) return;
+    const enroll = enrollmentId ?? linkedLearnerId;
+    if (!enroll) {
+      toast.error('Missing enrolment — cannot submit assessment');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const payload = Object.entries(responses).map(([questionId, answer]) => ({
+        questionId,
+        answer,
+      }));
+      await assessmentService.submitInstance({
+        learnerId: enroll,
+        assessmentId: id,
+        responses: payload as AssessmentInstance['responses'],
+      });
+      setIsSubmitted(true);
+      setShowSubmitModal(false);
+      toast.success('Assessment submitted');
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to submit assessment',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }, [
+    id,
+    submitting,
+    enrollmentId,
+    linkedLearnerId,
+    responses,
+  ]);
 
   useEffect(() => {
     if (isSubmitted || !questions.length || loadingAssessment || loadError)
@@ -86,7 +123,7 @@ export function AssessmentTakingPage() {
       setTimeLeft((prev) => {
         if (prev <= 0) {
           clearInterval(timer);
-          handleSubmit();
+          void handleSubmit();
           return 0;
         }
         return prev - 1;
@@ -450,7 +487,8 @@ export function AssessmentTakingPage() {
             </Button>
             <Button
               className="bg-green-600 hover:bg-green-700"
-              onClick={handleSubmit}>
+              onClick={() => void handleSubmit()}
+              isLoading={submitting}>
               
               Submit Assessment
             </Button>

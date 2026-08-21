@@ -9,7 +9,7 @@ export function normalizeAllowedRoles(value: AllowedRoles): UserRole[] | null {
   return [...value];
 }
 
-/** First screen after MFA login for each role */
+/** First screen after login for each role */
 export function getDefaultRouteForRole(role: UserRole): string {
   switch (role) {
     case 'Learner':

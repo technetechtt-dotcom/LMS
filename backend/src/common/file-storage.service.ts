@@ -1,5 +1,9 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 function isMockCredential(value: string | undefined): boolean {
@@ -14,20 +18,44 @@ export class FileStorageService {
 
   constructor(private readonly config: ConfigService) {}
 
-  async upload(fileName: string, bytes: Buffer, mimeType: string) {
+  async upload(
+    fileName: string,
+    bytes: Buffer,
+    mimeType: string,
+    opts?: { prefix?: string; organisationId?: string },
+  ) {
+    const nodeEnv = this.config.get<string>('NODE_ENV') ?? 'development';
+    const fileMode = (
+      this.config.get<string>('FILE_STORAGE') ?? 's3'
+    )
+      .trim()
+      .toLowerCase();
+
     const bucket =
       this.config.get<string>('AWS_S3_BUCKET', 'mock-bucket') ?? 'mock-bucket';
     const region = this.config.get<string>('AWS_REGION', 'af-south-1');
-    const key = `evidence/${Date.now()}-${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const prefix = opts?.prefix ?? 'uploads';
+    const orgPart = opts?.organisationId
+      ? `${opts.organisationId}/`
+      : '';
+    const key = `${prefix}/${orgPart}${Date.now()}-${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const accessKeyId =
       this.config.get<string>('AWS_ACCESS_KEY_ID', '') ?? '';
     const secretAccessKey =
       this.config.get<string>('AWS_SECRET_ACCESS_KEY', '') ?? '';
 
     const useS3 =
-      !isMockCredential(accessKeyId) && !isMockCredential(secretAccessKey);
+      fileMode !== 'mock' &&
+      !isMockCredential(accessKeyId) &&
+      !isMockCredential(secretAccessKey) &&
+      bucket !== 'mock-bucket';
 
     if (!useS3) {
+      if (nodeEnv === 'production' && fileMode !== 'mock') {
+        throw new ServiceUnavailableException(
+          'File storage is not configured for production',
+        );
+      }
       return {
         key,
         bucket,

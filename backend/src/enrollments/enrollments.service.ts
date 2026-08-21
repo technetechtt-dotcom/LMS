@@ -1,25 +1,45 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateEnrollmentDto, TransitionEnrollmentDto } from './enrollments.dto';
+import type { AuthUser } from '../common/types/request-with-user';
+import { requireOrganisationId } from '../common/tenant/tenant-scope';
 
 @Injectable()
 export class EnrollmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list() {
+  private orgScope(organisationId: string) {
+    return {
+      OR: [
+        { sdioOrganisationId: organisationId },
+        { employerOrganisationId: organisationId },
+        { programme: { organisationId } },
+      ],
+    };
+  }
+
+  list(user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
     return this.prisma.enrollment.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, ...this.orgScope(organisationId) },
       include: { learner: true, programme: true, employerOrganisation: true },
     });
   }
 
-  create(dto: CreateEnrollmentDto) {
-    return this.prisma.enrollment.create({ data: dto });
+  create(dto: CreateEnrollmentDto, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    return this.prisma.enrollment.create({
+      data: {
+        ...dto,
+        sdioOrganisationId: dto.sdioOrganisationId || organisationId,
+      },
+    });
   }
 
-  async softDelete(id: string) {
+  async softDelete(id: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
     const row = await this.prisma.enrollment.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, deletedAt: null, ...this.orgScope(organisationId) },
     });
     if (!row) throw new NotFoundException('Enrollment not found');
     return this.prisma.enrollment.update({
@@ -28,8 +48,16 @@ export class EnrollmentsService {
     });
   }
 
-  async transition(id: string, dto: TransitionEnrollmentDto, changedById: string) {
-    const enrollment = await this.prisma.enrollment.findUnique({ where: { id } });
+  async transition(
+    id: string,
+    dto: TransitionEnrollmentDto,
+    changedById: string,
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    const enrollment = await this.prisma.enrollment.findFirst({
+      where: { id, deletedAt: null, ...this.orgScope(organisationId) },
+    });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
 
     return this.prisma.$transaction(async (tx) => {

@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class LoginDto {
   @IsEmail()
@@ -25,9 +25,11 @@ export class RegisterDto {
 }
 
 export class RefreshTokenDto {
+  /** Optional when HttpOnly refresh cookie is present. */
+  @IsOptional()
   @IsString()
   @MinLength(20)
-  refreshToken!: string;
+  refreshToken?: string;
 }
 
 export class ForgotPasswordDto {

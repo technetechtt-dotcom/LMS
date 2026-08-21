@@ -17,7 +17,7 @@ import { AttendanceView } from '../components/learner/AttendanceView';
 import { FileUpload } from '../components/ui/FileUpload';
 import { toast } from 'sonner';
 import { jsPDF } from 'jspdf';
-import { learnerService } from '../services/api';
+import { learnerService, poeService } from '../services/api';
 import type { Learner } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { evaluateOfficialPoeReadiness } from '../utils/officialPoe';
@@ -34,8 +34,8 @@ function initialsFromName(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-/** Placeholder until POE API is wired to documents + artifacts. */
-function buildOfficialPoeModel(): {
+/** Fallback when PoE overview API is unavailable. */
+function buildOfficialPoeFallback(): {
   rows: OfficialPoeRequirementRow[];
   moderatorAssigned: boolean;
   compileMeta?: OfficialPoeCompileMeta;
@@ -93,10 +93,23 @@ export function LearnerProfilePage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [learnerRecord, setLearnerRecord] = useState<Learner | null>(null);
   const [loadingLearner, setLoadingLearner] = useState(true);
+  const [officialPoeRows, setOfficialPoeRows] = useState<OfficialPoeRequirementRow[]>(
+    [],
+  );
+  const [moderatorAssigned, setModeratorAssigned] = useState(false);
+  const [poeDocuments, setPoeDocuments] = useState<
+    Array<{ id: string; title: string; status: 'verified' | 'pending' | 'completed'; type: string; date?: string }>
+  >([]);
 
   const officialPoe = useMemo(
-    () => (id ? buildOfficialPoeModel() : { rows: [], moderatorAssigned: false }),
-    [id],
+    () => ({
+      rows: officialPoeRows.length
+        ? officialPoeRows
+        : buildOfficialPoeFallback().rows,
+      moderatorAssigned,
+      compileMeta: undefined as OfficialPoeCompileMeta | undefined,
+    }),
+    [officialPoeRows, moderatorAssigned],
   );
 
   const { canCompile, blockingReasons } = useMemo(
@@ -155,7 +168,34 @@ export function LearnerProfilePage() {
     };
   }, [id, navigate, user?.role]);
 
-  const poeAdministrativeDocs = [
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    void poeService.getOverview(id).then((res) => {
+      if (cancelled || !res.data) return;
+      setOfficialPoeRows(
+        res.data.rows as unknown as OfficialPoeRequirementRow[],
+      );
+      setModeratorAssigned(res.data.moderatorAssigned);
+      setPoeDocuments(
+        (res.data.documents ?? []).map((d) => ({
+          id: d.id,
+          title: d.fileName || d.type,
+          status: d.status === 'verified' ? 'verified' : 'pending',
+          type: d.category,
+          date: d.createdAt?.slice(0, 10),
+        })),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  const poeAdministrativeDocs =
+    poeDocuments.length > 0
+      ? poeDocuments
+      : [
     {
       id: '1',
       title: 'Learner Registration Form',

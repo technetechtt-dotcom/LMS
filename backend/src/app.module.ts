@@ -18,7 +18,12 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { DocumentsModule } from './documents/documents.module';
 import { MaterialsModule } from './materials/materials.module';
 import { LearnersModule } from './learners/learners.module';
+import { AssessmentInstancesModule } from './assessment-instances/assessment-instances.module';
+import { ComplianceModule } from './compliance/compliance.module';
+import { MessagesModule } from './messages/messages.module';
+import { PoeModule } from './poe/poe.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { CertificatesModule } from './certificates/certificates.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -48,7 +53,12 @@ import { HealthController } from './health/health.controller';
     DocumentsModule,
     MaterialsModule,
     LearnersModule,
+    PoeModule,
+    MessagesModule,
+    ComplianceModule,
+    AssessmentInstancesModule,
     NotificationsModule,
+    CertificatesModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -1,26 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import {
-  ShieldCheck,
-  Lock,
-  Mail,
-  ArrowRight,
-  GraduationCap } from
-'lucide-react';
+import { Lock, Mail, ArrowRight, GraduationCap } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useAuth } from '../contexts/AuthContext';
 import { getDefaultRouteForRole } from '../utils/routing';
 import { toast } from 'sonner';
+
 export function LoginPage() {
   const navigate = useNavigate();
   const { login, isLoading, isAuthenticated, user } = useAuth();
-  const [step, setStep] = useState<'credentials' | 'mfa'>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({
     email: '',
-    password: ''
+    password: '',
   });
 
   useEffect(() => {
@@ -33,7 +27,7 @@ export function LoginPage() {
     let isValid = true;
     const newErrors = {
       email: '',
-      password: ''
+      password: '',
     };
     if (!email || !email.includes('@')) {
       newErrors.email = 'Please enter a valid email address';
@@ -46,26 +40,21 @@ export function LoginPage() {
     setErrors(newErrors);
     return isValid;
   };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
-    if (step === 'credentials') {
-      // Simulate credential check
-      setTimeout(() => {
-        setStep('mfa');
-      }, 500);
-    } else {
-      try {
-        const profile = await login({ email, password });
-        toast.success('Welcome back!');
-        navigate(getDefaultRouteForRole(profile.role), { replace: true });
-      } catch (error) {
-        const msg =
+    try {
+      const profile = await login({ email, password });
+      toast.success('Welcome back!');
+      navigate(getDefaultRouteForRole(profile.role), { replace: true });
+    } catch (error) {
+      const msg =
         error instanceof Error ? error.message : 'Login failed. Please try again.';
-        toast.error(msg);
-      }
+      toast.error(msg);
     }
   };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
@@ -83,88 +72,61 @@ export function LoginPage() {
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-gray-200">
           <form className="space-y-6" onSubmit={handleLogin}>
-            {step === 'credentials' ?
-            <>
-                <Input
-                label="Email Address"
-                type="email"
-                placeholder="name@organization.co.za"
-                icon={<Mail className="h-5 w-5" />}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                error={errors.email}
-                required />
-              
-                <Input
-                label="Password"
-                type="password"
-                placeholder="••••••••"
-                icon={<Lock className="h-5 w-5" />}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                error={errors.password}
-                required />
-              
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <input
-                    id="remember-me"
-                    name="remember-me"
-                    type="checkbox"
-                    className="h-4 w-4 text-brand-navy focus:ring-brand-navy border-gray-300 rounded" />
-                  
-                    <label
-                    htmlFor="remember-me"
-                    className="ml-2 block text-sm text-gray-900">
-                    
-                      Remember me
-                    </label>
-                  </div>
-                  <div className="text-sm">
-                    <Link
-                    to="/forgot-password"
-                    className="font-medium text-brand-blue hover:text-blue-500">
-                    
-                      Forgot password?
-                    </Link>
-                  </div>
-                </div>
-              </> :
+            <Input
+              label="Email Address"
+              type="email"
+              placeholder="name@organization.co.za"
+              icon={<Mail className="h-5 w-5" />}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              error={errors.email}
+              required
+            />
 
-            <div className="text-center">
-                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
-                  <ShieldCheck className="h-6 w-6 text-green-600" />
-                </div>
-                <h3 className="text-lg font-medium text-gray-900">
-                  Two-Factor Authentication
-                </h3>
-                <p className="text-sm text-gray-500 mb-6">
-                  Enter the 6-digit code sent to your mobile device ending in
-                  **89.
-                </p>
-                <Input
-                type="text"
-                placeholder="123 456"
-                className="text-center text-2xl tracking-widest"
-                maxLength={6}
-                required
-                autoFocus />
-              
+            <Input
+              label="Password"
+              type="password"
+              placeholder="••••••••"
+              icon={<Lock className="h-5 w-5" />}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              error={errors.password}
+              required
+            />
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <input
+                  id="remember-me"
+                  name="remember-me"
+                  type="checkbox"
+                  className="h-4 w-4 text-brand-navy focus:ring-brand-navy border-gray-300 rounded"
+                />
+                <label
+                  htmlFor="remember-me"
+                  className="ml-2 block text-sm text-gray-900"
+                >
+                  Remember me
+                </label>
               </div>
-            }
+              <div className="text-sm">
+                <Link
+                  to="/forgot-password"
+                  className="font-medium text-brand-blue hover:text-blue-500"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+            </div>
 
             <div>
               <Button
                 type="submit"
                 className="w-full"
                 isLoading={isLoading}
-                rightIcon={
-                step === 'credentials' ?
-                <ArrowRight className="h-4 w-4" /> :
-                undefined
-                }>
-                
-                {step === 'credentials' ? 'Sign In' : 'Verify & Access'}
+                rightIcon={<ArrowRight className="h-4 w-4" />}
+              >
+                Sign In
               </Button>
             </div>
           </form>
@@ -172,8 +134,8 @@ export function LoginPage() {
           <div className="mt-6 text-center">
             <Link
               to="/onboarding"
-              className="text-sm font-medium text-brand-blue hover:text-blue-600">
-              
+              className="text-sm font-medium text-brand-blue hover:text-blue-600"
+            >
               New learner? Register here
             </Link>
           </div>
@@ -191,7 +153,8 @@ export function LoginPage() {
             </div>
 
             <p className="mt-4 text-center text-xs text-gray-500 leading-relaxed">
-              Demo accounts (password 8+ characters; seed defaults use Password123!){' '}
+              Demo accounts (password 8+ characters; seed defaults use
+              Password123!){' '}
               <code className="text-gray-700">admin@skillforge.co.za</code>,{' '}
               <code className="text-gray-700">seta@skillforge.co.za</code>,{' '}
               <code className="text-gray-700">thandi.mokoena@email.com</code>
@@ -208,6 +171,6 @@ export function LoginPage() {
           POPIA Compliant System.
         </p>
       </div>
-    </div>);
-
+    </div>
+  );
 }

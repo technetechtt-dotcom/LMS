@@ -1,6 +1,8 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { Roles } from '../common/decorators/roles.decorator';
+import type { AuthUser } from '../common/types/request-with-user';
 import { ReportsService } from './reports.service';
 
 @ApiTags('Reports')
@@ -9,21 +11,24 @@ import { ReportsService } from './reports.service';
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
-  @Roles('ADMIN', 'SETA', 'QA_OFFICER')
+  @Roles('ADMIN', 'SETA', 'QA_OFFICER', 'FACILITATOR')
   @Get('progress')
-  progress() {
-    return this.reports.learnershipProgress();
+  progress(@Req() req: Request & { user?: AuthUser }) {
+    return this.reports.learnershipProgress(req.user);
   }
 
   @Roles('ADMIN', 'SETA', 'ASSESSOR', 'MODERATOR')
   @Get('poe/:enrollmentId')
-  poe(@Param('enrollmentId') enrollmentId: string) {
-    return this.reports.learnerPoe(enrollmentId);
+  poe(
+    @Param('enrollmentId') enrollmentId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.reports.learnerPoe(enrollmentId, req.user);
   }
 
-  @Roles('ADMIN', 'SETA')
+  @Roles('ADMIN', 'SETA', 'FACILITATOR', 'QA_OFFICER')
   @Get('seta-snapshot')
-  setaSnapshot() {
-    return this.reports.setaSnapshot();
+  setaSnapshot(@Req() req: Request & { user?: AuthUser }) {
+    return this.reports.setaSnapshot(req.user);
   }
 }

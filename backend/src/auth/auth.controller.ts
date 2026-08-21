@@ -4,10 +4,12 @@ import {
   Get,
   Post,
   Req,
+  Res,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import type { Request } from 'express';
+import { ConfigService } from '@nestjs/config';
+import type { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../common/decorators/public.decorator';
 import { AuthService } from './auth.service';
@@ -19,37 +21,87 @@ import {
   ResetPasswordDto,
 } from './auth.dto';
 import type { AuthUser } from '../common/types/request-with-user';
+import {
+  clearRefreshCookie,
+  readRefreshFromRequest,
+  setRefreshCookie,
+} from './auth-cookies';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly config: ConfigService,
+  ) {}
+
+  private nodeEnv() {
+    return this.config.get<string>('NODE_ENV') ?? 'development';
+  }
+
+  private refreshTtlDays() {
+    const raw =
+      this.config.get<string>('REFRESH_TOKEN_TTL_DAYS') ??
+      this.config.get<string>('REFRESH_TOKEN_TTL_DAY') ??
+      '7';
+    return Math.max(1, Number(raw) || 7);
+  }
+
+  private attachRefreshCookie(res: Response, refreshToken: string) {
+    setRefreshCookie(
+      res,
+      refreshToken,
+      this.nodeEnv(),
+      this.refreshTtlDays(),
+    );
+  }
 
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 8 } })
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
+  async register(
+    @Body() dto: RegisterDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const session = await this.auth.register(dto);
+    this.attachRefreshCookie(res, session.refreshToken);
+    return session;
   }
 
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 12 } })
   @Post('login')
-  login(@Body() dto: LoginDto, @Req() req: Request) {
-    return this.auth.login(dto, {
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const session = await this.auth.login(dto, {
       ip: req.ip,
       userAgent:
         typeof req.headers['user-agent'] === 'string'
           ? req.headers['user-agent']
           : undefined,
     });
+    this.attachRefreshCookie(res, session.refreshToken);
+    return session;
   }
 
   @Public()
   @Throttle({ default: { ttl: 300_000, limit: 5 } })
   @Post('refresh')
-  refresh(@Body() dto: RefreshTokenDto) {
-    return this.auth.refresh({ refreshToken: dto.refreshToken });
+  async refresh(
+    @Body() dto: RefreshTokenDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const token = readRefreshFromRequest(req, dto.refreshToken);
+    if (!token) {
+      throw new UnauthorizedException('Missing refresh token');
+    }
+    const session = await this.auth.refresh({ refreshToken: token });
+    this.attachRefreshCookie(res, session.refreshToken);
+    return session;
   }
 
   @Public()
@@ -74,9 +126,13 @@ export class AuthController {
 
   @ApiBearerAuth()
   @Post('logout')
-  logout(@Req() req: Request & { user?: AuthUser }) {
+  async logout(
+    @Req() req: Request & { user?: AuthUser },
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedException('Invalid session');
+    clearRefreshCookie(res, this.nodeEnv());
     return this.auth.logoutEverywhere(userId);
   }
 

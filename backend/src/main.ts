@@ -4,6 +4,12 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
+// CJS middleware — avoid default-import which breaks at runtime under commonjs
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const cookieParser = require('cookie-parser') as (
+  secret?: string | string[],
+) => import('express').RequestHandler;
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: false });
   const config = app.get(ConfigService);
@@ -20,6 +26,8 @@ async function bootstrap() {
     throw new Error('FRONTEND_ORIGIN must be set in production (comma-separated)');
   }
 
+  app.use(cookieParser());
+
   app.enableCors({
     origin: nodeEnv === 'production' ? origins : true,
     credentials: true,
@@ -27,8 +35,9 @@ async function bootstrap() {
     allowedHeaders: [
       'Content-Type',
       'Authorization',
-      'X-Tenant-ID',
+      'X-Organisation-Id',
       'X-Org-Id',
+      'X-Tenant-ID',
       'X-Correlation-Id',
       'X-Request-Id',
     ],

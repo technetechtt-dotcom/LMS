@@ -294,25 +294,6 @@ export function SettingsPage() {
                 </div>
               </form>
             </Card>
-
-            <Card title="Two-Factor Authentication">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900">
-                    Two-factor authentication is enabled
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    Your account is protected with mobile SMS verification.
-                  </p>
-                </div>
-                <Button
-                variant="outline"
-                className="text-red-600 border-red-200 hover:bg-red-50">
-                
-                  Disable
-                </Button>
-              </div>
-            </Card>
           </div>
         }
 
@@ -368,7 +349,7 @@ export function SettingsPage() {
                     defaultChecked />
                   
                     <span className="text-sm text-gray-700">
-                      Security alerts (OTP)
+                      Security alerts
                     </span>
                   </label>
                   <label className="flex items-center space-x-3">
