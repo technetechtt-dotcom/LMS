@@ -30,6 +30,7 @@ import { RolesGuard } from './common/guards/roles.guard';
 import { AdminEndpointsGuard } from './common/guards/admin-endpoints.guard';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { FileStorageModule } from './common/file-storage.module';
 import { validateEnv } from './config/env.validation';
 import { HealthController } from './health/health.controller';
 
@@ -38,6 +39,7 @@ import { HealthController } from './health/health.controller';
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 200 }]),
     PrismaModule,
+    FileStorageModule,
     AuthModule,
     UsersModule,
     OrganisationsModule,

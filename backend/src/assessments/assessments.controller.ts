@@ -21,21 +21,28 @@ export class AssessmentsController {
     return this.assessments.list(req.user);
   }
 
+  @Roles('ASSESSOR', 'ADMIN', 'FACILITATOR', 'MODERATOR')
   @Post('auto-grade')
   async autoGrade(
     @Body() body: { responses?: unknown[]; unitStandardId?: string },
   ) {
-    const responses = Array.isArray(body.responses) ? body.responses : [];
+    const responses = Array.isArray(body.responses)
+      ? body.responses.map((raw) => {
+          const r = raw as Record<string, unknown>;
+          return {
+            questionId: String(r.questionId ?? ''),
+            questionType:
+              typeof r.questionType === 'string' ? r.questionType : undefined,
+            answer: r.answer,
+          };
+        })
+      : [];
     const data = body.unitStandardId
       ? await this.instances.autoGradeAgainstBank(
           body.unitStandardId,
-          responses as Parameters<
-            AssessmentInstancesService['autoGradeAgainstBank']
-          >[1],
+          responses,
         )
-      : this.instances.autoGrade(
-          responses as Parameters<AssessmentInstancesService['autoGrade']>[0],
-        );
+      : this.instances.autoGrade(responses);
     return { success: true, data };
   }
 

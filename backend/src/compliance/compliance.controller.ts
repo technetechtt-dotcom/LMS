@@ -22,12 +22,14 @@ import { ComplianceService } from './compliance.service';
 export class ComplianceController {
   constructor(private readonly compliance: ComplianceService) {}
 
+  @Roles('ADMIN', 'QA_OFFICER', 'SETA', 'FACILITATOR')
   @Get('documents')
   async documents(@Req() req: Request & { user?: AuthUser }) {
     const data = await this.compliance.listDocuments(req.user);
     return { success: true, data };
   }
 
+  @Roles('ADMIN', 'QA_OFFICER', 'SETA', 'FACILITATOR')
   @Get('seta-submissions')
   async setaSubmissions(@Req() req: Request & { user?: AuthUser }) {
     const data = await this.compliance.listSetaSubmissions(req.user);
@@ -62,15 +64,28 @@ export class ComplianceController {
 
   @Roles('ADMIN', 'QA_OFFICER', 'SETA')
   @Post('nlrd')
-  nlrd(@Body('programmeId') programmeId?: string) {
-    const data = this.compliance.generateNlrd(programmeId);
-    return { success: true, data, message: 'NLRD export generated' };
+  async nlrd(
+    @Body('programmeId') programmeId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.compliance.generateNlrd(req.user, programmeId);
+    return {
+      success: true,
+      data,
+      message: data.valid
+        ? 'NLRD export generated'
+        : 'NLRD export generated with validation errors',
+    };
   }
 
   @Roles('ADMIN', 'SETA')
   @Post('seta-export')
-  setaExport(@Body() body: { setaId?: string; format?: string }) {
-    const data = this.compliance.exportSeta(
+  async setaExport(
+    @Body() body: { setaId?: string; format?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.compliance.exportSeta(
+      req.user,
       body.setaId ?? 'default',
       body.format ?? 'xml',
     );

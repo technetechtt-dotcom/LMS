@@ -406,11 +406,11 @@ export const poeService = {
 
   verify: async (
     documentId: string,
-    verifierId: string,
+    _verifierId?: string,
   ): Promise<ApiResponse<POEDocument>> => {
     return remotePostJson<POEDocument>(
       `/poe-documents/${encodeURIComponent(documentId)}/verify`,
-      { verifierId },
+      {},
     );
   },
 };

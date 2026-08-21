@@ -1,6 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
+import { requireOrganisationId } from '../common/tenant/tenant-scope';
 
 function roleFromMemberships(
   memberships: Array<{ role: { code: string; name: string } }>,
@@ -69,16 +75,28 @@ export class MessagesService {
     return Promise.all(rows.map((r) => this.mapMessage(r)));
   }
 
-  async send(
-    actor: AuthUser | undefined,
-    toId: string,
-    content: string,
-  ) {
+  async send(actor: AuthUser | undefined, toId: string, content: string) {
     const fromId = actor?.userId;
     if (!fromId) throw new BadRequestException('Authentication required');
     if (!toId?.trim() || !content?.trim()) {
       throw new BadRequestException('toId and content are required');
     }
+
+    const organisationId = requireOrganisationId(actor);
+
+    const toMembership = await this.prisma.userOrganisation.findFirst({
+      where: {
+        userId: toId,
+        organisationId,
+        deletedAt: null,
+      },
+    });
+    if (!toMembership) {
+      throw new ForbiddenException(
+        'Recipient is not a member of your organisation',
+      );
+    }
+
     const toUser = await this.prisma.user.findFirst({
       where: { id: toId, deletedAt: null },
     });

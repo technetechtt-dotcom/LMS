@@ -109,17 +109,168 @@ export class ComplianceService {
     return this.mapComplianceDoc(doc);
   }
 
-  generateNlrd(programmeId?: string) {
+  async generateNlrd(user?: AuthUser, programmeId?: string) {
+    const organisationId = requireOrganisationId(user);
+    const enrollments = await this.prisma.enrollment.findMany({
+      where: {
+        deletedAt: null,
+        ...(programmeId ? { programmeId } : {}),
+        OR: [
+          { sdioOrganisationId: organisationId },
+          { programme: { organisationId } },
+        ],
+      },
+      include: {
+        learner: true,
+        programme: { include: { qualification: true } },
+      },
+      take: 2000,
+    });
+
+    const errors: string[] = [];
+    const rowsXml: string[] = [];
+    for (const e of enrollments) {
+      const meta = (e.metadata as Record<string, unknown> | null) ?? {};
+      const idNumber = String(meta.idNumber ?? '').trim();
+      if (!idNumber || idNumber === '—') {
+        errors.push(`Enrollment ${e.id}: missing idNumber`);
+      }
+      const q = e.programme.qualification;
+      rowsXml.push(
+        [
+          '<LearnerRecord>',
+          `<EnrollmentId>${e.id}</EnrollmentId>`,
+          `<NationalId>${this.xmlEscape(idNumber)}</NationalId>`,
+          `<FirstName>${this.xmlEscape(e.learner.firstName)}</FirstName>`,
+          `<Surname>${this.xmlEscape(e.learner.lastName)}</Surname>`,
+          `<Email>${this.xmlEscape(e.learner.email)}</Email>`,
+          `<ProgrammeCode>${this.xmlEscape(e.programme.code)}</ProgrammeCode>`,
+          `<QualificationSaqaId>${this.xmlEscape(q?.saqaId ?? '')}</QualificationSaqaId>`,
+          `<NQFLevel>${q?.nqfLevel ?? ''}</NQFLevel>`,
+          `<Status>${e.status}</Status>`,
+          `<StartedAt>${(e.startedAt ?? e.createdAt).toISOString()}</StartedAt>`,
+          '</LearnerRecord>',
+        ].join(''),
+      );
+    }
+
+    const batchId = `NLRD-${Date.now()}`;
+    const xml = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      `<NLRDExport batchId="${batchId}" organisationId="${organisationId}" generatedAt="${new Date().toISOString()}">`,
+      `<Validation valid="${errors.length === 0}" errorCount="${errors.length}"/>`,
+      ...errors.map((err) => `<Error>${this.xmlEscape(err)}</Error>`),
+      '<Learners>',
+      ...rowsXml,
+      '</Learners>',
+      '</NLRDExport>',
+    ].join('');
+
+    await this.prisma.document.create({
+      data: {
+        organisationId,
+        category: 'seta-submission',
+        name: `NLRD ${batchId}`,
+        storageKey: `exports/nlrd/${batchId}.xml`,
+        url: `/exports/nlrd/${batchId}.xml`,
+        metadata: {
+          type: 'nlrd',
+          reference: batchId,
+          status: errors.length ? 'invalid' : 'generated',
+          submittedAt: new Date().toISOString(),
+          errorCount: errors.length,
+        },
+      },
+    });
+
     return {
-      batchId: `NLRD-${Date.now()}`,
-      xml: `<?xml version="1.0"?><nlrd programmeId="${programmeId ?? ''}"/>`,
+      batchId,
+      valid: errors.length === 0,
+      errors,
+      recordCount: enrollments.length,
+      xml,
     };
   }
 
-  exportSeta(setaId: string, format: string) {
-    const ext = format || 'xml';
-    return {
-      url: `/exports/seta-${encodeURIComponent(setaId)}.${ext}`,
+  async exportSeta(user?: AuthUser, setaId?: string, format = 'xml') {
+    const organisationId = requireOrganisationId(user);
+    const snapshot = await this.prisma.enrollment.groupBy({
+      by: ['status'],
+      where: {
+        deletedAt: null,
+        OR: [
+          { sdioOrganisationId: organisationId },
+          { programme: { organisationId } },
+        ],
+      },
+      _count: { _all: true },
+    });
+    const docs = await this.prisma.document.count({
+      where: { deletedAt: null, organisationId, category: { startsWith: 'compliance' } },
+    });
+    const batchId = `SETA-${setaId ?? 'default'}-${Date.now()}`;
+    const payload = {
+      setaId: setaId ?? 'default',
+      organisationId,
+      generatedAt: new Date().toISOString(),
+      enrollmentByStatus: Object.fromEntries(
+        snapshot.map((s) => [s.status, s._count._all]),
+      ),
+      complianceDocumentCount: docs,
     };
+
+    let body: string;
+    let contentType: string;
+    if (format === 'json') {
+      body = JSON.stringify(payload, null, 2);
+      contentType = 'application/json';
+    } else {
+      body = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        `<SETAExport id="${batchId}">`,
+        `<OrganisationId>${organisationId}</OrganisationId>`,
+        `<GeneratedAt>${payload.generatedAt}</GeneratedAt>`,
+        ...snapshot.map(
+          (s) =>
+            `<StatusCount code="${s.status}" count="${s._count._all}"/>`,
+        ),
+        `<ComplianceDocuments count="${docs}"/>`,
+        '</SETAExport>',
+      ].join('');
+      contentType = 'application/xml';
+    }
+
+    await this.prisma.document.create({
+      data: {
+        organisationId,
+        category: 'seta-submission',
+        name: `SETA export ${batchId}`,
+        storageKey: `exports/seta/${batchId}.${format === 'json' ? 'json' : 'xml'}`,
+        url: `/exports/seta/${batchId}.${format === 'json' ? 'json' : 'xml'}`,
+        metadata: {
+          type: 'seta-export',
+          reference: batchId,
+          status: 'generated',
+          contentType,
+          submittedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    return {
+      batchId,
+      format: format === 'json' ? 'json' : 'xml',
+      contentType,
+      body,
+      url: `/exports/seta/${batchId}.${format === 'json' ? 'json' : 'xml'}`,
+    };
+  }
+
+  private xmlEscape(value: string) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 }

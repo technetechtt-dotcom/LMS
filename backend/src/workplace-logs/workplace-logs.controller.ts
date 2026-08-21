@@ -1,5 +1,7 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
+import type { AuthUser } from '../common/types/request-with-user';
 import { CreateWorkplaceLogDto } from './workplace-logs.dto';
 import { WorkplaceLogsService } from './workplace-logs.service';
 
@@ -10,12 +12,18 @@ export class WorkplaceLogsController {
   constructor(private readonly logs: WorkplaceLogsService) {}
 
   @Get()
-  list(@Query('enrollmentId') enrollmentId?: string) {
-    return this.logs.list(enrollmentId);
+  list(
+    @Req() req: Request & { user?: AuthUser },
+    @Query('enrollmentId') enrollmentId?: string,
+  ) {
+    return this.logs.list(req.user, enrollmentId);
   }
 
   @Post()
-  create(@Body() dto: CreateWorkplaceLogDto) {
-    return this.logs.create(dto);
+  create(
+    @Body() dto: CreateWorkplaceLogDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.logs.create(dto, req.user);
   }
 }

@@ -5,18 +5,18 @@
   "type": "commonjs",
   "scripts": {
     "dev": "npx vite",
-    "dev:lms-api": "cross-env PORT=8787 FRONTEND_ORIGIN=http://localhost:5173 npx tsx server/index.ts",
     "dev:api": "npm --prefix backend run start:dev",
     "dev:full": "concurrently -n web,api -c blue,green \"cross-env VITE_API_URL=http://localhost:8787 npm run dev\" \"npm run dev:api\"",
     "build": "npx vite build",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
+    "typecheck": "tsc --noEmit",
     "preview": "npx vite preview",
     "backend:build": "npm --prefix backend run build",
     "backend:prisma:generate": "npm --prefix backend run prisma:generate",
     "backend:prisma:migrate": "npm --prefix backend run prisma:migrate",
     "backend:prisma:migrate:deploy": "npm --prefix backend run prisma:migrate:deploy",
-    "backend:seed": "npm --prefix backend run seed"
+    "backend:seed": "npm --prefix backend run seed",
+    "backend:test": "npm --prefix backend test"
   },
   "dependencies": {
     "@emotion/react": "^11.13.3",

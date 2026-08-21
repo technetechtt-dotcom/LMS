@@ -13,6 +13,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
+import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
 import { PoeService } from './poe.service';
 
@@ -23,13 +24,19 @@ export class PoeController {
   constructor(private readonly poe: PoeService) {}
 
   @Get('learners/:learnerId/poe-documents')
-  list(@Param('learnerId') learnerId: string) {
-    return this.poe.listDocuments(learnerId);
+  list(
+    @Param('learnerId') learnerId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.poe.listDocuments(learnerId, req.user);
   }
 
   @Get('learners/:learnerId/poe-overview')
-  overview(@Param('learnerId') learnerId: string) {
-    return this.poe.officialPoeOverview(learnerId);
+  overview(
+    @Param('learnerId') learnerId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.poe.officialPoeOverview(learnerId, req.user);
   }
 
   @Post('learners/:learnerId/poe-documents')
@@ -54,32 +61,32 @@ export class PoeController {
     } catch {
       throw new BadRequestException('metadata must be valid JSON');
     }
-    const userId = req.user?.userId;
-    if (!userId) throw new BadRequestException('Authentication required');
     const data = await this.poe.uploadDocument(
       learnerId,
       file,
       metadata,
-      userId,
+      req.user,
     );
     return { success: true, data, message: 'Document uploaded' };
   }
 
   @Post('learners/:learnerId/poe-export')
-  export(@Param('learnerId') learnerId: string) {
-    const data = this.poe.exportPoe(learnerId);
+  async export(
+    @Param('learnerId') learnerId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    await this.poe.assertCanExport(learnerId, req.user);
+    const data = this.poe.exportPoe(learnerId, req.user);
     return { success: true, data };
   }
 
+  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER')
   @Post('poe-documents/:documentId/verify')
-  verify(
+  async verify(
     @Param('documentId') documentId: string,
-    @Body('verifierId') verifierId: string,
+    @Req() req: Request & { user?: AuthUser },
   ) {
-    if (!verifierId?.trim()) {
-      throw new BadRequestException('verifierId is required');
-    }
-    const data = this.poe.verifyDocument(documentId, verifierId);
+    const data = await this.poe.verifyDocument(documentId, req.user);
     return { success: true, data };
   }
 }

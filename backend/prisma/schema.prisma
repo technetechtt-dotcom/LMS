@@ -173,6 +173,7 @@ model UnitStandard {
   outcomes        Outcome[]
   assessments     Assessment[]
   assessmentQuestions AssessmentQuestion[]
+  assessmentInstruments AssessmentInstrument[]
   evidence        Evidence[]
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -372,6 +373,7 @@ model AssessmentSubmission {
   id           String     @id @default(uuid()) @db.Uuid
   enrollmentId String     @db.Uuid
   assessmentId String     @db.Uuid
+  instrumentId String?    @db.Uuid
   status       String     @default("submitted")
   responses    Json       @default("[]")
   score        Float?
@@ -381,11 +383,13 @@ model AssessmentSubmission {
   gradedAt     DateTime?
   enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
   assessment   Assessment @relation(fields: [assessmentId], references: [id])
+  instrument   AssessmentInstrument? @relation(fields: [instrumentId], references: [id])
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
   @@index([enrollmentId, assessmentId])
   @@index([assessmentId, status])
+  @@index([instrumentId])
 }
 
 model Message {
@@ -519,21 +523,48 @@ model EnrollmentWorkflow {
   @@index([enrollmentId, changedAt])
 }
 
-/// Per–unit-standard question bank surfaced as GET /assessments/:id/questions (by assessment → unit standard).
+/// Versioned question instrument (publish/retire) for a unit standard.
+enum AssessmentInstrumentStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+model AssessmentInstrument {
+  id             String                      @id @default(uuid()) @db.Uuid
+  unitStandardId String                      @db.Uuid
+  version        Int
+  title          String?
+  status         AssessmentInstrumentStatus  @default(DRAFT)
+  publishedAt    DateTime?
+  unitStandard   UnitStandard                @relation(fields: [unitStandardId], references: [id])
+  questions      AssessmentQuestion[]
+  submissions    AssessmentSubmission[]
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+
+  @@unique([unitStandardId, version])
+  @@index([unitStandardId, status])
+}
+
+/// Per–unit-standard question bank; prefer linking via instrumentId for versioning.
 model AssessmentQuestion {
-  id             String       @id @default(uuid()) @db.Uuid
-  unitStandardId String       @db.Uuid
+  id             String                 @id @default(uuid()) @db.Uuid
+  unitStandardId String                 @db.Uuid
+  instrumentId   String?                @db.Uuid
   orderIndex     Int
   prompt         String
-  questionType   String       @default("mcq_single")
+  questionType   String                 @default("mcq_single")
   options        Json?
-  points         Int          @default(1)
-  unitStandard   UnitStandard @relation(fields: [unitStandardId], references: [id])
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  points         Int                    @default(1)
+  unitStandard   UnitStandard           @relation(fields: [unitStandardId], references: [id])
+  instrument     AssessmentInstrument?  @relation(fields: [instrumentId], references: [id])
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
   deletedAt      DateTime?
 
   @@index([unitStandardId, orderIndex])
+  @@index([instrumentId, orderIndex])
 }
 
 model RefreshToken {

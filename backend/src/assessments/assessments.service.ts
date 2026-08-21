@@ -1,4 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import type { AuthUser } from '../common/types/request-with-user';
+import {
+  isStaffUser,
+  requireOrganisationId,
+  enrollmentOrgWhere,
+} from '../common/tenant/tenant-scope';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAssessmentDto } from './assessments.dto';
@@ -6,8 +17,6 @@ import {
   mapAssessmentToApi,
   type AssessmentWithRelations,
 } from './assessments.mapper';
-import type { AuthUser } from '../common/types/request-with-user';
-import { requireOrganisationId } from '../common/tenant/tenant-scope';
 
 function mapQuestionType(questionType: string): string {
   switch (questionType) {
@@ -39,6 +48,7 @@ function mapQuestionToApi(
     updatedAt: Date;
   },
   assessmentId: string,
+  includeAnswers: boolean,
 ): Record<string, unknown> {
   const opts = (q.options as Record<string, unknown> | null) ?? {};
   const choices = Array.isArray(opts.choices) ? (opts.choices as string[]) : [];
@@ -63,16 +73,22 @@ function mapQuestionToApi(
     return {
       ...base,
       options,
-      correctOptionId:
-        typeof opts.correctIndex === 'number'
-          ? String(opts.correctIndex)
-          : options[0]?.id,
+      ...(includeAnswers
+        ? {
+            correctOptionId:
+              typeof opts.correctIndex === 'number'
+                ? String(opts.correctIndex)
+                : undefined,
+          }
+        : {}),
     };
   }
   if (type === 'true_false') {
     return {
       ...base,
-      correctAnswer: Boolean(opts.correctAnswer ?? true),
+      ...(includeAnswers
+        ? { correctAnswer: Boolean(opts.correctAnswer ?? true) }
+        : {}),
     };
   }
   return base;
@@ -139,18 +155,55 @@ export class AssessmentsService {
         deletedAt: null,
         ...this.orgFilter(organisationId),
       },
-      select: { id: true, unitStandardId: true },
+      select: { id: true, unitStandardId: true, enrollment: { select: { learnerId: true } } },
     });
     if (!a) throw new NotFoundException('Assessment not found');
+
+    // Learners never receive answer keys; staff may.
+    const includeAnswers = isStaffUser(user);
+
+    const published = await this.prisma.assessmentInstrument.findFirst({
+      where: {
+        unitStandardId: a.unitStandardId,
+        status: 'PUBLISHED',
+      },
+      orderBy: { version: 'desc' },
+      select: { id: true },
+    });
+
     const rows = await this.prisma.assessmentQuestion.findMany({
-      where: { unitStandardId: a.unitStandardId, deletedAt: null },
+      where: {
+        deletedAt: null,
+        ...(published
+          ? { instrumentId: published.id }
+          : { unitStandardId: a.unitStandardId }),
+      },
       orderBy: { orderIndex: 'asc' },
     });
-    return rows.map((q) => mapQuestionToApi(q, assessmentId));
+    return rows.map((q) => mapQuestionToApi(q, assessmentId, includeAnswers));
   }
 
-  create(dto: CreateAssessmentDto, user?: AuthUser) {
-    requireOrganisationId(user);
+  async create(dto: CreateAssessmentDto, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const enrollment = await this.prisma.enrollment.findFirst({
+      where: {
+        id: dto.enrollmentId,
+        deletedAt: null,
+        ...enrollmentOrgWhere(organisationId),
+      },
+      select: { id: true },
+    });
+    if (!enrollment) {
+      throw new ForbiddenException(
+        'Enrollment is not in the active organisation',
+      );
+    }
+    const unit = await this.prisma.unitStandard.findFirst({
+      where: { id: dto.unitStandardId },
+      select: { id: true },
+    });
+    if (!unit) throw new BadRequestException('unitStandardId is invalid');
+
     return this.prisma.assessment.create({ data: dto });
   }
 

@@ -180,7 +180,7 @@ export class LearnersService {
     return mapped;
   }
 
-  async byId(id: string, organisationId?: string) {
+  async byId(id: string, organisationId?: string, user?: AuthUser) {
     const where: Prisma.EnrollmentWhereInput = { id, deletedAt: null };
     if (organisationId) {
       Object.assign(where, this.orgScope(organisationId));
@@ -195,6 +195,20 @@ export class LearnersService {
       },
     });
     if (!row) throw new NotFoundException('Learner enrolment not found');
+
+    // Learners may only view their own enrolment profile.
+    if (
+      user &&
+      !user.roleCodes?.some((c) =>
+        ['ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER', 'SETA'].includes(
+          c,
+        ),
+      ) &&
+      row.learnerId !== user.userId
+    ) {
+      throw new NotFoundException('Learner enrolment not found');
+    }
+
     const stats = await this.assessmentStatsForEnrollmentIds([row.id]);
     return mapEnrollmentToLearnerApi(
       row as EnrollmentWithRelations,
@@ -329,6 +343,21 @@ export class LearnersService {
             ...(dto.email ? { email: dto.email.toLowerCase().trim() } : {}),
           },
         });
+      }
+      if (dto.programmeId) {
+        const programme = await tx.programme.findFirst({
+          where: {
+            id: dto.programmeId,
+            deletedAt: null,
+            organisationId,
+          },
+          select: { id: true },
+        });
+        if (!programme) {
+          throw new BadRequestException(
+            'Programme not found in your organisation',
+          );
+        }
       }
       await tx.enrollment.update({
         where: { id },

@@ -56,6 +56,13 @@ export class AuthController {
     );
   }
 
+  private sessionWithoutRefreshToken<T extends { refreshToken: string }>(
+    session: T,
+  ) {
+    const { refreshToken: _omit, ...rest } = session;
+    return rest;
+  }
+
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 8 } })
   @Post('register')
@@ -65,7 +72,7 @@ export class AuthController {
   ) {
     const session = await this.auth.register(dto);
     this.attachRefreshCookie(res, session.refreshToken);
-    return session;
+    return this.sessionWithoutRefreshToken(session);
   }
 
   @Public()
@@ -84,7 +91,7 @@ export class AuthController {
           : undefined,
     });
     this.attachRefreshCookie(res, session.refreshToken);
-    return session;
+    return this.sessionWithoutRefreshToken(session);
   }
 
   @Public()
@@ -95,13 +102,16 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const token = readRefreshFromRequest(req, dto.refreshToken);
+    // Prefer HttpOnly cookie; body token ignored in production.
+    const fromBody =
+      this.nodeEnv() === 'production' ? undefined : dto.refreshToken;
+    const token = readRefreshFromRequest(req, fromBody);
     if (!token) {
       throw new UnauthorizedException('Missing refresh token');
     }
     const session = await this.auth.refresh({ refreshToken: token });
     this.attachRefreshCookie(res, session.refreshToken);
-    return session;
+    return this.sessionWithoutRefreshToken(session);
   }
 
   @Public()

@@ -1,5 +1,5 @@
 import {
-  BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -7,10 +7,19 @@ import type { Document, PoeLearningArtifact } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { FileStorageService } from '../common/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
+import type { AuthUser } from '../common/types/request-with-user';
+import {
+  assertEnrollmentAccess,
+  enrollmentOrgWhere,
+  isLearnerOnly,
+  requireOrganisationId,
+} from '../common/tenant/tenant-scope';
 
 type EnrollmentCtx = {
   id: string;
+  learnerId: string;
   learnerName: string;
+  organisationId: string | null;
 };
 
 @Injectable()
@@ -20,15 +29,26 @@ export class PoeService {
     private readonly files: FileStorageService,
   ) {}
 
-  private async enrollmentCtx(enrollmentId: string): Promise<EnrollmentCtx> {
+  private async enrollmentCtx(
+    enrollmentId: string,
+    user?: AuthUser,
+  ): Promise<EnrollmentCtx> {
+    const organisationId = requireOrganisationId(user);
     const row = await this.prisma.enrollment.findFirst({
-      where: { id: enrollmentId, deletedAt: null },
+      where: {
+        id: enrollmentId,
+        deletedAt: null,
+        ...enrollmentOrgWhere(organisationId),
+      },
       include: { learner: true },
     });
     if (!row) throw new NotFoundException('Learner enrolment not found');
+    assertEnrollmentAccess(user, row, 'PoE');
     return {
       id: row.id,
+      learnerId: row.learnerId,
       learnerName: `${row.learner.firstName} ${row.learner.lastName}`.trim(),
+      organisationId: row.sdioOrganisationId,
     };
   }
 
@@ -57,10 +77,10 @@ export class PoeService {
     };
   }
 
-  async listDocuments(enrollmentId: string) {
-    const ctx = await this.enrollmentCtx(enrollmentId);
+  async listDocuments(enrollmentId: string, user?: AuthUser) {
+    const ctx = await this.enrollmentCtx(enrollmentId, user);
     const docs = await this.prisma.document.findMany({
-      where: { enrollmentId, deletedAt: null },
+      where: { enrollmentId: ctx.id, deletedAt: null },
       orderBy: { createdAt: 'desc' },
     });
     return docs.map((d) => this.mapDocument(d, ctx));
@@ -70,9 +90,17 @@ export class PoeService {
     enrollmentId: string,
     file: Express.Multer.File | undefined,
     metadata: Record<string, unknown>,
-    uploadedById: string,
+    user?: AuthUser,
   ) {
-    const ctx = await this.enrollmentCtx(enrollmentId);
+    const ctx = await this.enrollmentCtx(enrollmentId, user);
+    const uploadedById = user?.userId;
+    if (!uploadedById) throw new ForbiddenException('Authentication required');
+
+    if (isLearnerOnly(user) && ctx.learnerId !== uploadedById) {
+      throw new ForbiddenException('Learners may only upload to their own PoE');
+    }
+
+    const organisationId = requireOrganisationId(user);
     const now = new Date().toISOString();
     let url = '/materials/placeholder';
     let storageKey = `local/${randomUUID()}`;
@@ -81,13 +109,15 @@ export class PoeService {
         file.originalname,
         file.buffer,
         file.mimetype,
+        { prefix: 'poe', organisationId },
       );
       url = stored.url;
       storageKey = stored.key;
     }
     const doc = await this.prisma.document.create({
       data: {
-        enrollmentId,
+        enrollmentId: ctx.id,
+        organisationId,
         category: (metadata.category as string) ?? 'General',
         name: file?.originalname ?? (metadata.name as string) ?? 'upload.bin',
         storageKey,
@@ -116,16 +146,35 @@ export class PoeService {
     return this.mapDocument(doc, ctx);
   }
 
-  async verifyDocument(documentId: string, verifierId: string) {
+  async verifyDocument(documentId: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const verifierId = user?.userId;
+    if (!verifierId) throw new ForbiddenException('Authentication required');
+
     const doc = await this.prisma.document.findFirst({
-      where: { id: documentId, deletedAt: null },
+      where: {
+        id: documentId,
+        deletedAt: null,
+        OR: [
+          { organisationId },
+          {
+            enrollment: {
+              deletedAt: null,
+              ...enrollmentOrgWhere(organisationId),
+            },
+          },
+        ],
+      },
+      include: { enrollment: { select: { learnerId: true } } },
     });
     if (!doc) throw new NotFoundException('POE document not found');
+
     const updated = await this.prisma.document.update({
       where: { id: documentId },
       data: {
         verifiedById: verifierId,
         verifiedAt: new Date(),
+        organisationId: doc.organisationId ?? organisationId,
       },
     });
     return {
@@ -136,10 +185,15 @@ export class PoeService {
     };
   }
 
-  exportPoe(enrollmentId: string) {
+  exportPoe(enrollmentId: string, user?: AuthUser) {
+    // Access check via enrollmentCtx (async) — call from controller after await
     return {
       url: `/exports/poe-${encodeURIComponent(enrollmentId)}.pdf`,
     };
+  }
+
+  async assertCanExport(enrollmentId: string, user?: AuthUser) {
+    await this.enrollmentCtx(enrollmentId, user);
   }
 
   private artifactSubmission(
@@ -160,14 +214,14 @@ export class PoeService {
     return 'missing';
   }
 
-  async officialPoeOverview(enrollmentId: string) {
-    const ctx = await this.enrollmentCtx(enrollmentId);
+  async officialPoeOverview(enrollmentId: string, user?: AuthUser) {
+    const ctx = await this.enrollmentCtx(enrollmentId, user);
     const [docs, artifacts] = await Promise.all([
       this.prisma.document.findMany({
-        where: { enrollmentId, deletedAt: null },
+        where: { enrollmentId: ctx.id, deletedAt: null },
       }),
       this.prisma.poeLearningArtifact.findMany({
-        where: { enrollmentId, deletedAt: null },
+        where: { enrollmentId: ctx.id, deletedAt: null },
       }),
     ]);
 

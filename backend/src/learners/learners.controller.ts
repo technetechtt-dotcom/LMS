@@ -54,7 +54,7 @@ export class LearnersController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     const organisationId = requireOrganisationId(req.user);
-    return this.learners.byId(id, organisationId);
+    return this.learners.byId(id, organisationId, req.user);
   }
 
   @Roles('ADMIN', 'FACILITATOR', 'QA_OFFICER')
