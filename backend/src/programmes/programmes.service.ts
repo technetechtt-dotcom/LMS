@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProgrammeDto } from './programmes.dto';
 import { mapProgrammeToApi, type ProgrammeWithRelations } from './programme.mapper';
@@ -39,14 +39,12 @@ export class ProgrammesService {
 
   create(dto: CreateProgrammeDto, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
-    if (dto.organisationId && dto.organisationId !== organisationId) {
-      throw new ForbiddenException(
-        'Cannot create programme for another organisation',
-      );
-    }
     return this.prisma.programme.create({
       data: {
-        ...dto,
+        qualificationId: dto.qualificationId,
+        code: dto.code,
+        title: dto.title,
+        programmeKind: dto.programmeKind,
         organisationId,
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
         endDate: dto.endDate ? new Date(dto.endDate) : undefined,

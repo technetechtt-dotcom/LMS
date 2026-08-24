@@ -28,7 +28,8 @@ export type PoeTransitionAction =
   | 'moderate_approve'
   | 'moderate_reject';
 
-const TRANSITIONS: Record<
+/** Exported for tests — keep in sync with PoeWorkflowService behaviour. */
+export const POE_TRANSITIONS: Record<
   PoeTransitionAction,
   {
     from: PoeLearningArtifactStatus[];
@@ -89,6 +90,29 @@ export class PoeWorkflowService {
     }
   }
 
+  private async assertOrgMemberWithRole(
+    organisationId: string,
+    userId: string,
+    roleCodes: string[],
+  ) {
+    const membership = await this.prisma.userOrganisation.findFirst({
+      where: {
+        userId,
+        organisationId,
+        deletedAt: null,
+        user: { deletedAt: null, isActive: true },
+        role: { code: { in: roleCodes }, deletedAt: null },
+      },
+      include: { role: true },
+    });
+    if (!membership) {
+      throw new BadRequestException(
+        `User must be an active ${roleCodes.join('/')} in this organisation`,
+      );
+    }
+    return membership;
+  }
+
   async create(
     body: {
       enrollmentId: string;
@@ -147,7 +171,7 @@ export class PoeWorkflowService {
     user?: AuthUser,
   ) {
     const organisationId = requireOrganisationId(user);
-    const rule = TRANSITIONS[action];
+    const rule = POE_TRANSITIONS[action];
     if (!rule) throw new BadRequestException(`Unknown action: ${action}`);
     this.assertRole(user, rule.roles);
 
@@ -171,6 +195,27 @@ export class PoeWorkflowService {
       );
     }
 
+    const codes = user?.roleCodes ?? [];
+    const isAdmin = codes.includes('ADMIN') || codes.includes('PLATFORM_ADMIN');
+
+    if (action === 'assessor_mark' && !isAdmin) {
+      if (!artifact.assessorId || artifact.assessorId !== user!.userId) {
+        throw new ForbiddenException(
+          'Only the allocated assessor may mark this artefact',
+        );
+      }
+    }
+    if (
+      (action === 'moderate_approve' || action === 'moderate_reject') &&
+      !isAdmin
+    ) {
+      if (!artifact.moderatorId || artifact.moderatorId !== user!.userId) {
+        throw new ForbiddenException(
+          'Only the allocated moderator may moderate this artefact',
+        );
+      }
+    }
+
     const now = new Date();
     const data: Record<string, unknown> = {
       status: rule.to,
@@ -182,20 +227,37 @@ export class PoeWorkflowService {
         data.facilitatorMarkedById = user!.userId;
         data.facilitatorFeedback = body.feedback;
         break;
-      case 'allocate_assessor':
+      case 'allocate_assessor': {
+        const assessorId = body.assessorId;
+        if (!assessorId) {
+          throw new BadRequestException('assessorId is required');
+        }
+        await this.assertOrgMemberWithRole(organisationId, assessorId, [
+          'ASSESSOR',
+          'ADMIN',
+        ]);
         data.allocatedToAssessorAt = now;
-        data.assessorId = body.assessorId ?? user!.userId;
+        data.assessorId = assessorId;
         break;
+      }
       case 'assessor_mark':
         data.assessorMarkedAt = now;
-        data.assessorId = user!.userId;
         data.assessorFeedback = body.feedback;
         break;
-      case 'submit_moderation':
+      case 'submit_moderation': {
+        const moderatorId = body.moderatorId;
+        if (!moderatorId) {
+          throw new BadRequestException('moderatorId is required');
+        }
+        await this.assertOrgMemberWithRole(organisationId, moderatorId, [
+          'MODERATOR',
+          'ADMIN',
+        ]);
         data.submittedToModeratorAt = now;
         data.submittedForModerationById = user!.userId;
-        data.moderatorId = body.moderatorId;
+        data.moderatorId = moderatorId;
         break;
+      }
       case 'moderate_approve':
         data.moderatedAt = now;
         data.moderatorId = user!.userId;
@@ -232,7 +294,7 @@ export class PoeWorkflowService {
     return updated;
   }
 
-  /** Completeness gate for certificates. */
+  /** Completeness gate for certificates — both WORKBOOK and SUMMATIVE must be approved. */
   async enrollmentReadyForCertificate(enrollmentId: string): Promise<{
     ready: boolean;
     reasons: string[];
@@ -257,23 +319,21 @@ export class PoeWorkflowService {
       reasons.push('Not all assessments are Competent (C)');
     }
 
-    const artifacts = await this.prisma.poeLearningArtifact.findMany({
-      where: {
-        enrollmentId,
-        deletedAt: null,
-        kind: { in: ['WORKBOOK', 'SUMMATIVE'] },
-      },
-    });
-    if (!artifacts.length) {
-      reasons.push('Missing workbook/summative PoE artifacts');
-    } else {
-      const incomplete = artifacts.filter(
-        (a) =>
-          a.status !== 'MODERATION_COMPLETE' ||
-          a.moderationOutcome !== 'APPROVED',
-      );
-      if (incomplete.length) {
-        reasons.push('PoE artifacts not fully moderated and approved');
+    const requiredKinds: PoeLearningArtifactKind[] = ['WORKBOOK', 'SUMMATIVE'];
+    for (const kind of requiredKinds) {
+      const approved = await this.prisma.poeLearningArtifact.findFirst({
+        where: {
+          enrollmentId,
+          deletedAt: null,
+          kind,
+          status: 'MODERATION_COMPLETE',
+          moderationOutcome: 'APPROVED',
+        },
+      });
+      if (!approved) {
+        reasons.push(
+          `Missing approved ${kind} PoE artefact (moderated and approved)`,
+        );
       }
     }
 

@@ -3,10 +3,6 @@ import { IsOptional, IsString, IsUUID } from 'class-validator';
 export class CreateDocumentDto {
   @IsOptional()
   @IsUUID()
-  organisationId?: string;
-
-  @IsOptional()
-  @IsUUID()
   enrollmentId?: string;
 
   @IsString()
@@ -18,6 +14,8 @@ export class CreateDocumentDto {
   @IsString()
   storageKey!: string;
 
+  /** Optional display URL; server prefers regenerating signed URLs from storageKey. */
+  @IsOptional()
   @IsString()
-  url!: string;
+  url?: string;
 }

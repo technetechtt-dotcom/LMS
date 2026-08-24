@@ -127,16 +127,10 @@ export function ProgrammeDetailPage() {
 
   const handleAdd = async () => {
     if (!programme?.id || !learnerToAdd) return;
-    const orgId = programme.organisationId;
-    if (!orgId) {
-      toast.error('Programme has no linked organisation — cannot enrol yet.');
-      return;
-    }
     try {
       await enrollmentService.create({
         learnerId: learnerToAdd,
         programmeId: programme.id,
-        sdioOrganisationId: orgId,
       });
       const name = availableToEnrol.find((l) => l.userId === learnerToAdd)?.name;
       toast.success(name ? `${name} added to programme` : 'Learner added');

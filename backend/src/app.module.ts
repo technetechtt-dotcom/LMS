@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { InvitationsModule } from './invitations/invitations.module';
 import { OrganisationsModule } from './organisations/organisations.module';
 import { ProgrammesModule } from './programmes/programmes.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
@@ -24,6 +25,7 @@ import { MessagesModule } from './messages/messages.module';
 import { PoeModule } from './poe/poe.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CertificatesModule } from './certificates/certificates.module';
+import { PrivacyModule } from './privacy/privacy.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -42,6 +44,7 @@ import { HealthController } from './health/health.controller';
     FileStorageModule,
     AuthModule,
     UsersModule,
+    InvitationsModule,
     OrganisationsModule,
     ProgrammesModule,
     EnrollmentsModule,
@@ -61,6 +64,7 @@ import { HealthController } from './health/health.controller';
     AssessmentInstancesModule,
     NotificationsModule,
     CertificatesModule,
+    PrivacyModule,
   ],
   controllers: [HealthController],
   providers: [

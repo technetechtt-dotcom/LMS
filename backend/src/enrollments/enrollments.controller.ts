@@ -12,11 +12,13 @@ import { EnrollmentsService } from './enrollments.service';
 export class EnrollmentsController {
   constructor(private readonly enrollments: EnrollmentsService) {}
 
+  @Roles('ADMIN', 'FACILITATOR', 'QA_OFFICER', 'LEARNER', 'ASSESSOR', 'MODERATOR')
   @Get()
   list(@Req() req: Request & { user?: AuthUser }) {
     return this.enrollments.list(req.user);
   }
 
+  @Roles('ADMIN', 'FACILITATOR')
   @Post()
   create(
     @Body() dto: CreateEnrollmentDto,
@@ -25,7 +27,7 @@ export class EnrollmentsController {
     return this.enrollments.create(dto, req.user);
   }
 
-  @Roles('ADMIN', 'FACILITATOR')
+  @Roles('ADMIN')
   @Delete(':id')
   remove(
     @Param('id') id: string,
@@ -34,6 +36,7 @@ export class EnrollmentsController {
     return this.enrollments.softDelete(id, req.user);
   }
 
+  @Roles('ADMIN', 'FACILITATOR', 'QA_OFFICER')
   @Post(':id/transition')
   transition(
     @Param('id') id: string,

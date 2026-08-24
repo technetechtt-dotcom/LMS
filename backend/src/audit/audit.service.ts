@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
 import { requireOrganisationId } from '../common/tenant/tenant-scope';
+import { redactAuditValue } from './audit-redact';
 
 @Injectable()
 export class AuditService {
@@ -35,12 +36,12 @@ export class AuditService {
         entityType: entry.entityType ?? entry.entity ?? 'App',
         entityId: entry.entityId,
         action: entry.action,
-        afterValue: {
+        afterValue: redactAuditValue({
           details: entry.details,
           ...(typeof entry.afterValue === 'object' && entry.afterValue
             ? (entry.afterValue as object)
             : {}),
-        },
+        }) as object,
       },
     });
     return { success: true as const };

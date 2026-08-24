@@ -6,12 +6,15 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../types/request-with-user';
-import { readOrganisationHeader } from '../tenant/tenant-scope';
+import {
+  readOrganisationHeader,
+  resolveRoleCodesForTenant,
+} from '../tenant/tenant-scope';
 
 /**
- * Resolves and enforces organisation context on authenticated requests.
- * Header (X-Organisation-Id / X-Org-Id / X-Tenant-ID) must match a membership
- * when provided; otherwise JWT primary organisationId is used.
+ * Resolves organisation context and **tenant-specific roles**.
+ * JWT may contain roles from every membership; authorization uses only
+ * roles for the active organisation (plus global PLATFORM_ADMIN).
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -35,20 +38,37 @@ export class TenantGuard implements CanActivate {
       );
     }
 
-    const membership = await this.prisma.userOrganisation.findFirst({
-      where: {
-        userId: req.user.userId,
-        organisationId: targetOrg,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
+    const [orgMemberships, platformMembership] = await Promise.all([
+      this.prisma.userOrganisation.findMany({
+        where: {
+          userId: req.user.userId,
+          organisationId: targetOrg,
+          deletedAt: null,
+          user: { deletedAt: null, isActive: true },
+        },
+        include: { role: { select: { code: true } } },
+      }),
+      this.prisma.userOrganisation.findFirst({
+        where: {
+          userId: req.user.userId,
+          deletedAt: null,
+          role: { code: 'PLATFORM_ADMIN', deletedAt: null },
+          user: { deletedAt: null, isActive: true },
+        },
+        select: { id: true },
+      }),
+    ]);
 
-    if (!membership) {
+    const isPlatform = Boolean(platformMembership);
+    if (!orgMemberships.length && !isPlatform) {
       throw new ForbiddenException('Cross-organisation access is forbidden');
     }
 
     req.user.organisationId = targetOrg;
+    req.user.roleCodes = resolveRoleCodesForTenant({
+      organisationRoleCodes: orgMemberships.map((m) => m.role.code),
+      isPlatformAdmin: isPlatform,
+    });
     return true;
   }
 }

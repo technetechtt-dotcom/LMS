@@ -11,6 +11,7 @@ export const ORG_HEADER_ALIASES = [
 
 const STAFF_ROLES = new Set([
   'ADMIN',
+  'PLATFORM_ADMIN',
   'FACILITATOR',
   'ASSESSOR',
   'MODERATOR',
@@ -41,8 +42,19 @@ export function requireOrganisationId(user?: AuthUser | null): string {
   return orgId;
 }
 
+/** Cross-tenant platform operator — not organisation ADMIN. */
 export function isPlatformAdmin(user?: AuthUser | null): boolean {
-  return Boolean(user?.roleCodes?.includes('ADMIN'));
+  return Boolean(user?.roleCodes?.includes('PLATFORM_ADMIN'));
+}
+
+/** Roles that apply only in the active organisation (plus global PLATFORM_ADMIN). */
+export function resolveRoleCodesForTenant(opts: {
+  organisationRoleCodes: string[];
+  isPlatformAdmin: boolean;
+}): string[] {
+  const set = new Set(opts.organisationRoleCodes.filter(Boolean));
+  if (opts.isPlatformAdmin) set.add('PLATFORM_ADMIN');
+  return [...set];
 }
 
 /** True when the caller has any staff/regulatory role (not learner-only). */

@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { AdminOnlyEndpoint } from '../common/decorators/admin-only-endpoint.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import type { AuthUser } from '../common/types/request-with-user';
 import { UsersService } from './users.service';
 import { AddUserMembershipDto, CreateUserDto } from './users.dto';
 
@@ -12,21 +14,27 @@ import { AddUserMembershipDto, CreateUserDto } from './users.dto';
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'PLATFORM_ADMIN')
   @Get()
-  list() {
-    return this.users.list();
+  list(@Req() req: Request & { user?: AuthUser }) {
+    return this.users.list(req.user);
   }
 
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'PLATFORM_ADMIN')
   @Post()
-  create(@Body() dto: CreateUserDto) {
-    return this.users.create(dto);
+  create(
+    @Body() dto: CreateUserDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.users.create(dto, req.user);
   }
 
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'PLATFORM_ADMIN')
   @Post('memberships')
-  addMembership(@Body() dto: AddUserMembershipDto) {
-    return this.users.addMembership(dto);
+  addMembership(
+    @Body() dto: AddUserMembershipDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.users.addMembership(dto, req.user);
   }
 }

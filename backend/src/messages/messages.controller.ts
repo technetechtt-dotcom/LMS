@@ -22,7 +22,7 @@ export class MessagesController {
 
   @Get()
   async list(@Req() req: Request & { user?: AuthUser }) {
-    const data = await this.messages.listForUser(req.user?.userId);
+    const data = await this.messages.listForUser(req.user);
     return { success: true, data };
   }
 

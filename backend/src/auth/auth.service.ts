@@ -11,6 +11,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { LoginDto, RegisterDto } from './auth.dto';
 import { mapUserToApiProfile, type UserWithMemberships } from './user-mapper';
 import { MailService } from '../mail/mail.service';
+import { InvitationsService } from '../invitations/invitations.service';
+import { redactAuditValue } from '../audit/audit-redact';
 import {
   generateOpaqueRefreshToken,
   hashOpaqueToken,
@@ -25,6 +27,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly mail: MailService,
+    private readonly invitations: InvitationsService,
   ) {}
 
   private refreshExpiryDate(): Date {
@@ -45,6 +48,17 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
+    const nodeEnv = this.config.get<string>('NODE_ENV') ?? 'development';
+    const publicOk =
+      nodeEnv !== 'production' &&
+      (this.config.get<string>('PUBLIC_REGISTRATION') ?? '').toLowerCase() ===
+        'true';
+    if (!dto.inviteToken && !publicOk) {
+      throw new BadRequestException(
+        'Registration is by invitation only — provide inviteToken',
+      );
+    }
+
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = await this.prisma.user.create({
       data: {
@@ -54,6 +68,13 @@ export class AuthService {
         lastName: dto.lastName,
       },
     });
+    if (dto.inviteToken) {
+      await this.invitations.consume(
+        dto.inviteToken,
+        user.id,
+        dto.email.toLowerCase(),
+      );
+    }
     return this.issueSession(user.id, user.email);
   }
 
@@ -325,7 +346,7 @@ export class AuthService {
         entityType: 'Authentication',
         entityId: email,
         action,
-        afterValue: { email, ...extra },
+        afterValue: redactAuditValue({ email, ...extra }) as object,
         ipAddress: meta?.ip,
         userAgent: meta?.userAgent,
       },

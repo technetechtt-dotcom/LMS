@@ -1,5 +1,7 @@
 import type { AuthUser } from '../common/types/request-with-user';
 import {
+  assertEnrollmentAccess,
+  isLearnerOnly,
   isStaffUser,
   requireOrganisationId,
   enrollmentOrgWhere,
@@ -114,7 +116,13 @@ export class AssessmentsService {
     const organisationId = requireOrganisationId(user);
     return this.prisma.assessment
       .findMany({
-        where: { deletedAt: null, ...this.orgFilter(organisationId) },
+        where: {
+          deletedAt: null,
+          enrollment: {
+            ...enrollmentOrgWhere(organisationId),
+            ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
+          },
+        },
         include: {
           enrollment: {
             include: { programme: true, learner: true },
@@ -132,7 +140,14 @@ export class AssessmentsService {
   async byId(id: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const row = await this.prisma.assessment.findFirst({
-      where: { id, deletedAt: null, ...this.orgFilter(organisationId) },
+      where: {
+        id,
+        deletedAt: null,
+        enrollment: {
+          ...enrollmentOrgWhere(organisationId),
+          ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
+        },
+      },
       include: {
         enrollment: {
           include: { programme: true, learner: true },
@@ -142,6 +157,7 @@ export class AssessmentsService {
       },
     });
     if (!row) throw new NotFoundException('Assessment not found');
+    assertEnrollmentAccess(user, row.enrollment, 'Assessment');
     const mapped = mapAssessmentToApi(row as AssessmentWithRelations);
     const questions = await this.questions(id, user);
     return { ...mapped, questions, questionCount: questions.length };
@@ -153,11 +169,20 @@ export class AssessmentsService {
       where: {
         id: assessmentId,
         deletedAt: null,
-        ...this.orgFilter(organisationId),
+        enrollment: {
+          ...enrollmentOrgWhere(organisationId),
+          ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
+        },
       },
-      select: { id: true, unitStandardId: true, enrollment: { select: { learnerId: true } } },
+      select: {
+        id: true,
+        unitStandardId: true,
+        enrollmentId: true,
+        enrollment: { select: { learnerId: true } },
+      },
     });
     if (!a) throw new NotFoundException('Assessment not found');
+    assertEnrollmentAccess(user, a.enrollment, 'Assessment');
 
     // Learners never receive answer keys; staff may.
     const includeAnswers = isStaffUser(user);
@@ -170,13 +195,40 @@ export class AssessmentsService {
       orderBy: { version: 'desc' },
       select: { id: true },
     });
+    if (!published) {
+      throw new NotFoundException(
+        'No published assessment instrument for this unit standard',
+      );
+    }
+
+    let instrumentId = published.id;
+    const inProgress = await this.prisma.assessmentSubmission.findFirst({
+      where: {
+        assessmentId: a.id,
+        enrollmentId: a.enrollmentId,
+        status: 'in_progress',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (inProgress?.instrumentId) {
+      instrumentId = inProgress.instrumentId;
+    } else if (isLearnerOnly(user) || !inProgress) {
+      await this.prisma.assessmentSubmission.create({
+        data: {
+          enrollmentId: a.enrollmentId,
+          assessmentId: a.id,
+          instrumentId: published.id,
+          status: 'in_progress',
+          responses: [],
+        },
+      });
+      instrumentId = published.id;
+    }
 
     const rows = await this.prisma.assessmentQuestion.findMany({
       where: {
         deletedAt: null,
-        ...(published
-          ? { instrumentId: published.id }
-          : { unitStandardId: a.unitStandardId }),
+        instrumentId,
       },
       orderBy: { orderIndex: 'asc' },
     });
@@ -221,6 +273,17 @@ export class AssessmentsService {
         select: { unitStandardId: true },
       });
       if (assessment) {
+        const published = await this.prisma.assessmentInstrument.findFirst({
+          where: {
+            unitStandardId: assessment.unitStandardId,
+            status: { in: ['PUBLISHED', 'RETIRED'] },
+          },
+        });
+        if (published) {
+          throw new ForbiddenException(
+            'Published assessment instruments are immutable — create a new draft version',
+          );
+        }
         await this.replaceQuestions(assessment.unitStandardId, questions);
       }
     }
@@ -247,7 +310,11 @@ export class AssessmentsService {
     questions: unknown[],
   ) {
     await this.prisma.assessmentQuestion.updateMany({
-      where: { unitStandardId, deletedAt: null },
+      where: {
+        unitStandardId,
+        deletedAt: null,
+        OR: [{ instrumentId: null }, { instrument: { status: 'DRAFT' } }],
+      },
       data: { deletedAt: new Date() },
     });
 

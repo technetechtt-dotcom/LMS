@@ -22,6 +22,7 @@ export class RolesGuard implements CanActivate {
       Request & { user?: { roleCodes?: string[] } }
     >();
     const roles = req.user?.roleCodes ?? [];
+    if (roles.includes('PLATFORM_ADMIN')) return true;
 
     const allowed = requiredRoles.some((r) => roles.includes(r));
     if (!allowed) throw new ForbiddenException('Missing required role');

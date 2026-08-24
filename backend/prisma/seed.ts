@@ -14,6 +14,7 @@ const prisma = new PrismaClient();
 async function main() {
   const roleCodes = [
     ['ADMIN', 'SDIO Admin'],
+    ['PLATFORM_ADMIN', 'Platform Super Admin'],
     ['LEARNER', 'Learner'],
     ['FACILITATOR', 'Facilitator'],
     ['ASSESSOR', 'Assessor'],

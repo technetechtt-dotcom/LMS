@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsEmail, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 
 export class CreateUserDto {
   @IsEmail()
@@ -11,7 +11,8 @@ export class CreateUserDto {
   lastName!: string;
 
   @IsString()
-  passwordHash!: string;
+  @MinLength(8)
+  password!: string;
 
   @IsOptional()
   @IsBoolean()
@@ -25,6 +26,8 @@ export class AddUserMembershipDto {
   @IsUUID()
   roleId!: string;
 
+  /** Required for PLATFORM_ADMIN; ignored for organisation ADMIN (forced to active tenant). */
+  @IsOptional()
   @IsUUID()
-  organisationId!: string;
+  organisationId?: string;
 }

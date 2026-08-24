@@ -17,3 +17,9 @@ createRoot(rootEl).render(
     <Toaster position="top-right" richColors />
   </React.StrictMode>,
 );
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js');
+  });
+}

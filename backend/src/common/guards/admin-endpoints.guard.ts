@@ -30,7 +30,10 @@ export class AdminEndpointsGuard implements CanActivate {
     );
     if (!adminOnly) return true;
 
-    const raw = this.config.get<string>('ADMIN_ENDPOINTS_ENABLED') ?? 'true';
+    const nodeEnv = this.config.get<string>('NODE_ENV') ?? 'development';
+    const raw =
+      this.config.get<string>('ADMIN_ENDPOINTS_ENABLED') ??
+      (nodeEnv === 'production' ? 'false' : 'true');
     const enabled = raw.trim().toLowerCase() !== 'false';
     if (!enabled) {
       throw new ForbiddenException('Admin maintenance endpoints are disabled');

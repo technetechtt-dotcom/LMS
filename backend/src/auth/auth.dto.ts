@@ -22,6 +22,11 @@ export class RegisterDto {
 
   @IsString()
   lastName!: string;
+
+  /** Required unless PUBLIC_REGISTRATION=true (non-production only). */
+  @IsOptional()
+  @IsString()
+  inviteToken?: string;
 }
 
 export class RefreshTokenDto {

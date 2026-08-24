@@ -153,4 +153,24 @@ export class AuthController {
     if (!userId) throw new UnauthorizedException('Invalid session');
     return this.auth.getProfile(userId);
   }
+
+  @ApiBearerAuth()
+  @Post('mfa/enroll')
+  mfaEnroll() {
+    return {
+      enabled: false,
+      message:
+        'TOTP MFA enrollment is provisioned (User.totpEnabled) but authenticator pairing is not yet live',
+    };
+  }
+
+  @Public()
+  @Get('sso/status')
+  ssoStatus() {
+    return {
+      saml: false,
+      oidc: false,
+      message: 'SSO/SAML/OIDC IdP integration is not enabled in this release',
+    };
+  }
 }

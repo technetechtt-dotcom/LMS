@@ -5,9 +5,6 @@ export class CreateModerationDto {
   @IsUUID()
   assessmentId!: string;
 
-  @IsUUID()
-  moderatorId!: string;
-
   @IsEnum(ModerationDecision)
   decision!: ModerationDecision;
 

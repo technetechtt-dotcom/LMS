@@ -22,45 +22,47 @@ export class CertificatesService {
     private readonly config: ConfigService,
   ) {}
 
-  private mapDoc(doc: {
+  private mapCredential(row: {
     id: string;
-    name: string;
-    url: string;
-    metadata: unknown;
+    title: string;
+    enrollmentId: string;
+    learnerName: string;
+    programmeName: string;
+    certificateNumber: string;
+    verificationCode: string;
+    status: string;
+    issuedAt: Date;
+    pdfStorageKey: string;
     createdAt: Date;
     updatedAt: Date;
-    enrollmentId: string | null;
   }) {
-    const meta = (doc.metadata as Record<string, unknown> | null) ?? {};
     return {
-      id: doc.id,
-      title: doc.name,
-      learnerId: doc.enrollmentId,
-      learnerName: meta.learnerName as string | undefined,
-      programmeName: meta.programmeName as string | undefined,
-      issuedAt: (meta.issuedAt as string) ?? doc.createdAt.toISOString(),
-      certificateNumber:
-        (meta.certificateNumber as string) ?? doc.id.slice(0, 8),
-      verificationCode: meta.verificationCode as string | undefined,
-      status: (meta.status as string) ?? 'issued',
-      fileUrl: doc.url,
-      createdAt: doc.createdAt.toISOString(),
-      updatedAt: doc.updatedAt.toISOString(),
+      id: row.id,
+      title: row.title,
+      learnerId: row.enrollmentId,
+      learnerName: row.learnerName,
+      programmeName: row.programmeName,
+      issuedAt: row.issuedAt.toISOString(),
+      certificateNumber: row.certificateNumber,
+      verificationCode: row.verificationCode,
+      status: row.status.toLowerCase(),
+      fileUrl: `/documents/by-key/download`, // clients should use GET /certificates/:id/download
+      storageKey: row.pdfStorageKey,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
     };
   }
 
   async list(user?: AuthUser, enrollmentId?: string) {
     const organisationId = requireOrganisationId(user);
-    const docs = await this.prisma.document.findMany({
+    const rows = await this.prisma.credential.findMany({
       where: {
-        deletedAt: null,
         organisationId,
-        category: 'certificate',
         ...(enrollmentId ? { enrollmentId } : {}),
       },
       orderBy: { createdAt: 'desc' },
     });
-    return docs.map((d) => this.mapDoc(d));
+    return rows.map((d) => this.mapCredential(d));
   }
 
   private async buildPdf(opts: {
@@ -106,15 +108,7 @@ export class CertificatesService {
     });
   }
 
-  async issue(
-    body: {
-      enrollmentId: string;
-      title?: string;
-      programmeName?: string;
-      learnerName?: string;
-    },
-    user?: AuthUser,
-  ) {
+  async issue(body: { enrollmentId: string }, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const gate = await this.poeWorkflow.enrollmentReadyForCertificate(
       body.enrollmentId,
@@ -143,16 +137,15 @@ export class CertificatesService {
     if (!enrollment) throw new NotFoundException('Enrollment not found');
 
     const learnerName =
-      body.learnerName ??
       `${enrollment.learner.firstName} ${enrollment.learner.lastName}`.trim();
-    const title =
-      body.title ?? `Certificate of Competence — ${enrollment.programme.title}`;
+    const programmeName = enrollment.programme.title;
+    const title = `Certificate of Competence — ${programmeName}`;
     const certNo = `CERT-${Date.now().toString(36).toUpperCase()}`;
     const verificationCode = createHash('sha256')
       .update(`${certNo}:${enrollment.id}:${randomUUID()}`)
       .digest('hex')
       .slice(0, 24);
-    const issuedAt = new Date().toISOString();
+    const issuedAt = new Date();
     const front =
       this.config.get<string>('FRONTEND_ORIGIN')?.split(',')[0]?.trim() ??
       'http://localhost:5173';
@@ -161,11 +154,12 @@ export class CertificatesService {
     const pdf = await this.buildPdf({
       title,
       learnerName,
-      programmeName: body.programmeName ?? enrollment.programme.title,
+      programmeName,
       certNo,
-      issuedAt: issuedAt.slice(0, 10),
+      issuedAt: issuedAt.toISOString().slice(0, 10),
       verifyUrl,
     });
+    const pdfSha256 = createHash('sha256').update(pdf).digest('hex');
 
     const stored = await this.files.upload(
       `${certNo}.pdf`,
@@ -174,6 +168,8 @@ export class CertificatesService {
       { prefix: 'certificates', organisationId },
     );
 
+    const locator = this.files.storageLocator(stored.key, stored.bucket);
+
     const doc = await this.prisma.document.create({
       data: {
         organisationId,
@@ -181,36 +177,93 @@ export class CertificatesService {
         category: 'certificate',
         name: title,
         storageKey: stored.key,
-        url: stored.url,
+        url: locator,
         metadata: {
-          status: 'issued',
           certificateNumber: certNo,
           verificationCode,
-          learnerName,
-          programmeName: body.programmeName ?? enrollment.programme.title,
-          issuedAt,
-          issuedBy: user?.userId,
-          verifyUrl,
         },
       },
     });
-    return this.mapDoc(doc);
+
+    const credential = await this.prisma.credential.create({
+      data: {
+        organisationId,
+        enrollmentId: enrollment.id,
+        certificateNumber: certNo,
+        verificationCode,
+        title,
+        learnerName,
+        programmeName,
+        status: 'ISSUED',
+        issuedAt,
+        issuedById: user?.userId,
+        pdfStorageKey: stored.key,
+        pdfSha256,
+        documentId: doc.id,
+        metadata: { verifyUrl },
+      },
+    });
+
+    return this.mapCredential(credential);
+  }
+
+  async revoke(
+    id: string,
+    body: { reason: string },
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    if (!body.reason?.trim()) {
+      throw new BadRequestException('revocation reason is required');
+    }
+    const row = await this.prisma.credential.findFirst({
+      where: { id, organisationId },
+    });
+    if (!row) throw new NotFoundException('Credential not found');
+    if (row.status === 'REVOKED') {
+      throw new BadRequestException('Credential already revoked');
+    }
+    return this.prisma.credential.update({
+      where: { id },
+      data: {
+        status: 'REVOKED',
+        revokedAt: new Date(),
+        revocationReason: body.reason.trim(),
+        metadata: {
+          ...((row.metadata as object) ?? {}),
+          revokedBy: user?.userId,
+        },
+      },
+    }).then((c) => this.mapCredential(c));
+  }
+
+  async download(id: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const row = await this.prisma.credential.findFirst({
+      where: { id, organisationId },
+    });
+    if (!row) throw new NotFoundException('Credential not found');
+    const downloadUrl = await this.files.getSignedDownloadUrl(
+      row.pdfStorageKey,
+      900,
+    );
+    return {
+      id: row.id,
+      storageKey: row.pdfStorageKey,
+      downloadUrl,
+      expiresInSeconds: 900,
+    };
   }
 
   async verify(code: string) {
-    const docs = await this.prisma.document.findMany({
-      where: { deletedAt: null, category: 'certificate' },
-      take: 500,
-      orderBy: { createdAt: 'desc' },
+    const row = await this.prisma.credential.findFirst({
+      where: { verificationCode: code },
     });
-    const doc = docs.find((d) => {
-      const meta = (d.metadata as Record<string, unknown> | null) ?? {};
-      return meta.verificationCode === code;
-    });
-    if (!doc) throw new NotFoundException('Certificate not found');
+    if (!row) throw new NotFoundException('Certificate not found');
     return {
-      valid: true,
-      ...this.mapDoc(doc),
+      valid: row.status === 'ISSUED',
+      credentialStatus: row.status,
+      ...this.mapCredential(row),
     };
   }
 }

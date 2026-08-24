@@ -84,6 +84,8 @@ model User {
   /// SDP-assigned facilitator job capacity (optional).
   facilitatorRole FacilitatorRole?
   lastLoginAt  DateTime?
+  totpEnabled  Boolean            @default(false)
+  totpSecret   String?
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   deletedAt    DateTime?
@@ -103,6 +105,10 @@ model User {
   inAppNotifications            InAppNotification[]
   messagesSent                  Message[]              @relation("MessagesSent")
   messagesReceived              Message[]              @relation("MessagesReceived")
+  workplaceLogsMentored         WorkplaceLog[]         @relation("WorkplaceLogMentor")
+  credentialsIssued             Credential[]           @relation("CredentialIssuedBy")
+  invitationsSent               Invitation[]           @relation("InvitationInvitedBy")
+  dataSubjectRequests           DataSubjectRequest[]
 }
 
 model Role {
@@ -113,6 +119,7 @@ model Role {
   updatedAt   DateTime           @updatedAt
   deletedAt   DateTime?
   memberships UserOrganisation[]
+  invitations Invitation[]
 }
 
 model Organisation {
@@ -130,6 +137,10 @@ model Organisation {
   employerEnrollments Enrollment[]     @relation("EmployerOrganisationEnrollment")
   documents     Document[]
   learningMaterials LearningMaterial[]
+  messages      Message[]
+  credentials   Credential[]
+  invitations   Invitation[]
+  dataSubjectRequests DataSubjectRequest[]
 }
 
 model UserOrganisation {
@@ -250,6 +261,7 @@ model Enrollment {
   documents             Document[]
   poeLearningArtifacts PoeLearningArtifact[]
   assessmentSubmissions AssessmentSubmission[]
+  credentials           Credential[]
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   deletedAt             DateTime?
@@ -338,13 +350,20 @@ model WorkplaceLog {
   supervisorName  String
   supervisorEmail String?
   supervisorSignedAt DateTime?
+  /// PENDING until workplace mentor verifies; only VERIFIED hours count toward completion.
+  mentorStatus    String      @default("PENDING")
+  mentorVerifiedAt DateTime?
+  mentorVerifiedById String?  @db.Uuid
+  mentorFeedback  String?
   metadata        Json?
   enrollment      Enrollment  @relation(fields: [enrollmentId], references: [id])
+  mentorVerifiedBy User?      @relation("WorkplaceLogMentor", fields: [mentorVerifiedById], references: [id])
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   deletedAt       DateTime?
 
   @@index([enrollmentId, logDate])
+  @@index([enrollmentId, mentorStatus])
 }
 
 model Assessment {
@@ -393,19 +412,61 @@ model AssessmentSubmission {
 }
 
 model Message {
-  id        String   @id @default(uuid()) @db.Uuid
-  fromId    String   @db.Uuid
-  toId      String   @db.Uuid
-  content   String
-  isRead    Boolean  @default(false)
-  metadata  Json?
-  from      User     @relation("MessagesSent", fields: [fromId], references: [id])
-  to        User     @relation("MessagesReceived", fields: [toId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @db.Uuid
+  fromId         String       @db.Uuid
+  toId           String       @db.Uuid
+  content        String
+  isRead         Boolean      @default(false)
+  metadata       Json?
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  from           User         @relation("MessagesSent", fields: [fromId], references: [id])
+  to             User         @relation("MessagesReceived", fields: [toId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
+  @@index([organisationId, createdAt])
   @@index([fromId, createdAt])
   @@index([toId, isRead, createdAt])
+}
+
+enum CredentialStatus {
+  ISSUED
+  REVOKED
+  SUPERSEDED
+}
+
+/// First-class credential record (not Document metadata).
+model Credential {
+  id                 String           @id @default(uuid()) @db.Uuid
+  organisationId     String           @db.Uuid
+  enrollmentId       String           @db.Uuid
+  certificateNumber  String           @unique
+  verificationCode   String           @unique
+  title              String
+  learnerName        String
+  programmeName      String
+  status             CredentialStatus @default(ISSUED)
+  issuedAt           DateTime         @default(now())
+  issuedById         String?          @db.Uuid
+  revokedAt          DateTime?
+  revocationReason   String?
+  supersedesId       String?          @db.Uuid
+  pdfStorageKey      String
+  pdfSha256          String?
+  documentId         String?          @db.Uuid
+  metadata           Json?
+  organisation       Organisation     @relation(fields: [organisationId], references: [id])
+  enrollment         Enrollment       @relation(fields: [enrollmentId], references: [id])
+  issuedBy           User?            @relation("CredentialIssuedBy", fields: [issuedById], references: [id])
+  supersedes         Credential?      @relation("CredentialSupersession", fields: [supersedesId], references: [id])
+  supersededBy       Credential[]     @relation("CredentialSupersession")
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([organisationId, status])
+  @@index([enrollmentId])
+  @@index([verificationCode])
 }
 
 model Moderation {
@@ -622,3 +683,64 @@ model AuditLog {
   @@index([organisationId, entityType, createdAt])
   @@index([actorId, createdAt])
 }
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+/// Organisation-scoped join: public self-registration is disabled in production.
+model Invitation {
+  id             String           @id @default(uuid()) @db.Uuid
+  organisationId String           @db.Uuid
+  email          String
+  roleId         String           @db.Uuid
+  tokenHash      String           @unique
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  invitedById    String           @db.Uuid
+  organisation   Organisation     @relation(fields: [organisationId], references: [id])
+  role           Role             @relation(fields: [roleId], references: [id])
+  invitedBy      User             @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([organisationId, email])
+  @@index([email, status])
+}
+
+enum DataSubjectRequestType {
+  ACCESS
+  RECTIFICATION
+  ERASURE
+  RESTRICTION
+}
+
+enum DataSubjectRequestStatus {
+  RECEIVED
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
+model DataSubjectRequest {
+  id             String                     @id @default(uuid()) @db.Uuid
+  organisationId String                     @db.Uuid
+  subjectUserId  String                     @db.Uuid
+  type           DataSubjectRequestType
+  status         DataSubjectRequestStatus   @default(RECEIVED)
+  notes          String?
+  retentionUntil DateTime?
+  completedAt    DateTime?
+  organisation   Organisation               @relation(fields: [organisationId], references: [id])
+  subject        User                       @relation(fields: [subjectUserId], references: [id])
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  @@index([organisationId, status])
+  @@index([subjectUserId])
+}
+

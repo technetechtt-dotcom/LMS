@@ -8,9 +8,7 @@ export class CreateEnrollmentDto {
   @IsUUID()
   programmeId!: string;
 
-  @IsUUID()
-  sdioOrganisationId!: string;
-
+  /** Optional employer org — SDP org is always derived from the auth tenant. */
   @IsOptional()
   @IsUUID()
   employerOrganisationId?: string;

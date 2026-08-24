@@ -25,16 +25,32 @@ export class CertificatesController {
   @Roles('ADMIN', 'ASSESSOR', 'QA_OFFICER', 'FACILITATOR')
   @Post('issue')
   async issue(
-    @Body()
-    body: {
-      enrollmentId: string;
-      title?: string;
-      programmeName?: string;
-      learnerName?: string;
-    },
+    @Body() body: { enrollmentId: string },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const data = await this.certificates.issue(body, req.user);
+    return { success: true, data };
+  }
+
+  @ApiBearerAuth()
+  @Roles('ADMIN', 'QA_OFFICER')
+  @Post(':id/revoke')
+  async revoke(
+    @Param('id') id: string,
+    @Body() body: { reason: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.certificates.revoke(id, body, req.user);
+    return { success: true, data };
+  }
+
+  @ApiBearerAuth()
+  @Get(':id/download')
+  async download(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.certificates.download(id, req.user);
     return { success: true, data };
   }
 

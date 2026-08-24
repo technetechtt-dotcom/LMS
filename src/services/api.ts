@@ -640,7 +640,6 @@ export const attendanceService = {
 export type CreateEnrollmentPayload = {
   learnerId: string;
   programmeId: string;
-  sdioOrganisationId: string;
   employerOrganisationId?: string;
 };
 

@@ -3,9 +3,6 @@ import { IsDateString, IsEnum, IsOptional, IsString, IsUUID } from 'class-valida
 
 export class CreateProgrammeDto {
   @IsUUID()
-  organisationId!: string;
-
-  @IsUUID()
   qualificationId!: string;
 
   @IsString()

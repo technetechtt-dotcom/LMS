@@ -1,5 +1,7 @@
 import {
+  enrollmentOrgWhere,
   isLearnerOnly,
+  isPlatformAdmin,
   isStaffUser,
   readOrganisationHeader,
   requireOrganisationId,
@@ -19,16 +21,28 @@ describe('tenant-scope', () => {
     organisationId: 'org1',
     roleCodes: ['FACILITATOR', 'LEARNER'],
   };
+  const admin: AuthUser = {
+    userId: 'u3',
+    email: 'admin@x.com',
+    organisationId: 'org1',
+    roleCodes: ['ADMIN'],
+  };
+  const platform: AuthUser = {
+    userId: 'u4',
+    email: 'plat@x.com',
+    organisationId: 'org1',
+    roleCodes: ['PLATFORM_ADMIN'],
+  };
 
   it('reads organisation header aliases', () => {
-    expect(
-      readOrganisationHeader({ 'x-organisation-id': 'abc' }),
-    ).toBe('abc');
+    expect(readOrganisationHeader({ 'x-organisation-id': 'abc' })).toBe('abc');
     expect(readOrganisationHeader({ 'x-tenant-id': 't1' })).toBe('t1');
   });
 
   it('requires organisation id', () => {
-    expect(() => requireOrganisationId({ ...learner, organisationId: undefined })).toThrow();
+    expect(() =>
+      requireOrganisationId({ ...learner, organisationId: undefined }),
+    ).toThrow();
     expect(requireOrganisationId(learner)).toBe('org1');
   });
 
@@ -37,5 +51,20 @@ describe('tenant-scope', () => {
     expect(isStaffUser(learner)).toBe(false);
     expect(isLearnerOnly(staff)).toBe(false);
     expect(isStaffUser(staff)).toBe(true);
+  });
+
+  it('PLATFORM_ADMIN is platform; org ADMIN is not', () => {
+    expect(isPlatformAdmin(platform)).toBe(true);
+    expect(isPlatformAdmin(admin)).toBe(false);
+  });
+
+  it('enrollmentOrgWhere includes programme org', () => {
+    const w = enrollmentOrgWhere('org1');
+    expect(w.OR).toEqual(
+      expect.arrayContaining([
+        { sdioOrganisationId: 'org1' },
+        { programme: { organisationId: 'org1' } },
+      ]),
+    );
   });
 });

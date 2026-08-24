@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import type { AuthUser } from '../common/types/request-with-user';
@@ -17,6 +17,14 @@ export class DocumentsController {
     @Query('enrollmentId') enrollmentId?: string,
   ) {
     return this.docs.list(req.user, enrollmentId);
+  }
+
+  @Get(':id/download')
+  download(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.docs.getDownloadUrl(id, req.user);
   }
 
   @Post()

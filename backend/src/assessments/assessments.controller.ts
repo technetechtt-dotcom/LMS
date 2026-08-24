@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -24,7 +24,7 @@ export class AssessmentsController {
   @Roles('ASSESSOR', 'ADMIN', 'FACILITATOR', 'MODERATOR')
   @Post('auto-grade')
   async autoGrade(
-    @Body() body: { responses?: unknown[]; unitStandardId?: string },
+    @Body() body: { responses?: unknown[]; instrumentId?: string },
   ) {
     const responses = Array.isArray(body.responses)
       ? body.responses.map((raw) => {
@@ -37,13 +37,16 @@ export class AssessmentsController {
           };
         })
       : [];
-    const data = body.unitStandardId
-      ? await this.instances.autoGradeAgainstBank(
-          body.unitStandardId,
-          responses,
-        )
-      : this.instances.autoGrade(responses);
-    return { success: true, data };
+    if (!body.instrumentId) {
+      throw new BadRequestException(
+        'instrumentId is required — grade only the bound instrument',
+      );
+    }
+    const result = await this.instances.autoGradeAgainstInstrument(
+      body.instrumentId,
+      responses,
+    );
+    return { success: true, data: result.graded, percentage: result.percentage };
   }
 
   @Get(':id/questions')

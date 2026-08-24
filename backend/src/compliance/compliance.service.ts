@@ -157,7 +157,7 @@ export class ComplianceService {
     const batchId = `NLRD-${Date.now()}`;
     const xml = [
       '<?xml version="1.0" encoding="UTF-8"?>',
-      `<NLRDExport batchId="${batchId}" organisationId="${organisationId}" generatedAt="${new Date().toISOString()}">`,
+      `<NLRDExport xmlns="urn:saqa:nlrd:internal-export:v1" schemaVersion="1.0" certification="internal-not-seta-certified" batchId="${batchId}" organisationId="${organisationId}" generatedAt="${new Date().toISOString()}">`,
       `<Validation valid="${errors.length === 0}" errorCount="${errors.length}"/>`,
       ...errors.map((err) => `<Error>${this.xmlEscape(err)}</Error>`),
       '<Learners>',
@@ -166,17 +166,27 @@ export class ComplianceService {
       '</NLRDExport>',
     ].join('');
 
+    const stored = await this.files.upload(
+      `${batchId}.xml`,
+      Buffer.from(xml, 'utf8'),
+      'application/xml',
+      { prefix: 'exports/nlrd', organisationId },
+    );
+
     await this.prisma.document.create({
       data: {
         organisationId,
         category: 'seta-submission',
         name: `NLRD ${batchId}`,
-        storageKey: `exports/nlrd/${batchId}.xml`,
-        url: `/exports/nlrd/${batchId}.xml`,
+        storageKey: stored.key,
+        url: this.files.storageLocator(stored.key, stored.bucket),
         metadata: {
           type: 'nlrd',
+          schemaVersion: '1.0',
+          certification: 'internal-not-seta-certified',
           reference: batchId,
           status: errors.length ? 'invalid' : 'generated',
+          submissionStatus: 'generated_not_accepted',
           submittedAt: new Date().toISOString(),
           errorCount: errors.length,
         },
@@ -185,10 +195,12 @@ export class ComplianceService {
 
     return {
       batchId,
+      schemaVersion: '1.0',
+      certification: 'internal-not-seta-certified',
       valid: errors.length === 0,
       errors,
       recordCount: enrollments.length,
-      xml,
+      storageKey: stored.key,
     };
   }
 

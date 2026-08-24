@@ -16,6 +16,7 @@ function roleFromMemberships(
   const code = m.role.code;
   const map: Record<string, string> = {
     ADMIN: 'Admin',
+    PLATFORM_ADMIN: 'Platform Admin',
     FACILITATOR: 'Facilitator',
     LEARNER: 'Learner',
     ASSESSOR: 'Assessor',
@@ -59,14 +60,24 @@ export class MessagesService {
     };
   }
 
-  async listForUser(userId: string | undefined) {
+  async listForUser(user?: AuthUser) {
+    const userId = user?.userId;
     if (!userId) return [];
+    const organisationId = requireOrganisationId(user);
     const rows = await this.prisma.message.findMany({
       where: {
+        organisationId,
         OR: [{ fromId: userId }, { toId: userId }],
       },
       include: {
-        from: { include: { memberships: { include: { role: true } } } },
+        from: {
+          include: {
+            memberships: {
+              where: { organisationId, deletedAt: null },
+              include: { role: true },
+            },
+          },
+        },
         to: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -103,9 +114,21 @@ export class MessagesService {
     if (!toUser) throw new NotFoundException('Recipient not found');
 
     const row = await this.prisma.message.create({
-      data: { fromId, toId, content: content.trim() },
+      data: {
+        organisationId,
+        fromId,
+        toId,
+        content: content.trim(),
+      },
       include: {
-        from: { include: { memberships: { include: { role: true } } } },
+        from: {
+          include: {
+            memberships: {
+              where: { organisationId, deletedAt: null },
+              include: { role: true },
+            },
+          },
+        },
         to: true,
       },
     });

@@ -9,6 +9,7 @@ import type {
 /** Mirrors frontend `UserRole` strings */
 const ROLE_CODE_TO_APP: Record<string, string> = {
   ADMIN: 'Admin',
+  PLATFORM_ADMIN: 'Platform Admin',
   FACILITATOR: 'Facilitator',
   LEARNER: 'Learner',
   ASSESSOR: 'Assessor',
@@ -18,6 +19,7 @@ const ROLE_CODE_TO_APP: Record<string, string> = {
 };
 
 const ROLE_PRIORITY = [
+  'PLATFORM_ADMIN',
   'ADMIN',
   'QA_OFFICER',
   'SETA',

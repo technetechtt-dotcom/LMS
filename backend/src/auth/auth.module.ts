@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import type { SignOptions } from 'jsonwebtoken';
 import { MailModule } from '../mail/mail.module';
+import { InvitationsModule } from '../invitations/invitations.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 
@@ -10,6 +11,7 @@ import { AuthService } from './auth.service';
   imports: [
     ConfigModule,
     MailModule,
+    InvitationsModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({

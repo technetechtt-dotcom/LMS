@@ -8,8 +8,8 @@ import { ConfigService } from '@nestjs/config';
 
 /**
  * Antivirus gate for uploads.
- * - AV_SCAN_MODE=off|mock|http (default: mock in non-prod, http if AV_SCAN_URL set)
- * - AV_SCAN_URL: POST multipart/binary endpoint that returns { clean: boolean }
+ * - AV_SCAN_MODE=off|mock|http
+ * - Production: only http (real scanner); unavailable = reject (fail closed)
  */
 @Injectable()
 export class AntivirusService {
@@ -23,6 +23,7 @@ export class AntivirusService {
       throw new PayloadTooLargeException(`File exceeds ${maxMb}MB`);
     }
 
+    const nodeEnv = this.config.get<string>('NODE_ENV') ?? 'development';
     const mode = (
       this.config.get<string>('AV_SCAN_MODE') ??
       (this.config.get<string>('AV_SCAN_URL') ? 'http' : 'mock')
@@ -30,10 +31,22 @@ export class AntivirusService {
       .trim()
       .toLowerCase();
 
+    if (nodeEnv === 'production') {
+      if (mode === 'off' || mode === 'mock') {
+        throw new UnprocessableEntityException(
+          'Production uploads require AV_SCAN_MODE=http with a working scanner',
+        );
+      }
+      if (mode !== 'http') {
+        throw new UnprocessableEntityException(
+          `Unsupported AV_SCAN_MODE=${mode} in production`,
+        );
+      }
+    }
+
     if (mode === 'off') return;
 
     if (mode === 'mock') {
-      // Deterministic fail for EICAR test string
       if (bytes.includes(Buffer.from('EICAR-STANDARD-ANTIVIRUS-TEST-FILE'))) {
         throw new UnprocessableEntityException('Malware detected (mock AV)');
       }
@@ -45,25 +58,36 @@ export class AntivirusService {
       if (!url) {
         throw new UnprocessableEntityException('AV_SCAN_URL is not configured');
       }
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'X-File-Name': fileName,
-        },
-        body: new Uint8Array(bytes),
-      });
-      if (!res.ok) {
-        this.logger.error(`AV scan HTTP ${res.status}`);
-        throw new UnprocessableEntityException('Antivirus scan failed');
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-File-Name': fileName,
+          },
+          body: new Uint8Array(bytes),
+        });
+        if (!res.ok) {
+          this.logger.error(`AV scan HTTP ${res.status}`);
+          throw new UnprocessableEntityException('Antivirus scan failed');
+        }
+        const json = (await res.json()) as { clean?: boolean };
+        if (json.clean !== true) {
+          throw new UnprocessableEntityException('Malware detected');
+        }
+        return;
+      } catch (err) {
+        if (err instanceof UnprocessableEntityException) throw err;
+        this.logger.error(`AV scan unavailable: ${String(err)}`);
+        throw new UnprocessableEntityException(
+          'Antivirus scanner unavailable — upload rejected',
+        );
       }
-      const json = (await res.json()) as { clean?: boolean };
-      if (json.clean !== true) {
-        throw new UnprocessableEntityException('Malware detected');
-      }
-      return;
     }
 
-    this.logger.warn(`Unknown AV_SCAN_MODE=${mode}; allowing upload`);
+    this.logger.error(`Unknown AV_SCAN_MODE=${mode}; rejecting upload`);
+    throw new UnprocessableEntityException(
+      `Unknown AV_SCAN_MODE=${mode}; upload rejected`,
+    );
   }
 }

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Observable, tap } from 'rxjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { redactAuditValue } from '../../audit/audit-redact';
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
@@ -41,7 +42,7 @@ export class AuditInterceptor implements NestInterceptor {
             entityType: req.originalUrl,
             action: req.method,
             beforeValue: undefined,
-            afterValue: (afterValue ?? req.body) as object,
+            afterValue: redactAuditValue(afterValue ?? req.body) as object,
             ipAddress: req.ip,
             userAgent:
               typeof req.headers['user-agent'] === 'string'

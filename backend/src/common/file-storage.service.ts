@@ -81,7 +81,8 @@ export class FileStorageService {
         bucket: cfg.bucket,
         mimeType,
         size: bytes.length,
-        url: `https://${cfg.bucket}.s3.${cfg.region}.amazonaws.com/${encodeURI(key)}`,
+        /** Permanent locator — never persist expiring signed URLs. */
+        url: this.storageLocator(key, cfg.bucket),
         provider: 'mock-s3' as const,
       };
     }
@@ -99,16 +100,21 @@ export class FileStorageService {
       }),
     );
 
-    const url = await this.getSignedDownloadUrl(key, 3600);
     this.logger.log(`Uploaded s3://${cfg.bucket}/${key}`);
     return {
       key,
       bucket: cfg.bucket,
       mimeType,
       size: bytes.length,
-      url,
+      url: this.storageLocator(key, cfg.bucket),
       provider: 's3' as const,
     };
+  }
+
+  /** Stable non-expiring locator for DB persistence. */
+  storageLocator(key: string, bucket?: string) {
+    const cfg = this.s3Config();
+    return `storage://${bucket ?? cfg.bucket}/${key}`;
   }
 
   async getSignedDownloadUrl(key: string, expiresInSeconds = 900) {

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -11,12 +12,10 @@ import {
   isLearnerOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
-
-type ResponseInput = {
-  questionId: string;
-  questionType?: string;
-  answer?: unknown;
-};
+import {
+  gradeAgainstInstrument,
+  type ResponseInput,
+} from './grade-instrument';
 
 @Injectable()
 export class AssessmentInstancesService {
@@ -87,7 +86,10 @@ export class AssessmentInstancesService {
     const row = await this.prisma.assessmentSubmission.findFirst({
       where: {
         id,
-        enrollment: enrollmentOrgWhere(organisationId),
+        enrollment: {
+          ...enrollmentOrgWhere(organisationId),
+          ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
+        },
       },
       include: {
         enrollment: { include: { learner: true } },
@@ -110,8 +112,6 @@ export class AssessmentInstancesService {
       throw new NotFoundException('assessmentId is required');
     }
 
-    // Learners: bind to their own enrollment for this assessment (ignore client ids).
-    // Staff may submit on behalf only when enrollmentId is in-tenant.
     let enrollmentId = String(body.enrollmentId ?? body.learnerId ?? '');
 
     const assessment = await this.prisma.assessment.findFirst({
@@ -153,8 +153,40 @@ export class AssessmentInstancesService {
       }
     }
 
+    const inProgress = await this.prisma.assessmentSubmission.findFirst({
+      where: {
+        assessmentId,
+        enrollmentId,
+        status: 'in_progress',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    let instrumentId = inProgress?.instrumentId ?? null;
+    if (!instrumentId) {
+      const published = await this.prisma.assessmentInstrument.findFirst({
+        where: {
+          unitStandardId: assessment.unitStandardId,
+          status: 'PUBLISHED',
+        },
+        orderBy: { version: 'desc' },
+      });
+      if (!published) {
+        throw new BadRequestException(
+          'No published assessment instrument available for grading',
+        );
+      }
+      instrumentId = published.id;
+    }
+
+    const instrument = await this.prisma.assessmentInstrument.findFirst({
+      where: { id: instrumentId },
+    });
+    if (!instrument) {
+      throw new BadRequestException('Bound assessment instrument not found');
+    }
+
     const responsesRaw = Array.isArray(body.responses) ? body.responses : [];
-    // Strip any client-supplied scoring fields before grading.
     const sanitized: ResponseInput[] = responsesRaw.map((raw) => {
       const r = raw as Record<string, unknown>;
       return {
@@ -165,39 +197,37 @@ export class AssessmentInstancesService {
       };
     });
 
-    const graded = await this.autoGradeAgainstBank(
-      assessment.unitStandardId,
-      sanitized,
-    );
-    const totalScore = graded.reduce((s, r) => s + (r.score ?? 0), 0);
-    const maxScore = graded.reduce((s, r) => s + (r.maxScore ?? 1), 0);
-    const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
-
-    const published = await this.prisma.assessmentInstrument.findFirst({
-      where: {
-        unitStandardId: assessment.unitStandardId,
-        status: 'PUBLISHED',
-      },
-      orderBy: { version: 'desc' },
-    });
+    const { graded, totalScore, percentage } =
+      await this.autoGradeAgainstInstrument(instrumentId, sanitized);
 
     const now = new Date();
-    const row = await this.prisma.assessmentSubmission.create({
-      data: {
-        enrollmentId,
-        assessmentId,
-        instrumentId: published?.id,
-        status: 'submitted',
-        responses: graded as object[],
-        score: totalScore,
-        percentage,
-        submittedAt: now,
-      },
-      include: {
-        enrollment: { include: { learner: true } },
-        assessment: { include: { unitStandard: true } },
-      },
-    });
+    const data = {
+      enrollmentId,
+      assessmentId,
+      instrumentId,
+      status: 'submitted',
+      responses: graded as object[],
+      score: totalScore,
+      percentage,
+      submittedAt: now,
+    };
+
+    const row = inProgress
+      ? await this.prisma.assessmentSubmission.update({
+          where: { id: inProgress.id },
+          data,
+          include: {
+            enrollment: { include: { learner: true } },
+            assessment: { include: { unitStandard: true } },
+          },
+        })
+      : await this.prisma.assessmentSubmission.create({
+          data,
+          include: {
+            enrollment: { include: { learner: true } },
+            assessment: { include: { unitStandard: true } },
+          },
+        });
     return this.mapSubmission(row);
   }
 
@@ -231,55 +261,47 @@ export class AssessmentInstancesService {
     return this.mapSubmission(row);
   }
 
-  /** Server-side grading only — never trusts client score/isCorrect/maxScore. */
+  /** Grade only against the bound instrument; omitted questions still count in maxScore. */
+  async autoGradeAgainstInstrument(
+    instrumentId: string,
+    responses: ResponseInput[],
+  ) {
+    const questions = await this.prisma.assessmentQuestion.findMany({
+      where: { instrumentId, deletedAt: null },
+      orderBy: { orderIndex: 'asc' },
+    });
+    if (!questions.length) {
+      throw new BadRequestException(
+        'Instrument has no questions to grade against',
+      );
+    }
+    return gradeAgainstInstrument(questions, responses);
+  }
+
+  /** @deprecated Prefer autoGradeAgainstInstrument — kept for unit tests. */
   async autoGradeAgainstBank(
     unitStandardId: string,
     responses: ResponseInput[],
-  ): Promise<
-    Array<ResponseInput & { score: number; maxScore: number; isCorrect: boolean }>
-  > {
-    const questions = await this.prisma.assessmentQuestion.findMany({
-      where: { unitStandardId, deletedAt: null },
+  ) {
+    const published = await this.prisma.assessmentInstrument.findFirst({
+      where: { unitStandardId, status: 'PUBLISHED' },
+      orderBy: { version: 'desc' },
     });
-    const byId = new Map(questions.map((q) => [q.id, q]));
-
-    return responses.map((r) => {
-      const q = byId.get(r.questionId);
-      const max = q?.points ?? 1;
-      const opts = (q?.options as Record<string, unknown> | null) ?? {};
-      let score = 0;
-      let isCorrect = false;
-
-      if (q) {
-        if (typeof opts.correctIndex === 'number') {
-          const answerIdx =
-            typeof r.answer === 'number'
-              ? r.answer
-              : typeof r.answer === 'string' && /^\d+$/.test(r.answer)
-                ? Number(r.answer)
-                : Array.isArray(opts.choices)
-                  ? (opts.choices as string[]).indexOf(String(r.answer))
-                  : -1;
-          isCorrect = answerIdx === opts.correctIndex;
-          score = isCorrect ? max : 0;
-        } else if (opts.correctAnswer != null) {
-          isCorrect =
-            String(r.answer).trim().toLowerCase() ===
-            String(opts.correctAnswer).trim().toLowerCase();
-          score = isCorrect ? max : 0;
-        } else if (
-          (typeof r.answer === 'string' && r.answer.trim()) ||
-          typeof r.answer === 'boolean' ||
-          (Array.isArray(r.answer) && r.answer.length)
-        ) {
-          // Open answers: mark pending (0 until human grade).
-          score = 0;
-          isCorrect = false;
-        }
-      }
-
-      return { ...r, score, maxScore: max, isCorrect };
-    });
+    if (!published) {
+      return {
+        graded: responses.map((r) => ({
+          ...r,
+          score: 0,
+          maxScore: 1,
+          isCorrect: false,
+          omitted: true,
+        })),
+        totalScore: 0,
+        maxScore: 0,
+        percentage: 0,
+      };
+    }
+    return this.autoGradeAgainstInstrument(published.id, responses);
   }
 
   /** Staff-only heuristic when no unit bank is provided — still ignores client scores. */
