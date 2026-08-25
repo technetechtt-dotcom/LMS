@@ -69,13 +69,17 @@ export class DocumentsService {
       );
     }
 
-    const locator = this.files.storageLocator(dto.storageKey);
+    const key = this.files.assertValidStorageKey(
+      dto.storageKey,
+      organisationId,
+    );
+    const locator = this.files.storageLocator(key);
     return this.prisma.document.create({
       data: {
         enrollmentId: dto.enrollmentId,
         category: dto.category,
         name: dto.name,
-        storageKey: dto.storageKey,
+        storageKey: key,
         url: locator,
         organisationId,
       },

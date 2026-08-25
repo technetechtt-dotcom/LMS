@@ -1,10 +1,13 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AdminOnlyEndpoint } from '../common/decorators/admin-only-endpoint.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
-import { CreateProgrammeDto } from './programmes.dto';
+import {
+  CreateProgrammeDto,
+  ProgrammeCompletionRequirementsDto,
+} from './programmes.dto';
 import { ProgrammesService } from './programmes.service';
 
 @ApiTags('Programmes & Qualifications')
@@ -24,6 +27,25 @@ export class ProgrammesController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.programmes.byId(id, req.user);
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER', 'FACILITATOR')
+  @Get(':id/completion-requirements')
+  getCompletionRequirements(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.getCompletionRequirements(id, req.user);
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER')
+  @Patch(':id/completion-requirements')
+  setCompletionRequirements(
+    @Param('id') id: string,
+    @Body() dto: ProgrammeCompletionRequirementsDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.setCompletionRequirements(id, dto, req.user);
   }
 
   @AdminOnlyEndpoint()

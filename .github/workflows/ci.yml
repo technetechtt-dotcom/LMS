@@ -36,5 +36,31 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npm run typecheck
-      - run: npm test
+      - run: npm test -- --coverage --coverageReporters=text-summary
       - run: npm run build
+
+  security:
+    name: security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Frontend dependency audit
+        run: npm audit --omit=dev --audit-level=high || true
+      - name: Backend dependency audit
+        working-directory: backend
+        run: npm ci && npm audit --omit=dev --audit-level=high || true
+      - name: Generate SBOM (frontend)
+        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom-frontend.json || true
+      - name: Generate SBOM (backend)
+        working-directory: backend
+        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom-backend.json || true
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true

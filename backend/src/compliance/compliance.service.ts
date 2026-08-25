@@ -5,6 +5,8 @@ import { FileStorageService } from '../common/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
 import { requireOrganisationId } from '../common/tenant/tenant-scope';
+import { resolveSetaAdapter } from './seta-adapters';
+import { NLRD_CERTIFICATION, NLRD_SCHEMA_VERSION } from './nlrd-schema';
 
 @Injectable()
 export class ComplianceService {
@@ -157,7 +159,7 @@ export class ComplianceService {
     const batchId = `NLRD-${Date.now()}`;
     const xml = [
       '<?xml version="1.0" encoding="UTF-8"?>',
-      `<NLRDExport xmlns="urn:saqa:nlrd:internal-export:v1" schemaVersion="1.0" certification="internal-not-seta-certified" batchId="${batchId}" organisationId="${organisationId}" generatedAt="${new Date().toISOString()}">`,
+      `<NLRDExport xmlns="urn:saqa:nlrd:internal-export:v1" schemaVersion="${NLRD_SCHEMA_VERSION}" certification="${NLRD_CERTIFICATION}" batchId="${batchId}" organisationId="${organisationId}" generatedAt="${new Date().toISOString()}">`,
       `<Validation valid="${errors.length === 0}" errorCount="${errors.length}"/>`,
       ...errors.map((err) => `<Error>${this.xmlEscape(err)}</Error>`),
       '<Learners>',
@@ -165,6 +167,12 @@ export class ComplianceService {
       '</Learners>',
       '</NLRDExport>',
     ].join('');
+
+    const adapter = resolveSetaAdapter();
+    const schemaCheck = adapter.validateXml(xml);
+    if (!schemaCheck.valid) {
+      errors.push(...schemaCheck.errors.map((e) => `Schema: ${e}`));
+    }
 
     const stored = await this.files.upload(
       `${batchId}.xml`,
@@ -182,8 +190,9 @@ export class ComplianceService {
         url: this.files.storageLocator(stored.key, stored.bucket),
         metadata: {
           type: 'nlrd',
-          schemaVersion: '1.0',
-          certification: 'internal-not-seta-certified',
+          schemaVersion: NLRD_SCHEMA_VERSION,
+          certification: NLRD_CERTIFICATION,
+          adapter: adapter.id,
           reference: batchId,
           status: errors.length ? 'invalid' : 'generated',
           submissionStatus: 'generated_not_accepted',
@@ -195,12 +204,14 @@ export class ComplianceService {
 
     return {
       batchId,
-      schemaVersion: '1.0',
-      certification: 'internal-not-seta-certified',
+      schemaVersion: NLRD_SCHEMA_VERSION,
+      certification: NLRD_CERTIFICATION,
+      adapter: adapter.id,
       valid: errors.length === 0,
       errors,
       recordCount: enrollments.length,
       storageKey: stored.key,
+      receipt: adapter.reconcile(batchId, 'generated'),
     };
   }
 
@@ -232,10 +243,8 @@ export class ComplianceService {
     };
 
     let body: string;
-    let contentType: string;
     if (format === 'json') {
       body = JSON.stringify(payload, null, 2);
-      contentType = 'application/json';
     } else {
       body = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -249,8 +258,10 @@ export class ComplianceService {
         `<ComplianceDocuments count="${docs}"/>`,
         '</SETAExport>',
       ].join('');
-      contentType = 'application/xml';
     }
+
+    const adapter = resolveSetaAdapter(setaId);
+    const packaged = adapter.buildExport(format === 'json' ? payload : body);
 
     await this.prisma.document.create({
       data: {
@@ -261,9 +272,12 @@ export class ComplianceService {
         url: `/exports/seta/${batchId}.${format === 'json' ? 'json' : 'xml'}`,
         metadata: {
           type: 'seta-export',
+          adapter: adapter.id,
+          schemaVersion: packaged.schemaVersion,
+          certification: packaged.certification,
           reference: batchId,
           status: 'generated',
-          contentType,
+          contentType: packaged.contentType,
           submittedAt: new Date().toISOString(),
         },
       },
@@ -271,10 +285,12 @@ export class ComplianceService {
 
     return {
       batchId,
+      adapter: adapter.id,
       format: format === 'json' ? 'json' : 'xml',
-      contentType,
-      body,
+      contentType: packaged.contentType,
+      body: packaged.body,
       url: `/exports/seta/${batchId}.${format === 'json' ? 'json' : 'xml'}`,
+      receipt: adapter.reconcile(batchId, 'generated'),
     };
   }
 

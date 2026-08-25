@@ -12,10 +12,15 @@ import {
   isLearnerOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
+import { resolveEnrollmentTransition } from './enrollment-lifecycle';
+import { CompletionGateService } from './completion-gate.service';
 
 @Injectable()
 export class EnrollmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly completion: CompletionGateService,
+  ) {}
 
   async list(user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
@@ -64,6 +69,7 @@ export class EnrollmentsService {
         programmeId: dto.programmeId,
         sdioOrganisationId: organisationId,
         employerOrganisationId: dto.employerOrganisationId,
+        status: 'ENROLLED',
       },
     });
   }
@@ -95,17 +101,50 @@ export class EnrollmentsService {
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
 
+    const toState = resolveEnrollmentTransition(
+      enrollment.status,
+      dto.action,
+      dto.toState,
+    );
+
+    if (dto.action === 'COMPLETE_ENROLLMENT') {
+      const gate = await this.completion.evaluate(id);
+      if (!gate.ready) {
+        throw new BadRequestException({
+          message: 'Enrolment does not meet programme completion requirements',
+          reasons: gate.reasons,
+          checks: gate.checks,
+        });
+      }
+    }
+
+    const now = new Date();
+    const statusData: {
+      status: typeof toState;
+      startedAt?: Date;
+      completedAt?: Date | null;
+    } = { status: toState };
+    if (toState === 'TRAINING' && !enrollment.startedAt) {
+      statusData.startedAt = now;
+    }
+    if (toState === 'COMPLETED') {
+      statusData.completedAt = now;
+    }
+    if (toState === 'ENROLLED' && dto.action === 'REOPEN') {
+      statusData.completedAt = null;
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.enrollment.update({
         where: { id },
-        data: { status: dto.toState },
+        data: statusData,
       });
 
       await tx.enrollmentWorkflow.create({
         data: {
           enrollmentId: id,
           fromState: enrollment.status,
-          toState: dto.toState,
+          toState,
           action: dto.action,
           reason: dto.reason,
           changedById,
@@ -115,5 +154,10 @@ export class EnrollmentsService {
 
       return updated;
     });
+  }
+
+  completionStatus(id: string, user?: AuthUser) {
+    requireOrganisationId(user);
+    return this.completion.evaluate(id);
   }
 }

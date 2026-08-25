@@ -4,7 +4,6 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import {
@@ -52,50 +51,112 @@ export class InvitationsService {
         tokenHash,
         invitedById: user.userId,
         expiresAt,
+        mailStatus: 'PENDING',
+        mailAttempts: 0,
       },
     });
 
+    await this.deliverInviteMail(invite.id, email, raw);
+
+    const refreshed = await this.prisma.invitation.findUniqueOrThrow({
+      where: { id: invite.id },
+    });
     const front =
       this.config.get<string>('FRONTEND_ORIGIN')?.split(',')[0]?.trim() ??
       'http://localhost:5173';
     const url = `${front}/register?invite=${encodeURIComponent(raw)}`;
-    try {
-      await this.mail.sendPasswordReset(email, url);
-    } catch {
-      // Invitation still created; mail failure is non-fatal in non-prod
-    }
 
     return {
-      id: invite.id,
+      id: refreshed.id,
       email,
       expiresAt: expiresAt.toISOString(),
+      mailStatus: refreshed.mailStatus,
+      mailAttempts: refreshed.mailAttempts,
       inviteUrl: this.config.get('NODE_ENV') === 'production' ? undefined : url,
     };
   }
 
-  async consume(token: string, userId: string, email: string) {
-    const tokenHash = hashOpaqueToken(token.trim());
+  async retryMail(id: string, user?: AuthUser) {
+    requireOrganisationId(user);
     const invite = await this.prisma.invitation.findFirst({
-      where: { tokenHash, status: 'PENDING' },
-    });
-    if (!invite || invite.expiresAt < new Date()) {
-      throw new BadRequestException('Invitation is invalid or expired');
-    }
-    if (invite.email.toLowerCase() !== email.toLowerCase()) {
-      throw new BadRequestException('Invitation email does not match');
-    }
-    await this.prisma.userOrganisation.create({
-      data: {
-        userId,
-        roleId: invite.roleId,
-        organisationId: invite.organisationId,
+      where: {
+        id,
+        organisationId: requireOrganisationId(user),
+        status: 'PENDING',
       },
     });
+    if (!invite) throw new BadRequestException('Invitation not found');
+    if (invite.mailAttempts >= 5) {
+      throw new BadRequestException('Mail retry limit reached');
+    }
+    // Cannot recover raw token from hash — issue replacement token
+    const raw = generateOpaqueRefreshToken();
+    const tokenHash = hashOpaqueToken(raw);
     await this.prisma.invitation.update({
-      where: { id: invite.id },
-      data: { status: 'ACCEPTED', acceptedAt: new Date() },
+      where: { id },
+      data: { tokenHash },
     });
-    return invite;
+    await this.deliverInviteMail(id, invite.email, raw);
+    return this.prisma.invitation.findUniqueOrThrow({ where: { id } });
+  }
+
+  private async deliverInviteMail(
+    invitationId: string,
+    email: string,
+    rawToken: string,
+  ) {
+    const front =
+      this.config.get<string>('FRONTEND_ORIGIN')?.split(',')[0]?.trim() ??
+      'http://localhost:5173';
+    const url = `${front}/register?invite=${encodeURIComponent(rawToken)}`;
+    try {
+      await this.mail.sendPasswordReset(email, url);
+      await this.prisma.invitation.update({
+        where: { id: invitationId },
+        data: {
+          mailStatus: 'SENT',
+          mailAttempts: { increment: 1 },
+          lastMailedAt: new Date(),
+          lastMailError: null,
+        },
+      });
+    } catch (err) {
+      await this.prisma.invitation.update({
+        where: { id: invitationId },
+        data: {
+          mailStatus: 'FAILED',
+          mailAttempts: { increment: 1 },
+          lastMailedAt: new Date(),
+          lastMailError: String(err).slice(0, 500),
+        },
+      });
+    }
+  }
+
+  async consume(token: string, userId: string, email: string) {
+    const tokenHash = hashOpaqueToken(token.trim());
+    return this.prisma.$transaction(async (tx) => {
+      const invite = await tx.invitation.findFirst({
+        where: { tokenHash, status: 'PENDING' },
+      });
+      if (!invite || invite.expiresAt < new Date()) {
+        throw new BadRequestException('Invitation is invalid or expired');
+      }
+      if (invite.email.toLowerCase() !== email.toLowerCase()) {
+        throw new BadRequestException('Invitation email does not match');
+      }
+      await tx.userOrganisation.create({
+        data: {
+          userId,
+          roleId: invite.roleId,
+          organisationId: invite.organisationId,
+        },
+      });
+      return tx.invitation.update({
+        where: { id: invite.id },
+        data: { status: 'ACCEPTED', acceptedAt: new Date() },
+      });
+    });
   }
 
   async peek(token: string) {

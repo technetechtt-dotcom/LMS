@@ -8,7 +8,10 @@ describe('DocumentsService.create tenant injection', () => {
       document: { create },
     };
     const files = {
-      storageLocator: jest.fn().mockReturnValue('storage://b/k'),
+      assertValidStorageKey: jest
+        .fn()
+        .mockImplementation((key: string) => `uploads/org-auth/${key}`),
+      storageLocator: jest.fn().mockReturnValue('storage://b/uploads/org-auth/k'),
     };
     const svc = new DocumentsService(prisma as never, files as never);
     await svc.create(
@@ -25,11 +28,12 @@ describe('DocumentsService.create tenant injection', () => {
         roleCodes: ['ADMIN'],
       },
     );
+    expect(files.assertValidStorageKey).toHaveBeenCalledWith('k', 'org-auth');
     expect(create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         organisationId: 'org-auth',
-        storageKey: 'k',
-        url: 'storage://b/k',
+        storageKey: 'uploads/org-auth/k',
+        url: 'storage://b/uploads/org-auth/k',
       }),
     });
   });

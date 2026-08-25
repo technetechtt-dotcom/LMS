@@ -258,7 +258,90 @@ export class AssessmentInstancesService {
         assessment: { include: { unitStandard: true } },
       },
     });
+
+    // Controlled C/NYC originates from grading workflow, not create DTO.
+    if (decision === 'approve' || decision === 'reject') {
+      await this.prisma.assessment.update({
+        where: { id: row.assessmentId },
+        data: {
+          result: decision === 'approve' ? 'C' : 'NYC',
+          feedback: comments,
+          assessedAt: new Date(),
+          ...(user?.userId ? { assessorId: user.userId } : {}),
+        },
+      });
+    }
+
     return this.mapSubmission(row);
+  }
+
+  /** Human marks for essay / file / practical items; merges into percentage. */
+  async humanGrade(
+    id: string,
+    grades: Array<{
+      questionId: string;
+      score: number;
+      maxScore?: number;
+      feedback?: string;
+    }>,
+    user?: AuthUser,
+  ) {
+    const row = await this.prisma.assessmentSubmission.findFirst({
+      where: {
+        id,
+        enrollment: enrollmentOrgWhere(requireOrganisationId(user)),
+      },
+    });
+    if (!row) throw new NotFoundException('Submission not found');
+    if (!['submitted', 'grading'].includes(row.status)) {
+      throw new BadRequestException(
+        'Only submitted/grading attempts accept human grades',
+      );
+    }
+
+    const responses = Array.isArray(row.responses)
+      ? (row.responses as Array<Record<string, unknown>>)
+      : [];
+    const gradeMap = new Map(grades.map((g) => [g.questionId, g]));
+    let totalScore = 0;
+    let maxScore = 0;
+    const merged = responses.map((r) => {
+      const qid = String(r.questionId ?? '');
+      const hg = gradeMap.get(qid);
+      const max = Number(hg?.maxScore ?? r.maxScore ?? 1);
+      const score = hg ? Number(hg.score) : Number(r.score ?? 0);
+      maxScore += max;
+      totalScore += score;
+      return {
+        ...r,
+        score,
+        maxScore: max,
+        humanFeedback: hg?.feedback,
+        humanGraded: Boolean(hg),
+      };
+    });
+    const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+
+    const updated = await this.prisma.assessmentSubmission.update({
+      where: { id },
+      data: {
+        status: 'grading',
+        responses: merged as object[],
+        humanGrades: grades as object[],
+        score: totalScore,
+        percentage,
+        gradedAt: new Date(),
+        feedback: grades
+          .map((g) => g.feedback)
+          .filter(Boolean)
+          .join('\n') || row.feedback,
+      },
+      include: {
+        enrollment: { include: { learner: true } },
+        assessment: { include: { unitStandard: true } },
+      },
+    });
+    return this.mapSubmission(updated);
   }
 
   /** Grade only against the bound instrument; omitted questions still count in maxScore. */

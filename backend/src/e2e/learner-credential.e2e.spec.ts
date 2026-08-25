@@ -1,11 +1,11 @@
-import { PoeWorkflowService } from '../poe/poe-workflow.service';
 import { CertificatesService } from '../certificates/certificates.service';
+import { PoeWorkflowService } from '../poe/poe-workflow.service';
 
 /**
  * Domain E2E: learner completion gate → credential issue (mocked persistence).
  */
 describe('learner → credential E2E', () => {
-  it('refuses issue when summative is missing even if workbook is approved', async () => {
+  it('refuses issue when programme completion gate fails', async () => {
     const prisma = {
       enrollment: {
         findFirst: jest.fn().mockResolvedValue({
@@ -13,17 +13,15 @@ describe('learner → credential E2E', () => {
           status: 'COMPLETED',
         }),
       },
-      assessment: {
-        findMany: jest.fn().mockResolvedValue([{ result: 'C' }]),
-      },
-      poeLearningArtifact: {
-        findFirst: jest
-          .fn()
-          .mockResolvedValueOnce({ id: 'wb' })
-          .mockResolvedValueOnce(null),
-      },
     };
-    const poe = new PoeWorkflowService(prisma as never);
+    const completion = {
+      evaluate: jest.fn().mockResolvedValue({
+        ready: false,
+        reasons: ['Missing approved SUMMATIVE PoE artefact'],
+        checks: {},
+      }),
+    };
+    const poe = new PoeWorkflowService(prisma as never, completion as never);
     const gate = await poe.enrollmentReadyForCertificate('e1');
     expect(gate.ready).toBe(false);
   });
@@ -62,7 +60,9 @@ describe('learner → credential E2E', () => {
       }),
     };
     const files = {
-      upload: jest.fn().mockResolvedValue({ key: 'k', bucket: 'b', url: 'storage://b/k' }),
+      upload: jest
+        .fn()
+        .mockResolvedValue({ key: 'k', bucket: 'b', url: 'storage://b/k' }),
       storageLocator: jest.fn().mockReturnValue('storage://b/k'),
     };
     const config = { get: jest.fn().mockReturnValue('http://localhost:5173') };
@@ -73,12 +73,7 @@ describe('learner → credential E2E', () => {
       config as never,
     );
     const result = await svc.issue(
-      {
-        enrollmentId: 'e1',
-        learnerName: 'HACKER',
-        programmeName: 'FAKE',
-        title: 'FAKE TITLE',
-      } as never,
+      { enrollmentId: 'e1' },
       {
         userId: 'admin',
         email: 'a@x',

@@ -8,18 +8,20 @@ export class CreateEnrollmentDto {
   @IsUUID()
   programmeId!: string;
 
-  /** Optional employer org — SDP org is always derived from the auth tenant. */
   @IsOptional()
   @IsUUID()
   employerOrganisationId?: string;
 }
 
 export class TransitionEnrollmentDto {
-  @IsEnum(LearnerLifecycleStatus)
-  toState!: LearnerLifecycleStatus;
-
+  /** Canonical driver — server derives toState from this action. */
   @IsEnum(WorkflowAction)
   action!: WorkflowAction;
+
+  /** Optional; if present must match the action's expected next state. */
+  @IsOptional()
+  @IsEnum(LearnerLifecycleStatus)
+  toState?: LearnerLifecycleStatus;
 
   @IsOptional()
   @IsString()

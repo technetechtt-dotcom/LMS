@@ -24,6 +24,7 @@ enum LearnerLifecycleStatus {
 }
 
 enum CompetencyResult {
+  PENDING
   C
   NYC
 }
@@ -371,7 +372,7 @@ model Assessment {
   enrollmentId    String           @db.Uuid
   unitStandardId  String           @db.Uuid
   assessorId      String           @db.Uuid
-  result          CompetencyResult
+  result          CompetencyResult @default(PENDING)
   feedback        String?
   evidenceLinks   Json?
   assessedAt      DateTime         @default(now())
@@ -393,8 +394,10 @@ model AssessmentSubmission {
   enrollmentId String     @db.Uuid
   assessmentId String     @db.Uuid
   instrumentId String?    @db.Uuid
+  attemptNumber Int       @default(1)
   status       String     @default("submitted")
   responses    Json       @default("[]")
+  humanGrades  Json?
   score        Float?
   percentage   Float?
   feedback     String?
@@ -409,6 +412,7 @@ model AssessmentSubmission {
   @@index([enrollmentId, assessmentId])
   @@index([assessmentId, status])
   @@index([instrumentId])
+  @@unique([assessmentId, enrollmentId, attemptNumber])
 }
 
 model Message {
@@ -598,6 +602,8 @@ model AssessmentInstrument {
   title          String?
   status         AssessmentInstrumentStatus  @default(DRAFT)
   publishedAt    DateTime?
+  /// Max learner attempts against this published instrument (0 = unlimited).
+  maxAttempts    Int                         @default(3)
   unitStandard   UnitStandard                @relation(fields: [unitStandardId], references: [id])
   questions      AssessmentQuestion[]
   submissions    AssessmentSubmission[]
@@ -702,6 +708,10 @@ model Invitation {
   expiresAt      DateTime
   acceptedAt     DateTime?
   invitedById    String           @db.Uuid
+  mailStatus     String           @default("PENDING")
+  mailAttempts   Int              @default(0)
+  lastMailError  String?
+  lastMailedAt   DateTime?
   organisation   Organisation     @relation(fields: [organisationId], references: [id])
   role           Role             @relation(fields: [roleId], references: [id])
   invitedBy      User             @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
@@ -742,5 +752,60 @@ model DataSubjectRequest {
 
   @@index([organisationId, status])
   @@index([subjectUserId])
+}
+
+model Incident {
+  id             String   @id @default(uuid()) @db.Uuid
+  organisationId String   @db.Uuid
+  severity       String
+  title          String
+  description    String
+  status         String   @default("OPEN")
+  reportedById   String?  @db.Uuid
+  resolvedAt     DateTime?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organisationId, status])
+}
+
+model RetentionPolicy {
+  id             String   @id @default(uuid()) @db.Uuid
+  organisationId String   @db.Uuid
+  entityType     String
+  retainDays     Int
+  disposalMethod String   @default("SOFT_DELETE")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organisationId, entityType])
+}
+
+model DataExportJob {
+  id             String    @id @default(uuid()) @db.Uuid
+  organisationId String    @db.Uuid
+  subjectUserId  String    @db.Uuid
+  status         String    @default("QUEUED")
+  storageKey     String?
+  requestedById  String    @db.Uuid
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([organisationId, subjectUserId])
+}
+
+model AttendanceSession {
+  id             String    @id @default(uuid()) @db.Uuid
+  organisationId String    @db.Uuid
+  programmeId    String    @db.Uuid
+  openedById     String    @db.Uuid
+  tokenHash      String    @unique
+  expiresAt      DateTime
+  closedAt       DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([organisationId, programmeId])
 }
 

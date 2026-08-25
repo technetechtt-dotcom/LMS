@@ -20,6 +20,7 @@ async function main() {
     ['ASSESSOR', 'Assessor'],
     ['MODERATOR', 'Moderator'],
     ['QA_OFFICER', 'QA Officer'],
+    ['MENTOR', 'Workplace Mentor'],
     ['SETA', 'SETA Official'],
   ] as const;
 

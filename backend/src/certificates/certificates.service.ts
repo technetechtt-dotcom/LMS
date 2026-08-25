@@ -237,6 +237,40 @@ export class CertificatesService {
     }).then((c) => this.mapCredential(c));
   }
 
+  /** Reissue: mark prior ISSUED credential SUPERSEDED and issue a replacement. */
+  async reissue(id: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const prior = await this.prisma.credential.findFirst({
+      where: { id, organisationId },
+    });
+    if (!prior) throw new NotFoundException('Credential not found');
+    if (prior.status === 'REVOKED') {
+      throw new BadRequestException('Cannot reissue a revoked credential');
+    }
+
+    await this.prisma.credential.update({
+      where: { id },
+      data: {
+        status: 'SUPERSEDED',
+        metadata: {
+          ...((prior.metadata as object) ?? {}),
+          supersededAt: new Date().toISOString(),
+          supersededByActor: user?.userId,
+        },
+      },
+    });
+
+    const replacement = await this.issue(
+      { enrollmentId: prior.enrollmentId },
+      user,
+    );
+    await this.prisma.credential.update({
+      where: { id: replacement.id },
+      data: { supersedesId: prior.id },
+    });
+    return { priorId: prior.id, replacement };
+  }
+
   async download(id: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const row = await this.prisma.credential.findFirst({

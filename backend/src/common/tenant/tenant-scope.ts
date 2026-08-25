@@ -17,6 +17,7 @@ const STAFF_ROLES = new Set([
   'MODERATOR',
   'QA_OFFICER',
   'SETA',
+  'MENTOR',
 ]);
 
 export function readOrganisationHeader(

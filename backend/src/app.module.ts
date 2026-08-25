@@ -26,6 +26,7 @@ import { PoeModule } from './poe/poe.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CertificatesModule } from './certificates/certificates.module';
 import { PrivacyModule } from './privacy/privacy.module';
+import { EnterpriseModule } from './enterprise/enterprise.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -65,6 +66,7 @@ import { HealthController } from './health/health.controller';
     NotificationsModule,
     CertificatesModule,
     PrivacyModule,
+    EnterpriseModule,
   ],
   controllers: [HealthController],
   providers: [

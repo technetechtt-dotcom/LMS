@@ -8,6 +8,7 @@ import {
   Injectable,
   Logger,
   ServiceUnavailableException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AntivirusService } from './antivirus.service';
@@ -115,6 +116,49 @@ export class FileStorageService {
   storageLocator(key: string, bucket?: string) {
     const cfg = this.s3Config();
     return `storage://${bucket ?? cfg.bucket}/${key}`;
+  }
+
+  /**
+   * Reject client-forged keys. Accepted forms:
+   * - Exact key previously returned by upload (prefix/org/…)
+   * - storage://bucket/key locator
+   */
+  assertValidStorageKey(
+    storageKey: string,
+    organisationId: string,
+    allowedPrefixes = ['uploads', 'poe', 'certificates', 'compliance', 'materials'],
+  ): string {
+    let key = storageKey.trim();
+    if (key.startsWith('storage://')) {
+      const without = key.slice('storage://'.length);
+      const slash = without.indexOf('/');
+      key = slash >= 0 ? without.slice(slash + 1) : without;
+    }
+    if (!key || key.includes('..') || key.startsWith('/')) {
+      throw new BadRequestException('Invalid storageKey');
+    }
+    const okPrefix = allowedPrefixes.some(
+      (p) => key.startsWith(`${p}/`) || key.startsWith(`${p}\\`),
+    );
+    if (!okPrefix) {
+      throw new BadRequestException(
+        'storageKey must be a server-issued upload key',
+      );
+    }
+    if (!key.includes(organisationId) && !key.startsWith('exports/')) {
+      const hasOrg = allowedPrefixes.some((p) =>
+        key.startsWith(`${p}/${organisationId}/`),
+      );
+      if (!hasOrg && !key.startsWith('exports/')) {
+        const nodeEnv = this.config.get<string>('NODE_ENV') ?? 'development';
+        if (nodeEnv === 'production') {
+          throw new BadRequestException(
+            'storageKey must belong to the active organisation',
+          );
+        }
+      }
+    }
+    return key;
   }
 
   async getSignedDownloadUrl(key: string, expiresInSeconds = 900) {

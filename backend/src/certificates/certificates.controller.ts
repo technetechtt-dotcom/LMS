@@ -45,6 +45,17 @@ export class CertificatesController {
   }
 
   @ApiBearerAuth()
+  @Roles('ADMIN', 'QA_OFFICER')
+  @Post(':id/reissue')
+  async reissue(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.certificates.reissue(id, req.user);
+    return { success: true, data };
+  }
+
+  @ApiBearerAuth()
   @Get(':id/download')
   async download(
     @Param('id') id: string,

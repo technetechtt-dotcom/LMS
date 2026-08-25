@@ -60,21 +60,33 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
+    const email = dto.email.toLowerCase();
+
+    if (dto.inviteToken) {
+      const user = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
+          data: {
+            email,
+            passwordHash,
+            firstName: dto.firstName,
+            lastName: dto.lastName,
+          },
+        });
+        // consume uses nested transaction-safe path via invitations service
+        return created;
+      });
+      await this.invitations.consume(dto.inviteToken, user.id, email);
+      return this.issueSession(user.id, user.email);
+    }
+
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email.toLowerCase(),
+        email,
         passwordHash,
         firstName: dto.firstName,
         lastName: dto.lastName,
       },
     });
-    if (dto.inviteToken) {
-      await this.invitations.consume(
-        dto.inviteToken,
-        user.id,
-        dto.email.toLowerCase(),
-      );
-    }
     return this.issueSession(user.id, user.email);
   }
 

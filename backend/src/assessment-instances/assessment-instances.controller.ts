@@ -38,6 +38,7 @@ export class AssessmentInstancesController {
     return { success: true, data };
   }
 
+  @Roles('LEARNER', 'ASSESSOR', 'ADMIN', 'FACILITATOR')
   @Post()
   async submit(
     @Body() body: Record<string, unknown>,
@@ -45,6 +46,29 @@ export class AssessmentInstancesController {
   ) {
     const data = await this.instances.submit(body, req.user);
     return { success: true, data, message: 'Submitted' };
+  }
+
+  @Roles('ADMIN', 'ASSESSOR')
+  @Post(':id/human-grade')
+  async humanGrade(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      grades?: Array<{
+        questionId: string;
+        score: number;
+        maxScore?: number;
+        feedback?: string;
+      }>;
+    },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.instances.humanGrade(
+      id,
+      body.grades ?? [],
+      req.user,
+    );
+    return { success: true, data };
   }
 
   @Roles('ADMIN', 'ASSESSOR', 'MODERATOR')

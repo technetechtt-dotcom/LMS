@@ -17,6 +17,7 @@ import {
   isLearnerOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
+import { CompletionGateService } from '../enrollments/completion-gate.service';
 
 export type PoeTransitionAction =
   | 'issue'
@@ -81,7 +82,10 @@ export const POE_TRANSITIONS: Record<
 
 @Injectable()
 export class PoeWorkflowService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly completion: CompletionGateService,
+  ) {}
 
   private assertRole(user: AuthUser | undefined, roles: string[]) {
     const codes = user?.roleCodes ?? [];
@@ -294,7 +298,7 @@ export class PoeWorkflowService {
     return updated;
   }
 
-  /** Completeness gate for certificates — both WORKBOOK and SUMMATIVE must be approved. */
+  /** Certificate gate: lifecycle COMPLETED + programme completion requirements. */
   async enrollmentReadyForCertificate(enrollmentId: string): Promise<{
     ready: boolean;
     reasons: string[];
@@ -305,37 +309,12 @@ export class PoeWorkflowService {
     if (!enrollment) return { ready: false, reasons: ['Enrollment not found'] };
 
     const reasons: string[] = [];
-
     if (enrollment.status !== 'COMPLETED') {
       reasons.push('Enrolment lifecycle is not COMPLETED');
     }
 
-    const assessments = await this.prisma.assessment.findMany({
-      where: { enrollmentId, deletedAt: null },
-    });
-    if (!assessments.length) {
-      reasons.push('No competency assessments recorded');
-    } else if (assessments.some((a) => a.result !== 'C')) {
-      reasons.push('Not all assessments are Competent (C)');
-    }
-
-    const requiredKinds: PoeLearningArtifactKind[] = ['WORKBOOK', 'SUMMATIVE'];
-    for (const kind of requiredKinds) {
-      const approved = await this.prisma.poeLearningArtifact.findFirst({
-        where: {
-          enrollmentId,
-          deletedAt: null,
-          kind,
-          status: 'MODERATION_COMPLETE',
-          moderationOutcome: 'APPROVED',
-        },
-      });
-      if (!approved) {
-        reasons.push(
-          `Missing approved ${kind} PoE artefact (moderated and approved)`,
-        );
-      }
-    }
+    const gate = await this.completion.evaluate(enrollmentId);
+    reasons.push(...gate.reasons);
 
     return { ready: reasons.length === 0, reasons };
   }

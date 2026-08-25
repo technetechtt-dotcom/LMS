@@ -201,6 +201,7 @@ export class AssessmentsService {
       );
     }
 
+    // Read-only: never create attempts on GET. Prefer bound in-progress instrument.
     let instrumentId = published.id;
     const inProgress = await this.prisma.assessmentSubmission.findFirst({
       where: {
@@ -212,17 +213,6 @@ export class AssessmentsService {
     });
     if (inProgress?.instrumentId) {
       instrumentId = inProgress.instrumentId;
-    } else if (isLearnerOnly(user) || !inProgress) {
-      await this.prisma.assessmentSubmission.create({
-        data: {
-          enrollmentId: a.enrollmentId,
-          assessmentId: a.id,
-          instrumentId: published.id,
-          status: 'in_progress',
-          responses: [],
-        },
-      });
-      instrumentId = published.id;
     }
 
     const rows = await this.prisma.assessmentQuestion.findMany({
@@ -235,8 +225,79 @@ export class AssessmentsService {
     return rows.map((q) => mapQuestionToApi(q, assessmentId, includeAnswers));
   }
 
+  /**
+   * Explicit attempt start — enforces maxAttempts and binds instrumentId.
+   */
+  async startAttempt(assessmentId: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    if (!user?.userId) throw new ForbiddenException('Authentication required');
+
+    const a = await this.prisma.assessment.findFirst({
+      where: {
+        id: assessmentId,
+        deletedAt: null,
+        enrollment: {
+          ...enrollmentOrgWhere(organisationId),
+          ...(isLearnerOnly(user) ? { learnerId: user.userId } : {}),
+        },
+      },
+      select: {
+        id: true,
+        unitStandardId: true,
+        enrollmentId: true,
+        enrollment: { select: { learnerId: true } },
+      },
+    });
+    if (!a) throw new NotFoundException('Assessment not found');
+    assertEnrollmentAccess(user, a.enrollment, 'Assessment');
+
+    const existingOpen = await this.prisma.assessmentSubmission.findFirst({
+      where: {
+        assessmentId: a.id,
+        enrollmentId: a.enrollmentId,
+        status: 'in_progress',
+      },
+    });
+    if (existingOpen) return existingOpen;
+
+    const published = await this.prisma.assessmentInstrument.findFirst({
+      where: { unitStandardId: a.unitStandardId, status: 'PUBLISHED' },
+      orderBy: { version: 'desc' },
+    });
+    if (!published) {
+      throw new BadRequestException('No published assessment instrument');
+    }
+
+    const priorCount = await this.prisma.assessmentSubmission.count({
+      where: {
+        assessmentId: a.id,
+        enrollmentId: a.enrollmentId,
+        status: { not: 'in_progress' },
+      },
+    });
+    const nextAttempt = priorCount + 1;
+    if (published.maxAttempts > 0 && nextAttempt > published.maxAttempts) {
+      throw new ForbiddenException(
+        `Maximum attempts (${published.maxAttempts}) reached for this instrument`,
+      );
+    }
+
+    return this.prisma.assessmentSubmission.create({
+      data: {
+        enrollmentId: a.enrollmentId,
+        assessmentId: a.id,
+        instrumentId: published.id,
+        attemptNumber: nextAttempt,
+        status: 'in_progress',
+        responses: [],
+      },
+    });
+  }
+
   async create(dto: CreateAssessmentDto, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
+    if (!user?.userId) throw new ForbiddenException('Authentication required');
+
     const enrollment = await this.prisma.enrollment.findFirst({
       where: {
         id: dto.enrollmentId,
@@ -256,7 +317,80 @@ export class AssessmentsService {
     });
     if (!unit) throw new BadRequestException('unitStandardId is invalid');
 
-    return this.prisma.assessment.create({ data: dto });
+    let assessorId = user.userId;
+    if (dto.assessorId) {
+      const membership = await this.prisma.userOrganisation.findFirst({
+        where: {
+          userId: dto.assessorId,
+          organisationId,
+          deletedAt: null,
+          user: { deletedAt: null, isActive: true },
+          role: { code: { in: ['ASSESSOR', 'ADMIN'] }, deletedAt: null },
+        },
+      });
+      if (!membership) {
+        throw new BadRequestException(
+          'assessorId must be an active ASSESSOR/ADMIN in this organisation',
+        );
+      }
+      assessorId = dto.assessorId;
+    } else {
+      const selfOk = await this.prisma.userOrganisation.findFirst({
+        where: {
+          userId: user.userId,
+          organisationId,
+          deletedAt: null,
+          role: { code: { in: ['ASSESSOR', 'ADMIN', 'FACILITATOR'] } },
+        },
+      });
+      if (!selfOk) {
+        throw new ForbiddenException(
+          'Caller cannot be assigned as assessor for this assessment',
+        );
+      }
+    }
+
+    return this.prisma.assessment.create({
+      data: {
+        enrollmentId: dto.enrollmentId,
+        unitStandardId: dto.unitStandardId,
+        assessorId,
+        result: 'PENDING',
+        feedback: dto.feedback,
+      },
+    });
+  }
+
+  async finaliseResult(
+    id: string,
+    body: { result: 'C' | 'NYC'; feedback?: string },
+    user?: AuthUser,
+  ) {
+    await this.byId(id, user);
+    if (body.result !== 'C' && body.result !== 'NYC') {
+      throw new BadRequestException('result must be C or NYC');
+    }
+    const submitted = await this.prisma.assessmentSubmission.findFirst({
+      where: {
+        assessmentId: id,
+        status: { in: ['submitted', 'grading', 'completed'] },
+      },
+      orderBy: { submittedAt: 'desc' },
+    });
+    if (!submitted) {
+      throw new BadRequestException(
+        'Cannot finalise competency without a graded/submitted attempt',
+      );
+    }
+    return this.prisma.assessment.update({
+      where: { id },
+      data: {
+        result: body.result,
+        feedback: body.feedback,
+        assessedAt: new Date(),
+        version: { increment: 1 },
+      },
+    });
   }
 
   async update(

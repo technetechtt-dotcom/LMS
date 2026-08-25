@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { IsEmail, IsUUID } from 'class-validator';
@@ -28,6 +28,16 @@ export class InvitationsController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.invitations.create(dto, req.user);
+  }
+
+  @ApiBearerAuth()
+  @Roles('ADMIN', 'PLATFORM_ADMIN')
+  @Post(':id/retry-mail')
+  retryMail(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.invitations.retryMail(id, req.user);
   }
 
   @Public()

@@ -57,6 +57,25 @@ export class AssessmentsController {
     return this.assessments.questions(id, req.user);
   }
 
+  @Roles('LEARNER', 'ASSESSOR', 'ADMIN', 'FACILITATOR')
+  @Post(':id/start-attempt')
+  startAttempt(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.assessments.startAttempt(id, req.user);
+  }
+
+  @Roles('ASSESSOR', 'ADMIN', 'MODERATOR', 'QA_OFFICER')
+  @Post(':id/finalise-result')
+  finaliseResult(
+    @Param('id') id: string,
+    @Body() body: { result: 'C' | 'NYC'; feedback?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.assessments.finaliseResult(id, body, req.user);
+  }
+
   @Get(':id')
   byId(
     @Param('id') id: string,
