@@ -108,7 +108,7 @@ export class EnrollmentsService {
     );
 
     if (dto.action === 'COMPLETE_ENROLLMENT') {
-      const gate = await this.completion.evaluate(id);
+      const gate = await this.completion.evaluate(id, organisationId);
       if (!gate.ready) {
         throw new BadRequestException({
           message: 'Enrolment does not meet programme completion requirements',
@@ -156,8 +156,22 @@ export class EnrollmentsService {
     });
   }
 
-  completionStatus(id: string, user?: AuthUser) {
-    requireOrganisationId(user);
-    return this.completion.evaluate(id);
+  async completionStatus(id: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const enrollment = await this.prisma.enrollment.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        ...enrollmentOrgWhere(organisationId),
+      },
+      select: { id: true, learnerId: true },
+    });
+    if (!enrollment) throw new NotFoundException('Enrollment not found');
+    if (isLearnerOnly(user)) {
+      if (enrollment.learnerId !== user!.userId) {
+        throw new NotFoundException('Enrollment not found');
+      }
+    }
+    return this.completion.evaluate(id, organisationId);
   }
 }

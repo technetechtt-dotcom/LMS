@@ -5,7 +5,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
 import { AssessmentsService } from './assessments.service';
 import { AssessmentInstancesService } from '../assessment-instances/assessment-instances.service';
-import { CreateAssessmentDto } from './assessments.dto';
+import { CreateAssessmentDto, FinaliseAssessmentResultDto, UpdateAssessmentDto } from './assessments.dto';
 
 @ApiTags('Assessments')
 @ApiBearerAuth()
@@ -66,11 +66,11 @@ export class AssessmentsController {
     return this.assessments.startAttempt(id, req.user);
   }
 
-  @Roles('ASSESSOR', 'ADMIN', 'MODERATOR', 'QA_OFFICER')
+  @Roles('ASSESSOR', 'ADMIN')
   @Post(':id/finalise-result')
   finaliseResult(
     @Param('id') id: string,
-    @Body() body: { result: 'C' | 'NYC'; feedback?: string },
+    @Body() body: FinaliseAssessmentResultDto,
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.assessments.finaliseResult(id, body, req.user);
@@ -97,7 +97,7 @@ export class AssessmentsController {
   @Patch(':id')
   async update(
     @Param('id') id: string,
-    @Body() body: Record<string, unknown>,
+    @Body() body: UpdateAssessmentDto,
     @Req() req: Request & { user?: AuthUser },
   ) {
     const data = await this.assessments.update(id, body, req.user);

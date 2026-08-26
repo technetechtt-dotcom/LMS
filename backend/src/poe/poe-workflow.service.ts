@@ -305,6 +305,11 @@ export class PoeWorkflowService {
   }> {
     const enrollment = await this.prisma.enrollment.findFirst({
       where: { id: enrollmentId, deletedAt: null },
+      select: {
+        id: true,
+        status: true,
+        sdioOrganisationId: true,
+      },
     });
     if (!enrollment) return { ready: false, reasons: ['Enrollment not found'] };
 
@@ -313,7 +318,10 @@ export class PoeWorkflowService {
       reasons.push('Enrolment lifecycle is not COMPLETED');
     }
 
-    const gate = await this.completion.evaluate(enrollmentId);
+    const gate = await this.completion.evaluate(
+      enrollmentId,
+      enrollment.sdioOrganisationId,
+    );
     reasons.push(...gate.reasons);
 
     return { ready: reasons.length === 0, reasons };

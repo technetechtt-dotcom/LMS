@@ -1,5 +1,16 @@
 import { CompetencyResult } from '@prisma/client';
-import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 /** Create opens an assessment instance — result is set only by grading workflow. */
 export class CreateAssessmentDto {
@@ -19,9 +30,20 @@ export class CreateAssessmentDto {
   feedback?: string;
 }
 
+/** Generic PATCH — never accepts competency result. */
+export class UpdateAssessmentDto {
+  @IsOptional()
+  @IsString()
+  feedback?: string;
+
+  @IsOptional()
+  @IsArray()
+  questions?: unknown[];
+}
+
 export class FinaliseAssessmentResultDto {
-  @IsEnum(CompetencyResult)
-  result!: CompetencyResult;
+  @IsIn(['C', 'NYC'])
+  result!: Extract<CompetencyResult, 'C' | 'NYC'>;
 
   @IsOptional()
   @IsString()
@@ -34,15 +56,26 @@ export class HumanGradeItemDto {
 
   @IsNumber()
   @Min(0)
-  @Max(100)
   score!: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  maxScore?: number;
 
   @IsOptional()
   @IsString()
   feedback?: string;
+}
+
+export class HumanGradeDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => HumanGradeItemDto)
+  grades!: HumanGradeItemDto[];
+}
+
+export class ModerateSubmissionDto {
+  @IsIn(['approve', 'reject'])
+  decision!: 'approve' | 'reject';
+
+  @IsOptional()
+  @IsString()
+  comments?: string;
 }

@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
       - run: npm ci
       - run: npm run lint
@@ -26,15 +26,38 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lms_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lms_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/lms_test
+      JWT_SECRET: ci-jwt-secret-change-me-not-production-32
+      NODE_ENV: test
+      FILE_STORAGE: mock
+      MAIL_PROVIDER: log
+      RUN_DB_E2E: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npx prisma generate
+      - run: npx prisma migrate deploy
       - run: npm run typecheck
       - run: npm test -- --coverage --coverageReporters=text-summary
       - run: npm run build
@@ -44,23 +67,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
       - run: npm ci
       - name: Frontend dependency audit
-        run: npm audit --omit=dev --audit-level=high || true
+        run: npm audit --omit=dev --audit-level=high
       - name: Backend dependency audit
         working-directory: backend
-        run: npm ci && npm audit --omit=dev --audit-level=high || true
+        run: npm ci && npm audit --omit=dev --audit-level=high
       - name: Generate SBOM (frontend)
-        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom-frontend.json || true
+        run: npx --yes @cyclonedx/cyclonedx-npm --ignore-npm-errors --output-file sbom-frontend.json
       - name: Generate SBOM (backend)
         working-directory: backend
-        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom-backend.json || true
+        run: npx --yes @cyclonedx/cyclonedx-npm --ignore-npm-errors --output-file sbom-backend.json
       - name: Secret scan (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz | tar xz
+          ./gitleaks detect --source . --verbose --exit-code 1

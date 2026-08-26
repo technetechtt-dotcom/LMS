@@ -95,3 +95,21 @@ export function assertEnrollmentAccess(
     throw new ForbiddenException(`${label} access denied`);
   }
 }
+
+/** Grading (human marks / C-NYC) is reserved for the allocated assessor. Admins may override. */
+export function assertAllocatedAssessor(
+  user: AuthUser | undefined,
+  assessorId: string,
+): void {
+  if (!user?.userId) {
+    throw new ForbiddenException('Authentication required');
+  }
+  if (isPlatformAdmin(user) || user.roleCodes.includes('ADMIN')) {
+    return;
+  }
+  if (user.userId !== assessorId) {
+    throw new ForbiddenException(
+      'Only the allocated assessor may grade this assessment',
+    );
+  }
+}

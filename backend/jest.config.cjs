@@ -7,4 +7,6 @@ module.exports = {
     '^.+\\.(t|j)s$': 'ts-jest',
   },
   testEnvironment: 'node',
+  testPathIgnorePatterns:
+    process.env.RUN_DB_E2E === '1' ? [] : ['\\.db\\.e2e\\.spec\\.ts$'],
 };

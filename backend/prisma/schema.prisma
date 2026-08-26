@@ -142,6 +142,7 @@ model Organisation {
   credentials   Credential[]
   invitations   Invitation[]
   dataSubjectRequests DataSubjectRequest[]
+  attendanceSessions AttendanceSession[]
 }
 
 model UserOrganisation {
@@ -233,6 +234,7 @@ model Programme {
   qualification    Qualification  @relation(fields: [qualificationId], references: [id])
   enrollments      Enrollment[]
   learningMaterials LearningMaterial[]
+  attendanceSessions AttendanceSession[]
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   deletedAt        DateTime?
@@ -490,17 +492,21 @@ model Moderation {
 model Attendance {
   id           String           @id @default(uuid()) @db.Uuid
   enrollmentId String           @db.Uuid
+  sessionId    String?          @db.Uuid
   sessionDate  DateTime
   status       AttendanceStatus
   latitude     Decimal?         @db.Decimal(10, 7)
   longitude    Decimal?         @db.Decimal(10, 7)
   notes        String?
   enrollment   Enrollment       @relation(fields: [enrollmentId], references: [id])
+  session      AttendanceSession? @relation(fields: [sessionId], references: [id])
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
   deletedAt    DateTime?
 
+  @@unique([sessionId, enrollmentId])
   @@index([enrollmentId, sessionDate])
+  @@index([sessionId])
 }
 
 model Document {
@@ -805,6 +811,9 @@ model AttendanceSession {
   expiresAt      DateTime
   closedAt       DateTime?
   createdAt      DateTime  @default(now())
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  programme      Programme    @relation(fields: [programmeId], references: [id])
+  checkIns       Attendance[]
 
   @@index([organisationId, programmeId])
 }

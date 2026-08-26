@@ -2,13 +2,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
-
-// CJS middleware — avoid default-import which breaks at runtime under commonjs
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const cookieParser = require('cookie-parser') as (
-  secret?: string | string[],
-) => import('express').RequestHandler;
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: false });

@@ -1,5 +1,6 @@
 import type { AuthUser } from '../common/types/request-with-user';
 import {
+  assertAllocatedAssessor,
   assertEnrollmentAccess,
   isLearnerOnly,
   isStaffUser,
@@ -14,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateAssessmentDto } from './assessments.dto';
+import { CreateAssessmentDto, UpdateAssessmentDto } from './assessments.dto';
 import {
   mapAssessmentToApi,
   type AssessmentWithRelations,
@@ -366,7 +367,16 @@ export class AssessmentsService {
     body: { result: 'C' | 'NYC'; feedback?: string },
     user?: AuthUser,
   ) {
-    await this.byId(id, user);
+    const assessment = await this.prisma.assessment.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        enrollment: enrollmentOrgWhere(requireOrganisationId(user)),
+      },
+      select: { id: true, assessorId: true },
+    });
+    if (!assessment) throw new NotFoundException('Assessment not found');
+    assertAllocatedAssessor(user, assessment.assessorId);
     if (body.result !== 'C' && body.result !== 'NYC') {
       throw new BadRequestException('result must be C or NYC');
     }
@@ -393,11 +403,7 @@ export class AssessmentsService {
     });
   }
 
-  async update(
-    id: string,
-    body: Record<string, unknown>,
-    user?: AuthUser,
-  ) {
+  async update(id: string, body: UpdateAssessmentDto, user?: AuthUser) {
     await this.byId(id, user);
 
     const questions = Array.isArray(body.questions) ? body.questions : null;
@@ -422,16 +428,10 @@ export class AssessmentsService {
       }
     }
 
-    const result =
-      body.result === 'C' || body.result === 'NYC'
-        ? body.result
-        : undefined;
-
     await this.prisma.assessment.update({
       where: { id },
       data: {
         ...(typeof body.feedback === 'string' ? { feedback: body.feedback } : {}),
-        ...(result ? { result } : {}),
         version: { increment: 1 },
       },
     });

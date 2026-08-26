@@ -1,4 +1,5 @@
 import {
+  assertAllocatedAssessor,
   enrollmentOrgWhere,
   isLearnerOnly,
   isPlatformAdmin,
@@ -66,5 +67,15 @@ describe('tenant-scope', () => {
         { programme: { organisationId: 'org1' } },
       ]),
     );
+  });
+
+  it('allocated assessor gate allows admin override only', () => {
+    expect(() =>
+      assertAllocatedAssessor(
+        { userId: 'u5', email: 'a@x', organisationId: 'org1', roleCodes: ['ASSESSOR'] },
+        'other',
+      ),
+    ).toThrow();
+    expect(() => assertAllocatedAssessor(admin, 'other')).not.toThrow();
   });
 });

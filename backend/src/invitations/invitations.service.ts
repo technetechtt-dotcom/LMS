@@ -133,6 +133,53 @@ export class InvitationsService {
     }
   }
 
+  /**
+   * Atomically create the user, membership, and accept the invitation.
+   * Rolls back all three if any step fails.
+   */
+  async acceptAndCreateUser(
+    token: string,
+    data: {
+      email: string;
+      passwordHash: string;
+      firstName: string;
+      lastName: string;
+    },
+  ) {
+    const tokenHash = hashOpaqueToken(token.trim());
+    return this.prisma.$transaction(async (tx) => {
+      const invite = await tx.invitation.findFirst({
+        where: { tokenHash, status: 'PENDING' },
+      });
+      if (!invite || invite.expiresAt < new Date()) {
+        throw new BadRequestException('Invitation is invalid or expired');
+      }
+      if (invite.email.toLowerCase() !== data.email.toLowerCase()) {
+        throw new BadRequestException('Invitation email does not match');
+      }
+      const created = await tx.user.create({
+        data: {
+          email: data.email,
+          passwordHash: data.passwordHash,
+          firstName: data.firstName,
+          lastName: data.lastName,
+        },
+      });
+      await tx.userOrganisation.create({
+        data: {
+          userId: created.id,
+          roleId: invite.roleId,
+          organisationId: invite.organisationId,
+        },
+      });
+      await tx.invitation.update({
+        where: { id: invite.id },
+        data: { status: 'ACCEPTED', acceptedAt: new Date() },
+      });
+      return created;
+    });
+  }
+
   async consume(token: string, userId: string, email: string) {
     const tokenHash = hashOpaqueToken(token.trim());
     return this.prisma.$transaction(async (tx) => {

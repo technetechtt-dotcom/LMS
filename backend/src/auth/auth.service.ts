@@ -63,19 +63,12 @@ export class AuthService {
     const email = dto.email.toLowerCase();
 
     if (dto.inviteToken) {
-      const user = await this.prisma.$transaction(async (tx) => {
-        const created = await tx.user.create({
-          data: {
-            email,
-            passwordHash,
-            firstName: dto.firstName,
-            lastName: dto.lastName,
-          },
-        });
-        // consume uses nested transaction-safe path via invitations service
-        return created;
+      const user = await this.invitations.acceptAndCreateUser(dto.inviteToken, {
+        email,
+        passwordHash,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
       });
-      await this.invitations.consume(dto.inviteToken, user.id, email);
       return this.issueSession(user.id, user.email);
     }
 

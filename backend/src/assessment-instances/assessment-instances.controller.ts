@@ -4,6 +4,7 @@ import type { Request } from 'express';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
 import { AssessmentInstancesService } from './assessment-instances.service';
+import { HumanGradeDto, ModerateSubmissionDto } from '../assessments/assessments.dto';
 
 @ApiTags('Assessment instances')
 @ApiBearerAuth()
@@ -52,35 +53,23 @@ export class AssessmentInstancesController {
   @Post(':id/human-grade')
   async humanGrade(
     @Param('id') id: string,
-    @Body()
-    body: {
-      grades?: Array<{
-        questionId: string;
-        score: number;
-        maxScore?: number;
-        feedback?: string;
-      }>;
-    },
+    @Body() body: HumanGradeDto,
     @Req() req: Request & { user?: AuthUser },
   ) {
-    const data = await this.instances.humanGrade(
-      id,
-      body.grades ?? [],
-      req.user,
-    );
+    const data = await this.instances.humanGrade(id, body.grades, req.user);
     return { success: true, data };
   }
 
-  @Roles('ADMIN', 'ASSESSOR', 'MODERATOR')
+  @Roles('ADMIN', 'MODERATOR', 'QA_OFFICER')
   @Post(':id/moderate')
   async moderate(
     @Param('id') id: string,
-    @Body() body: { decision?: string; comments?: string },
+    @Body() body: ModerateSubmissionDto,
     @Req() req: Request & { user?: AuthUser },
   ) {
     const data = await this.instances.moderate(
       id,
-      body.decision ?? 'approve',
+      body.decision,
       body.comments,
       req.user,
     );

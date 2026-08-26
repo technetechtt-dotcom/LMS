@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
+  assertAllocatedAssessor,
   assertEnrollmentAccess,
   enrollmentOrgWhere,
   isLearnerOnly,
@@ -237,14 +238,15 @@ export class AssessmentInstancesService {
     comments?: string,
     user?: AuthUser,
   ) {
+    if (decision !== 'approve' && decision !== 'reject') {
+      throw new BadRequestException('decision must be approve or reject');
+    }
+    if (!user?.userId) {
+      throw new ForbiddenException('Authentication required');
+    }
     await this.byId(id, user);
 
-    const status =
-      decision === 'approve'
-        ? 'completed'
-        : decision === 'reject'
-          ? 'rejected'
-          : 'grading';
+    const status = decision === 'approve' ? 'completed' : 'rejected';
 
     const row = await this.prisma.assessmentSubmission.update({
       where: { id },
@@ -259,29 +261,33 @@ export class AssessmentInstancesService {
       },
     });
 
-    // Controlled C/NYC originates from grading workflow, not create DTO.
-    if (decision === 'approve' || decision === 'reject') {
-      await this.prisma.assessment.update({
-        where: { id: row.assessmentId },
-        data: {
-          result: decision === 'approve' ? 'C' : 'NYC',
-          feedback: comments,
-          assessedAt: new Date(),
-          ...(user?.userId ? { assessorId: user.userId } : {}),
-        },
-      });
-    }
+    // Moderation records a quality decision; it does not set competency C/NYC.
+    await this.prisma.moderation.upsert({
+      where: { assessmentId: row.assessmentId },
+      create: {
+        assessmentId: row.assessmentId,
+        moderatorId: user.userId,
+        decision: decision === 'approve' ? 'APPROVED' : 'REJECTED',
+        feedback: comments,
+        moderatedAt: new Date(),
+      },
+      update: {
+        moderatorId: user.userId,
+        decision: decision === 'approve' ? 'APPROVED' : 'REJECTED',
+        feedback: comments,
+        moderatedAt: new Date(),
+      },
+    });
 
     return this.mapSubmission(row);
   }
 
-  /** Human marks for essay / file / practical items; merges into percentage. */
+  /** Human marks for essay / file / practical items; maxScore is always question.points. */
   async humanGrade(
     id: string,
     grades: Array<{
       questionId: string;
       score: number;
-      maxScore?: number;
       feedback?: string;
     }>,
     user?: AuthUser,
@@ -291,6 +297,7 @@ export class AssessmentInstancesService {
         id,
         enrollment: enrollmentOrgWhere(requireOrganisationId(user)),
       },
+      include: { assessment: { select: { assessorId: true, unitStandardId: true } } },
     });
     if (!row) throw new NotFoundException('Submission not found');
     if (!['submitted', 'grading'].includes(row.status)) {
@@ -298,24 +305,53 @@ export class AssessmentInstancesService {
         'Only submitted/grading attempts accept human grades',
       );
     }
+    assertAllocatedAssessor(user, row.assessment.assessorId);
 
+    const questions = await this.prisma.assessmentQuestion.findMany({
+      where: {
+        deletedAt: null,
+        ...(row.instrumentId
+          ? { instrumentId: row.instrumentId }
+          : { unitStandardId: row.assessment.unitStandardId }),
+      },
+    });
+    const questionById = new Map(questions.map((q) => [q.id, q]));
+    for (const g of grades) {
+      const q = questionById.get(g.questionId);
+      if (!q) {
+        throw new BadRequestException(
+          `Unknown questionId ${g.questionId} for this instrument`,
+        );
+      }
+      if (Number(g.score) > q.points) {
+        throw new BadRequestException(
+          `Score ${g.score} exceeds question points (${q.points})`,
+        );
+      }
+    }
+
+    const gradeMap = new Map(grades.map((g) => [g.questionId, g]));
     const responses = Array.isArray(row.responses)
       ? (row.responses as Array<Record<string, unknown>>)
       : [];
-    const gradeMap = new Map(grades.map((g) => [g.questionId, g]));
+    const responseByQ = new Map(
+      responses.map((r) => [String(r.questionId ?? ''), r]),
+    );
+
     let totalScore = 0;
     let maxScore = 0;
-    const merged = responses.map((r) => {
-      const qid = String(r.questionId ?? '');
-      const hg = gradeMap.get(qid);
-      const max = Number(hg?.maxScore ?? r.maxScore ?? 1);
-      const score = hg ? Number(hg.score) : Number(r.score ?? 0);
-      maxScore += max;
+    const merged: Array<Record<string, unknown>> = questions.map((q) => {
+      const existing = responseByQ.get(q.id) ?? { questionId: q.id };
+      const hg = gradeMap.get(q.id);
+      const points = q.points;
+      const score = hg ? Number(hg.score) : Number(existing.score ?? 0);
+      maxScore += points;
       totalScore += score;
       return {
-        ...r,
+        ...existing,
+        questionId: q.id,
         score,
-        maxScore: max,
+        maxScore: points,
         humanFeedback: hg?.feedback,
         humanGraded: Boolean(hg),
       };
@@ -331,10 +367,11 @@ export class AssessmentInstancesService {
         score: totalScore,
         percentage,
         gradedAt: new Date(),
-        feedback: grades
-          .map((g) => g.feedback)
-          .filter(Boolean)
-          .join('\n') || row.feedback,
+        feedback:
+          grades
+            .map((g) => g.feedback)
+            .filter(Boolean)
+            .join('\n') || row.feedback,
       },
       include: {
         enrollment: { include: { learner: true } },

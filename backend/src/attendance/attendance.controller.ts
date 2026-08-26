@@ -17,10 +17,7 @@ import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDto } from './attendance.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { requireOrganisationId } from '../common/tenant/tenant-scope';
-import {
-  generateOpaqueRefreshToken,
-  hashOpaqueToken,
-} from '../common/crypto/token-crypto';
+import { generateOpaqueRefreshToken, hashOpaqueToken } from '../common/crypto/token-crypto';
 
 @ApiTags('Attendance')
 @ApiBearerAuth()
@@ -84,32 +81,15 @@ export class AttendanceController {
     };
   }
 
-  /** Learner checks in with rotating QR token. */
+  /** Learner checks in with QR token (one check-in per session+enrollment). */
   @Roles('LEARNER', 'ADMIN', 'FACILITATOR')
   @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Post('sessions/:id/check-in')
-  async checkIn(
+  checkIn(
     @Param('id') id: string,
     @Body() body: { token: string; enrollmentId: string },
     @Req() req: Request & { user?: AuthUser },
   ) {
-    const organisationId = requireOrganisationId(req.user);
-    const session = await this.prisma.attendanceSession.findFirst({
-      where: { id, organisationId },
-    });
-    if (!session || session.closedAt || session.expiresAt < new Date()) {
-      throw new BadRequestException('Attendance session invalid or expired');
-    }
-    if (session.tokenHash !== hashOpaqueToken(body.token ?? '')) {
-      throw new BadRequestException('Invalid session token');
-    }
-    return this.attendance.create(
-      {
-        enrollmentId: body.enrollmentId,
-        sessionDate: new Date().toISOString(),
-        status: 'PRESENT' as const,
-      },
-      req.user,
-    );
+    return this.attendance.checkIn(id, body.token, body.enrollmentId, req.user);
   }
 }

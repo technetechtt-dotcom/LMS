@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkplaceLogsService } from '../workplace-logs/workplace-logs.service';
+import { enrollmentOrgWhere } from '../common/tenant/tenant-scope';
 
 export type CompletionCheck = {
   ready: boolean;
@@ -19,9 +20,16 @@ export class CompletionGateService {
     private readonly workplace: WorkplaceLogsService,
   ) {}
 
-  async evaluate(enrollmentId: string): Promise<CompletionCheck> {
+  async evaluate(
+    enrollmentId: string,
+    organisationId: string,
+  ): Promise<CompletionCheck> {
     const enrollment = await this.prisma.enrollment.findFirst({
-      where: { id: enrollmentId, deletedAt: null },
+      where: {
+        id: enrollmentId,
+        deletedAt: null,
+        ...enrollmentOrgWhere(organisationId),
+      },
       include: { programme: true },
     });
     if (!enrollment) {
@@ -91,13 +99,31 @@ export class CompletionGateService {
     }
 
     if (minAttendanceRate > 0) {
-      const rows = await this.prisma.attendance.findMany({
-        where: { enrollmentId, deletedAt: null },
+      const scheduledSessions = await this.prisma.attendanceSession.count({
+        where: { programmeId: enrollment.programmeId },
       });
-      const present = rows.filter(
-        (r) => r.status === 'PRESENT' || r.status === 'LATE',
-      ).length;
-      const rate = rows.length ? (present / rows.length) * 100 : 0;
+      let rate = 0;
+      if (scheduledSessions > 0) {
+        const present = await this.prisma.attendance.findMany({
+          where: {
+            enrollmentId,
+            deletedAt: null,
+            sessionId: { not: null },
+            status: { in: ['PRESENT', 'LATE'] },
+          },
+          select: { sessionId: true },
+          distinct: ['sessionId'],
+        });
+        rate = (present.length / scheduledSessions) * 100;
+      } else {
+        const rows = await this.prisma.attendance.findMany({
+          where: { enrollmentId, deletedAt: null },
+        });
+        const present = rows.filter(
+          (r) => r.status === 'PRESENT' || r.status === 'LATE',
+        ).length;
+        rate = rows.length ? (present / rows.length) * 100 : 0;
+      }
       const ok = rate >= minAttendanceRate;
       checks.attendanceRate = ok;
       if (!ok) {
