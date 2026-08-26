@@ -1,3 +1,6 @@
+-- CompetencyResult.PENDING is committed by prior migration; safe to use as default now.
+ALTER TABLE "Assessment" ALTER COLUMN "result" SET DEFAULT 'PENDING';
+
 -- Bind attendance check-ins to QR sessions (anti-replay + programme denominator)
 ALTER TABLE "Attendance" ADD COLUMN IF NOT EXISTS "sessionId" UUID;
 

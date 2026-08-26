@@ -4,7 +4,8 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-ALTER TABLE "Assessment" ALTER COLUMN "result" SET DEFAULT 'PENDING';
+-- Default cannot be set in this migration: Postgres requires the new enum value
+-- to be committed before use (see 20260826120000_attendance_session_bind).
 
 ALTER TABLE "AssessmentInstrument" ADD COLUMN IF NOT EXISTS "maxAttempts" INTEGER NOT NULL DEFAULT 3;
 
