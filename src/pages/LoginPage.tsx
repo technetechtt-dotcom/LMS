@@ -65,7 +65,7 @@ export function LoginPage() {
           Smart LMS
         </h2>
         <p className="mt-2 text-sm text-gray-600">
-          QCTO & SETA Compliant Skills Development Platform
+          SETA-aligned skills development platform
         </p>
       </div>
 
@@ -165,10 +165,7 @@ export function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-gray-500">
-          Protected by reCAPTCHA and subject to the Privacy Policy and Terms of
-          Service.
-          <br />
-          POPIA Compliant System.
+          POPIA-compliant system. See Privacy Policy and Terms of Service.
         </p>
       </div>
     </div>

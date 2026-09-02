@@ -381,6 +381,77 @@ export class AssessmentInstancesService {
     return this.mapSubmission(updated);
   }
 
+  /** Autosave in-progress responses (resume support). */
+  async saveProgress(
+    id: string,
+    responses: unknown[],
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    if (!user?.userId) throw new ForbiddenException('Authentication required');
+
+    const row = await this.prisma.assessmentSubmission.findFirst({
+      where: {
+        id,
+        status: 'in_progress',
+        enrollment: enrollmentOrgWhere(organisationId),
+      },
+      include: { enrollment: { select: { learnerId: true } } },
+    });
+    if (!row) throw new NotFoundException('In-progress submission not found');
+    if (isLearnerOnly(user) && row.enrollment.learnerId !== user.userId) {
+      throw new ForbiddenException('You may only save your own attempt');
+    }
+
+    const sanitized = (Array.isArray(responses) ? responses : []).map((raw) => {
+      const r = raw as Record<string, unknown>;
+      return {
+        questionId: String(r.questionId ?? ''),
+        questionType:
+          typeof r.questionType === 'string' ? r.questionType : undefined,
+        answer: r.answer,
+      };
+    });
+
+    const updated = await this.prisma.assessmentSubmission.update({
+      where: { id },
+      data: { responses: sanitized as object[] },
+      include: {
+        enrollment: { include: { learner: true } },
+        assessment: { include: { unitStandard: true } },
+      },
+    });
+    return this.mapSubmission(updated);
+  }
+
+  /** Marks human grading complete — required before competency finalisation. */
+  async completeGrading(id: string, user?: AuthUser) {
+    const row = await this.prisma.assessmentSubmission.findFirst({
+      where: {
+        id,
+        enrollment: enrollmentOrgWhere(requireOrganisationId(user)),
+      },
+      include: { assessment: { select: { assessorId: true } } },
+    });
+    if (!row) throw new NotFoundException('Submission not found');
+    if (row.status !== 'grading') {
+      throw new BadRequestException(
+        'Only submissions in grading status can be marked complete',
+      );
+    }
+    assertAllocatedAssessor(user, row.assessment.assessorId);
+
+    const updated = await this.prisma.assessmentSubmission.update({
+      where: { id },
+      data: { status: 'completed', gradedAt: new Date() },
+      include: {
+        enrollment: { include: { learner: true } },
+        assessment: { include: { unitStandard: true } },
+      },
+    });
+    return this.mapSubmission(updated);
+  }
+
   /** Grade only against the bound instrument; omitted questions still count in maxScore. */
   async autoGradeAgainstInstrument(
     instrumentId: string,

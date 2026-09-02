@@ -21,6 +21,7 @@ import { StatCard } from '../components/dashboard/StatCard';
 import { Avatar } from '../components/ui/Avatar';
 import { Modal } from '../components/ui/Modal';
 import { attendanceService } from '../services/api';
+import { programmeService } from '../services/api';
 
 type AttendanceRow = {
   id: string;
@@ -80,8 +81,29 @@ function mapAttendanceApi(raw: unknown): AttendanceRow {
 
 export function AttendancePage() {
   const [showMarkAttendance, setShowMarkAttendance] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrPayload, setQrPayload] = useState<{
+    sessionId: string;
+    qrToken: string;
+    expiresAt: string;
+  } | null>(null);
+  const [programmes, setProgrammes] = useState<
+    Array<{ id: string; title: string }>
+  >([]);
+  const [selectedProgrammeId, setSelectedProgrammeId] = useState('');
   const [attendanceData, setAttendanceData] = useState<AttendanceRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    programmeService
+      .getAll()
+      .then((res) => {
+        const list = res.data ?? [];
+        setProgrammes(list.map((p) => ({ id: p.id, title: p.title })));
+        if (list[0]?.id) setSelectedProgrammeId(list[0].id);
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -259,11 +281,24 @@ export function AttendancePage() {
           </Button>
           <Button
             leftIcon={<QrCode className="h-4 w-4" />}
-            onClick={() =>
-            toast.success(
-              'QR Code generated! Display on screen for learners to scan.'
-            )
-            }>
+            onClick={async () => {
+              if (!selectedProgrammeId) {
+                toast.error('Select a programme first');
+                return;
+              }
+              try {
+                const res = await attendanceService.openSession(
+                  selectedProgrammeId,
+                  30,
+                );
+                setQrPayload(res.data);
+                setShowQrModal(true);
+              } catch (err) {
+                toast.error(
+                  err instanceof Error ? err.message : 'Could not open session',
+                );
+              }
+            }}>
             
             Generate QR Code
           </Button>
@@ -284,16 +319,19 @@ export function AttendancePage() {
         <div className="w-full sm:w-64">
           <Select
             label="Learnership Program"
+            value={selectedProgrammeId}
+            onChange={(e) => setSelectedProgrammeId(e.target.value)}
             options={[
             {
-              value: 'all',
-              label: 'All Programs'
+              value: '',
+              label: 'Select programme'
             },
-            {
-              value: 'it',
-              label: 'IT Skills Program'
-            }]
-            } />
+            ...programmes.map((p) => ({
+              value: p.id,
+              label: p.title,
+            })),
+            ]}
+            />
           
         </div>
         <div className="w-full sm:w-64">
@@ -533,6 +571,24 @@ export function AttendancePage() {
             <Button onClick={handleSaveAttendance}>Save Register</Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={showQrModal}
+        onClose={() => setShowQrModal(false)}
+        title="Attendance QR session">
+        {qrPayload && (
+          <div className="space-y-4 text-center">
+            <p className="text-sm text-gray-600">
+              Learners scan or enter this token before{' '}
+              {new Date(qrPayload.expiresAt).toLocaleTimeString()}.
+            </p>
+            <div className="p-4 bg-gray-100 rounded-lg font-mono text-xs break-all">
+              {qrPayload.qrToken}
+            </div>
+            <p className="text-xs text-gray-500">Session ID: {qrPayload.sessionId}</p>
+          </div>
+        )}
       </Modal>
     </div>);
 

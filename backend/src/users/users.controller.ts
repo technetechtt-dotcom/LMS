@@ -21,6 +21,12 @@ export class UsersController {
   }
 
   @Roles('ADMIN', 'PLATFORM_ADMIN')
+  @Get('roles')
+  listRoles() {
+    return this.users.listRoles();
+  }
+
+  @Roles('ADMIN', 'PLATFORM_ADMIN')
   @Post()
   create(
     @Body() dto: CreateUserDto,

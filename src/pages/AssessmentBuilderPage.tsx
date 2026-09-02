@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Save,
@@ -20,6 +20,7 @@ import { Select } from '../components/ui/Select';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import type { QuestionType } from '../types';
+import { instrumentService } from '../services/api';
 
 type BuilderMcOption = {
   id: string;
@@ -40,7 +41,10 @@ type BuilderQuestion = {
 export function AssessmentBuilderPage() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const isEditMode = !!id;
+  const [searchParams] = useSearchParams();
+  const unitStandardId = searchParams.get('unitStandardId') ?? '';
+  const [instrumentId, setInstrumentId] = useState(id ?? '');
+  const isEditMode = !!instrumentId;
   // Assessment Settings State
   const [settings, setSettings] = useState({
     title: isEditMode ? 'Programming Fundamentals Quiz' : '',
@@ -119,9 +123,46 @@ export function AssessmentBuilderPage() {
     setQuestions(questions.filter((q) => q.id !== id));
     toast.success('Question removed');
   };
-  const handleSave = () => {
-    toast.success('Assessment saved successfully');
-    navigate('/facilitator-assessments');
+  const handleSave = async (publish = false) => {
+    if (!unitStandardId) {
+      toast.error('Open builder with ?unitStandardId=<uuid> query parameter');
+      return;
+    }
+    try {
+      let activeId = instrumentId;
+      if (!activeId) {
+        const created = await instrumentService.createDraft({
+          unitStandardId,
+          title: settings.title || 'Draft instrument',
+          maxAttempts: 3,
+        });
+        activeId = String(created.data.id ?? '');
+        setInstrumentId(activeId);
+      } else {
+        await instrumentService.update(activeId, {
+          title: settings.title,
+        });
+      }
+      const apiQuestions = questions.map((q, idx) => ({
+        type: q.type,
+        content: q.text,
+        points: q.points,
+        order: idx + 1,
+        options: q.options?.map((o) => o.text),
+        correctIndex: q.options?.findIndex((o) => o.isCorrect) ?? 0,
+        correctAnswer: q.correctAnswer,
+      }));
+      await instrumentService.replaceQuestions(activeId, apiQuestions);
+      if (publish) {
+        await instrumentService.publish(activeId);
+        toast.success('Instrument published');
+      } else {
+        toast.success('Draft saved');
+      }
+      navigate('/facilitator-assessments');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Save failed');
+    }
   };
   const getQuestionIcon = (type: string) => {
     switch (type) {
@@ -350,7 +391,7 @@ export function AssessmentBuilderPage() {
             </Button>
             <Button
               leftIcon={<Save className="h-4 w-4" />}
-              onClick={handleSave}>
+              onClick={() => void handleSave()}>
               
               Save & Publish
             </Button>

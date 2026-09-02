@@ -119,7 +119,7 @@ export function Sidebar({
           path: '/audit'
         },
         {
-          name: 'QCTO Reports',
+          name: 'SETA Reports',
           icon: <FileText size={20} />,
           path: '/reports'
         },
@@ -175,14 +175,19 @@ export function Sidebar({
         section: 'MAIN',
         items: [
         {
-          name: 'Dashboard',
-          icon: <LayoutDashboard size={20} />,
-          path: '/dashboard'
+          name: 'QA Workspace',
+          icon: <ShieldCheck size={20} />,
+          path: '/qa-dashboard'
         },
         {
           name: 'Compliance',
           icon: <ShieldCheck size={20} />,
           path: '/compliance'
+        },
+        {
+          name: 'Learners',
+          icon: <Users size={20} />,
+          path: '/learners'
         },
         {
           name: 'Audit',

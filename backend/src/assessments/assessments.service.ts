@@ -383,13 +383,13 @@ export class AssessmentsService {
     const submitted = await this.prisma.assessmentSubmission.findFirst({
       where: {
         assessmentId: id,
-        status: { in: ['submitted', 'grading', 'completed'] },
+        status: 'completed',
       },
       orderBy: { submittedAt: 'desc' },
     });
     if (!submitted) {
       throw new BadRequestException(
-        'Cannot finalise competency without a graded/submitted attempt',
+        'Cannot finalise competency until grading is complete (GRADING_COMPLETE)',
       );
     }
     return this.prisma.assessment.update({

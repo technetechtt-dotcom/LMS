@@ -25,7 +25,7 @@ export function getDefaultRouteForRole(role: UserRole): string {
     case 'SETA Official':
       return '/audit';
     case 'QA Officer':
-      return '/compliance';
+      return '/qa-dashboard';
     case 'Admin':
     default:
       return '/dashboard';

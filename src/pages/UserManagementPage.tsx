@@ -7,7 +7,7 @@ import { DataTable } from '../components/ui/DataTable';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { toast } from 'sonner';
-import { programmeService, userService } from '../services/api';
+import { programmeService, userService, enrollmentService } from '../services/api';
 import type { DirectoryUserRow } from '../services/api';
 
 type ManagedUser = {
@@ -68,17 +68,22 @@ export function UserManagementPage() {
     { value: string; label: string }[]
   >([{ value: 'all', label: 'All Learnerships' }]);
   const [loading, setLoading] = useState(true);
+  const [roleRows, setRoleRows] = useState<
+    Array<{ id: string; code: string; name: string }>
+  >([]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [userRes, progRes] = await Promise.all([
+        const [userRes, progRes, rolesRes] = await Promise.all([
           userService.getAll(),
           programmeService.getAll(),
+          userService.listRoles(),
         ]);
         if (cancelled) return;
         setUsers((userRes.data ?? []).map(mapDirectoryUser));
+        setRoleRows(rolesRes.data ?? []);
         const opts = [
           { value: 'all', label: 'All Learnerships' },
           ...(progRes.data ?? []).map((p) => ({
@@ -177,7 +182,7 @@ export function UserManagementPage() {
     setIsModalOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const formData = new FormData(e.target as HTMLFormElement);
     const email = formData.get('email') as string;
@@ -185,6 +190,7 @@ export function UserManagementPage() {
     const firstName = formData.get('firstName') as string;
     const lastName = formData.get('lastName') as string;
     const programmeId = formData.get('programmeId') as string;
+    const roleKey = formData.get('role') as string;
 
     const newErrors: Record<string, string> = {};
     if (!email || !email.includes('@')) newErrors.email = 'Valid email required';
@@ -200,12 +206,44 @@ export function UserManagementPage() {
       return;
     }
 
-    setIsModalOpen(false);
-    toast.success(
-      selectedUser
-        ? 'User updated with learnership assignment'
-        : 'User created and assigned to learnership',
-    );
+    if (selectedUser) {
+      setIsModalOpen(false);
+      toast.success('User assignment updated (enrolment changes via Enrolments admin)');
+      return;
+    }
+
+    const roleCode = ROLE_FILTER_MAP[roleKey] ?? 'LEARNER';
+    const role = roleRows.find((r) => r.code === roleCode);
+    if (!role) {
+      toast.error('Could not resolve role');
+      return;
+    }
+
+    try {
+      const created = await userService.create({
+        email,
+        firstName,
+        lastName,
+        password: 'ChangeMe123!',
+      });
+      const userId = (created.data as { id: string }).id;
+      await userService.addMembership({
+        userId,
+        roleId: role.id,
+      });
+      if (roleCode === 'LEARNER') {
+        await enrollmentService.create({
+          learnerId: userId,
+          programmeId,
+        });
+      }
+      setIsModalOpen(false);
+      toast.success('User created — temporary password ChangeMe123!');
+      const userRes = await userService.getAll();
+      setUsers((userRes.data ?? []).map(mapDirectoryUser));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create user');
+    }
   };
 
   const handleBulkAction = (action: string, ids: string[]) => {

@@ -70,6 +70,14 @@ export class UsersService {
     });
   }
 
+  listRoles() {
+    return this.prisma.role.findMany({
+      where: { deletedAt: null },
+      orderBy: { code: 'asc' },
+      select: { id: true, code: true, name: true },
+    });
+  }
+
   async create(dto: CreateUserDto, _user?: AuthUser) {
     const passwordHash = await bcrypt.hash(dto.password, 10);
     return this.prisma.user.create({

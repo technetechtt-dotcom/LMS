@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { FileText, Download, Plus, Filter, Eye, Trash2 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
@@ -8,6 +8,7 @@ import { Badge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
+import { reportsService } from '../services/api';
 
 type ReportListRow = {
   id: number;
@@ -20,31 +21,32 @@ type ReportListRow = {
 
 export function ReportsPage() {
   const [showGenerateReport, setShowGenerateReport] = useState(false);
-  const reports = [
-  {
-    id: 1,
-    name: 'QCTO Progress Report - Q1 2024',
-    program: 'IT Skills Program',
-    date: '2024-04-15 10:30 AM',
-    generatedBy: 'Admin User',
-    status: 'Completed'
-  },
-  {
-    id: 2,
-    name: 'Learner Enrolment Report - 2023',
-    program: 'Manufacturing Learnership',
-    date: '2024-03-20 02:15 PM',
-    generatedBy: 'Admin User',
-    status: 'Completed'
-  },
-  {
-    id: 3,
-    name: 'Final Assessment Report - Q1 2024',
-    program: 'Business Administration',
-    date: '2024-04-18 09:00 AM',
-    generatedBy: 'System',
-    status: 'In Progress'
-  }];
+  const [snapshot, setSnapshot] = useState<{
+    enrollments: number;
+    docs: number;
+    assessments: number;
+    generatedAt: string;
+  } | null>(null);
+
+  useEffect(() => {
+    reportsService
+      .getSetaSnapshot()
+      .then((res) => setSnapshot(res.data))
+      .catch(() => toast.error('Could not load SETA snapshot'));
+  }, []);
+
+  const reports: ReportListRow[] = snapshot
+    ? [
+        {
+          id: 1,
+          name: 'SETA operational snapshot',
+          program: 'All programmes',
+          date: new Date(snapshot.generatedAt).toLocaleString(),
+          generatedBy: 'API',
+          status: 'Completed',
+        },
+      ]
+    : [];
 
   const columns = [
   {
@@ -109,9 +111,9 @@ export function ReportsPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">QCTO Reports</h1>
+          <h1 className="text-2xl font-bold text-gray-900">SETA Reports</h1>
           <p className="text-sm text-gray-500">
-            Generate and view QCTO-compliant reports for your learnership
+            Generate and view SETA-aligned reports for your learnership
             programs.
           </p>
         </div>

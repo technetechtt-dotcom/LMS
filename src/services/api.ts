@@ -320,6 +320,156 @@ export const assessmentService = {
     >(`/assessment-instances/${encodeURIComponent(id)}`);
     return { data: unwrapData(raw), success: true };
   },
+
+  startAttempt: async (
+    assessmentId: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>(
+      `/assessments/${encodeURIComponent(assessmentId)}/start-attempt`,
+      {},
+    );
+  },
+
+  saveProgress: async (
+    submissionId: string,
+    responses: unknown[],
+  ): Promise<ApiResponse<AssessmentInstance>> => {
+    const raw = await apiFetchJSON<
+      ApiResponse<AssessmentInstance> | AssessmentInstance
+    >(`/assessment-instances/${encodeURIComponent(submissionId)}/progress`, {
+      method: 'PATCH',
+      body: JSON.stringify({ responses }),
+    });
+    return { data: unwrapData(raw), success: true };
+  },
+
+  humanGrade: async (
+    submissionId: string,
+    grades: Array<{ questionId: string; score: number; feedback?: string }>,
+  ): Promise<ApiResponse<AssessmentInstance>> => {
+    const raw = await remotePostJson<AssessmentInstance>(
+      `/assessment-instances/${encodeURIComponent(submissionId)}/human-grade`,
+      { grades },
+    );
+    return raw;
+  },
+
+  completeGrading: async (
+    submissionId: string,
+  ): Promise<ApiResponse<AssessmentInstance>> => {
+    const raw = await remotePostJson<AssessmentInstance>(
+      `/assessment-instances/${encodeURIComponent(submissionId)}/complete-grading`,
+      {},
+    );
+    return raw;
+  },
+
+  finaliseResult: async (
+    assessmentId: string,
+    body: { result: 'C' | 'NYC'; feedback?: string },
+  ): Promise<ApiResponse<Assessment>> => {
+    const raw = await remotePostJson<Assessment>(
+      `/assessments/${encodeURIComponent(assessmentId)}/finalise-result`,
+      body,
+    );
+    return raw;
+  },
+};
+
+export const instrumentService = {
+  listByUnit: async (
+    unitStandardId: string,
+  ): Promise<ApiResponse<Record<string, unknown>[]>> => {
+    const raw = await apiFetchJSON<
+      ApiResponse<Record<string, unknown>[]> | Record<string, unknown>[]
+    >(`/assessment-instruments/by-unit/${encodeURIComponent(unitStandardId)}`);
+    const list = unwrapData(raw);
+    return { data: Array.isArray(list) ? list : [], success: true };
+  },
+
+  getById: async (id: string): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<
+      ApiResponse<Record<string, unknown>> | Record<string, unknown>
+    >(`/assessment-instruments/${encodeURIComponent(id)}`);
+    return { data: unwrapData(raw), success: true };
+  },
+
+  createDraft: async (body: {
+    unitStandardId: string;
+    title?: string;
+    maxAttempts?: number;
+  }): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>(
+      '/assessment-instruments',
+      body,
+    );
+  },
+
+  update: async (
+    id: string,
+    body: { title?: string; maxAttempts?: number },
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>(
+      `/assessment-instruments/${encodeURIComponent(id)}`,
+      body,
+      'PATCH',
+    );
+  },
+
+  replaceQuestions: async (
+    id: string,
+    questions: unknown[],
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>(
+      `/assessment-instruments/${encodeURIComponent(id)}/questions`,
+      { questions },
+    );
+  },
+
+  publish: async (
+    id: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>(
+      `/assessment-instruments/${encodeURIComponent(id)}/publish`,
+      {},
+    );
+  },
+
+  retire: async (
+    id: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>(
+      `/assessment-instruments/${encodeURIComponent(id)}/retire`,
+      {},
+    );
+  },
+};
+
+export const moderationService = {
+  list: async (): Promise<ApiResponse<unknown[]>> => {
+    const raw = await apiFetchJSON<unknown[] | ApiResponse<unknown[]>>(
+      '/moderation',
+    );
+    const list = unwrapData(raw as ApiResponse<unknown[]>);
+    return { data: Array.isArray(list) ? list : [], success: true };
+  },
+
+  allocate: async (
+    assessmentId: string,
+    moderatorId: string,
+  ): Promise<ApiResponse<unknown>> => {
+    return remotePostJson<unknown>('/moderation/allocate', {
+      assessmentId,
+      moderatorId,
+    });
+  },
+
+  history: async (assessmentId: string): Promise<ApiResponse<unknown>> => {
+    const raw = await apiFetchJSON<unknown>(
+      `/moderation/history/${encodeURIComponent(assessmentId)}`,
+    );
+    return { data: unwrapData(raw as ApiResponse<unknown>), success: true };
+  },
 };
 
 export const certificateService = {
@@ -333,6 +483,51 @@ export const certificateService = {
     >(`/certificates${query}`);
     const list = unwrapData(raw);
     return { data: Array.isArray(list) ? list : [], success: true };
+  },
+
+  verify: async (
+    code: string,
+  ): Promise<
+    ApiResponse<{
+      valid: boolean;
+      credentialStatus: string;
+      certificateNumber: string;
+      title: string;
+      programmeName: string;
+      issuedAt: string;
+      learnerInitials: string;
+    }>
+  > => {
+    const raw = await apiFetchJSON<
+      | ApiResponse<{
+          valid: boolean;
+          credentialStatus: string;
+          certificateNumber: string;
+          title: string;
+          programmeName: string;
+          issuedAt: string;
+          learnerInitials: string;
+        }>
+      | {
+          valid: boolean;
+          credentialStatus: string;
+          certificateNumber: string;
+          title: string;
+          programmeName: string;
+          issuedAt: string;
+          learnerInitials: string;
+        }
+    >(`/certificates/verify/${encodeURIComponent(code)}`);
+    return { data: unwrapData(raw), success: true };
+  },
+
+  downloadUrl: async (
+    id: string,
+  ): Promise<ApiResponse<{ downloadUrl: string }>> => {
+    const raw = await apiFetchJSON<
+      ApiResponse<{ downloadUrl: string }> | { downloadUrl: string }
+    >(`/certificates/${encodeURIComponent(id)}/download`);
+    return { data: unwrapData(raw), success: true };
   },
 
   issue: async (body: {
@@ -584,6 +779,161 @@ export const userService = {
       success: true,
     };
   },
+
+  create: async (body: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    password: string;
+  }): Promise<ApiResponse<unknown>> => {
+    return remotePostJson<unknown>('/users', body);
+  },
+
+  addMembership: async (body: {
+    userId: string;
+    roleId: string;
+    organisationId?: string;
+  }): Promise<ApiResponse<unknown>> => {
+    return remotePostJson<unknown>('/users/memberships', body);
+  },
+
+  listRoles: async (): Promise<
+    ApiResponse<Array<{ id: string; code: string; name: string }>>
+  > => {
+    const raw = await apiFetchJSON<
+      | ApiResponse<Array<{ id: string; code: string; name: string }>>
+      | Array<{ id: string; code: string; name: string }>
+    >('/users/roles');
+    const list = unwrapData(raw);
+    return { data: Array.isArray(list) ? list : [], success: true };
+  },
+};
+
+export const organisationService = {
+  list: async (): Promise<
+    ApiResponse<Array<{ id: string; name: string; type: string }>>
+  > => {
+    const raw = await apiFetchJSON<
+      | ApiResponse<Array<{ id: string; name: string; type: string }>>
+      | Array<{ id: string; name: string; type: string }>
+    >('/organisations');
+    const list = unwrapData(raw);
+    return { data: Array.isArray(list) ? list : [], success: true };
+  },
+};
+
+export const qaOfficerService = {
+  overview: async (): Promise<
+    ApiResponse<{
+      unsignedContracts: number;
+      vettingPending: number;
+      placementPending: number;
+      totalLearners: number;
+    }>
+  > => {
+    const raw = await apiFetchJSON('/qa-officer/overview');
+    return {
+      data: unwrapData(raw) as {
+        unsignedContracts: number;
+        vettingPending: number;
+        placementPending: number;
+        totalLearners: number;
+      },
+      success: true,
+    };
+  },
+
+  listContracts: async (): Promise<ApiResponse<unknown[]>> => {
+    const raw = await apiFetchJSON<unknown[]>('/qa-officer/contracts');
+    return {
+      data: Array.isArray(raw) ? raw : unwrapData(raw as ApiResponse<unknown[]>),
+      success: true,
+    };
+  },
+
+  registerContract: async (body: {
+    contractType: 'SETA' | 'SDP' | 'IMPLEMENTATION';
+    name: string;
+    counterparty?: string;
+    effectiveDate?: string;
+    expiryDate?: string;
+    notes?: string;
+  }): Promise<ApiResponse<unknown>> => {
+    return remotePostJson('/qa-officer/contracts', body);
+  },
+
+  signContract: async (
+    id: string,
+    signatureNotes?: string,
+  ): Promise<ApiResponse<unknown>> => {
+    return remotePostJson(
+      `/qa-officer/contracts/${encodeURIComponent(id)}/sign`,
+      { signatureNotes },
+      'PATCH',
+    );
+  },
+
+  vettingQueue: async (): Promise<ApiResponse<unknown[]>> => {
+    const raw = await apiFetchJSON<unknown[]>('/qa-officer/vetting-queue');
+    return {
+      data: Array.isArray(raw) ? raw : [],
+      success: true,
+    };
+  },
+
+  bulkImportLearners: async (
+    learners: Array<{
+      email: string;
+      firstName: string;
+      lastName: string;
+      programmeId: string;
+      idNumber?: string;
+      phone?: string;
+    }>,
+  ): Promise<ApiResponse<unknown>> => {
+    return remotePostJson('/qa-officer/learners/bulk-import', { learners });
+  },
+
+  recordVetting: async (
+    enrollmentId: string,
+    body: {
+      decision: 'qualified' | 'rejected';
+      checks: {
+        idVerified: boolean;
+        popiaConsent: boolean;
+        qualificationMet: boolean;
+        documentsComplete: boolean;
+      };
+      notes?: string;
+    },
+  ): Promise<ApiResponse<unknown>> => {
+    return remotePostJson(
+      `/qa-officer/enrollments/${encodeURIComponent(enrollmentId)}/vetting`,
+      body,
+      'PATCH',
+    );
+  },
+
+  placementQueue: async (): Promise<ApiResponse<unknown[]>> => {
+    const raw = await apiFetchJSON<unknown[]>('/qa-officer/placement-queue');
+    return { data: Array.isArray(raw) ? raw : [], success: true };
+  },
+
+  arrangePlacement: async (
+    enrollmentId: string,
+    body: {
+      employerOrganisationId: string;
+      workplaceMentorId?: string;
+      placementStartDate?: string;
+      notes?: string;
+    },
+  ): Promise<ApiResponse<unknown>> => {
+    return remotePostJson(
+      `/qa-officer/enrollments/${encodeURIComponent(enrollmentId)}/placement`,
+      body,
+      'PATCH',
+    );
+  },
 };
 
 export type LearnershipProgressRow = {
@@ -634,6 +984,78 @@ export const attendanceService = {
     );
     const list = unwrapData(raw);
     return { data: Array.isArray(list) ? list : [], success: true };
+  },
+
+  openSession: async (
+    programmeId: string,
+    ttlMinutes?: number,
+  ): Promise<
+    ApiResponse<{ sessionId: string; expiresAt: string; qrToken: string }>
+  > => {
+    return remotePostJson<{
+      sessionId: string;
+      expiresAt: string;
+      qrToken: string;
+    }>('/attendance/sessions', { programmeId, ttlMinutes });
+  },
+
+  checkIn: async (
+    sessionId: string,
+    token: string,
+    enrollmentId: string,
+  ): Promise<ApiResponse<unknown>> => {
+    return remotePostJson<unknown>(
+      `/attendance/sessions/${encodeURIComponent(sessionId)}/check-in`,
+      { token, enrollmentId },
+    );
+  },
+
+  markManual: async (body: {
+    enrollmentId: string;
+    sessionDate: string;
+    status: string;
+    notes?: string;
+  }): Promise<ApiResponse<unknown>> => {
+    return remotePostJson<unknown>('/attendance', body);
+  },
+};
+
+export const invitationService = {
+  peek: async (
+    token: string,
+  ): Promise<
+    ApiResponse<{
+      email: string;
+      organisationName: string;
+      roleName: string;
+      expiresAt: string;
+    }>
+  > => {
+    const raw = await apiFetchJSON<
+      | ApiResponse<{
+          email: string;
+          organisationName: string;
+          roleName: string;
+          expiresAt: string;
+        }>
+      | {
+          email: string;
+          organisationName: string;
+          roleName: string;
+          expiresAt: string;
+        }
+    >(`/invitations/peek?token=${encodeURIComponent(token)}`);
+    return { data: unwrapData(raw), success: true };
+  },
+
+  register: async (body: {
+    email: string;
+    password: string;
+    firstName: string;
+    lastName: string;
+    inviteToken: string;
+  }): Promise<ApiResponse<unknown>> => {
+    return remotePostJson<unknown>('/auth/register', body);
   },
 };
 

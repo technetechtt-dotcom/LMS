@@ -12,3 +12,11 @@ export class CreateModerationDto {
   @IsString()
   feedback?: string;
 }
+
+export class AllocateModeratorDto {
+  @IsUUID()
+  assessmentId!: string;
+
+  @IsUUID()
+  moderatorId!: string;
+}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -23,6 +23,8 @@ import { Select } from '../components/ui/Select';
 import { Badge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
 import { Modal } from '../components/ui/Modal';
+import { assessmentService } from '../services/api';
+import type { Assessment } from '../types';
 
 type RecentResultRow = {
   id: number;
@@ -35,6 +37,27 @@ type RecentResultRow = {
 
 export function LearnerAssessmentsPage() {
   const navigate = useNavigate();
+  const [apiAssessments, setApiAssessments] = useState<Assessment[]>([]);
+  const [loadingList, setLoadingList] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    assessmentService
+      .getAll()
+      .then((res) => {
+        if (!cancelled) setApiAssessments(res.data ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Could not load assessments');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingList(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [showStudyPlanModal, setShowStudyPlanModal] = useState(false);
   const [showPracticeModal, setShowPracticeModal] = useState(false);
   const [showStudyGuideModal, setShowStudyGuideModal] = useState(false);

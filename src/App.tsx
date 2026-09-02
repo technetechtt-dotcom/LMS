@@ -7,6 +7,8 @@ import { ProtectedRoute } from './components/layout/ProtectedRoute';
 import { RoleGate } from './components/layout/RoleGate';
 import { LoginPage } from './pages/LoginPage';
 import { OnboardingPage } from './pages/OnboardingPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { CertificateVerifyPage } from './pages/CertificateVerifyPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { LearnerDashboardPage } from './pages/LearnerDashboardPage';
 import { LearnerCoursesPage } from './pages/LearnerCoursesPage';
@@ -40,6 +42,7 @@ import { AssessmentTakingPage } from './pages/AssessmentTakingPage';
 import { SubmissionReviewPage } from './pages/SubmissionReviewPage';
 import { AssessorDashboardPage } from './pages/AssessorDashboardPage';
 import { ModeratorDashboardPage } from './pages/ModeratorDashboardPage';
+import { QaOfficerDashboardPage } from './pages/QaOfficerDashboardPage';
 import { WorkplaceMentorDashboardPage } from './pages/WorkplaceMentorDashboardPage';
 import { HelpPage } from './pages/HelpPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
@@ -66,6 +69,8 @@ function App() {
     <Router>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/certificates/verify/:code" element={<CertificateVerifyPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
@@ -129,7 +134,7 @@ function App() {
             <Route
               path="learners"
               element={
-                <RoleGate allowedRoles={['Admin']}>
+                <RoleGate allowedRoles={['Admin', 'QA Officer']}>
                   <LearnersPage />
                 </RoleGate>
               }
@@ -276,6 +281,14 @@ function App() {
               element={
                 <RoleGate allowedRoles={['Moderator']}>
                   <ModeratorDashboardPage />
+                </RoleGate>
+              }
+            />
+            <Route
+              path="qa-dashboard"
+              element={
+                <RoleGate allowedRoles={['Admin', 'QA Officer']}>
+                  <QaOfficerDashboardPage />
                 </RoleGate>
               }
             />

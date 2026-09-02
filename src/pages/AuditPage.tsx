@@ -12,6 +12,7 @@ import { Tabs } from '../components/ui/Tabs';
 import { DataTable } from '../components/ui/DataTable';
 import { Badge } from '../components/ui/Badge';
 import { toast } from 'sonner';
+import { auditService } from '../services/api';
 type AuditLearnerRecord = {
   id: number;
   name: string;
@@ -48,7 +49,17 @@ type AuditFacilitatorRecord = {
 
 export function AuditPage() {
   const [activeTab, setActiveTab] = useState('learners');
+  const [auditRows, setAuditRows] = useState<
+    Array<Record<string, unknown>>
+  >([]);
   const [timeLeft, setTimeLeft] = useState(14385); // ~4 hours in seconds
+
+  useEffect(() => {
+    auditService
+      .list(200)
+      .then((rows) => setAuditRows(rows as Array<Record<string, unknown>>))
+      .catch(() => toast.error('Could not load audit log'));
+  }, []);
   useEffect(() => {
     const timer = setInterval(() => {
       setTimeLeft((prev) => Math.max(0, prev - 1));

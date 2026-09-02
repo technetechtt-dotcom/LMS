@@ -294,10 +294,21 @@ export class CertificatesService {
       where: { verificationCode: code },
     });
     if (!row) throw new NotFoundException('Certificate not found');
+    const learnerInitials = row.learnerName
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((p) => p[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
     return {
       valid: row.status === 'ISSUED',
       credentialStatus: row.status,
-      ...this.mapCredential(row),
+      certificateNumber: row.certificateNumber,
+      title: row.title,
+      programmeName: row.programmeName,
+      issuedAt: row.issuedAt.toISOString(),
+      learnerInitials,
     };
   }
 }

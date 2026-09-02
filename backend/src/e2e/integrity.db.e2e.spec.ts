@@ -322,6 +322,7 @@ describe('integrity DB E2E', () => {
       asAssessor(),
     );
     expect(graded.score).toBe(7);
+    await instances.completeGrading(submissionId, asAssessor());
     const stored = await prisma.assessmentSubmission.findUniqueOrThrow({
       where: { id: submissionId },
     });

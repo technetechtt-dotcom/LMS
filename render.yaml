@@ -31,11 +31,35 @@ services:
           name: lms-web
           type: web
           envVarKey: RENDER_EXTERNAL_URL
-      - key: MAIL_PROVIDER
-        value: log
       - key: FILE_STORAGE
-        value: mock
+        value: s3
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: AWS_REGION
+        value: af-south-1
+      - key: MAIL_PROVIDER
+        value: smtp
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: AV_SCAN_MODE
+        value: http
+      - key: AV_SCAN_URL
+        sync: false
       - key: LOG_PASSWORD_RESET_LINK
+        value: "false"
+      - key: PUBLIC_REGISTRATION
         value: "false"
 
   - type: web

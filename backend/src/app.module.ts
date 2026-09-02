@@ -11,6 +11,7 @@ import { ProgrammesModule } from './programmes/programmes.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { EvidenceModule } from './evidence/evidence.module';
 import { AssessmentsModule } from './assessments/assessments.module';
+import { AssessmentInstrumentsModule } from './assessment-instruments/assessment-instruments.module';
 import { ModerationModule } from './moderation/moderation.module';
 import { ReportsModule } from './reports/reports.module';
 import { AuditModule } from './audit/audit.module';
@@ -27,6 +28,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { CertificatesModule } from './certificates/certificates.module';
 import { PrivacyModule } from './privacy/privacy.module';
 import { EnterpriseModule } from './enterprise/enterprise.module';
+import { QaOfficerModule } from './qa-officer/qa-officer.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -51,6 +53,7 @@ import { HealthController } from './health/health.controller';
     EnrollmentsModule,
     EvidenceModule,
     AssessmentsModule,
+    AssessmentInstrumentsModule,
     ModerationModule,
     ReportsModule,
     AuditModule,
@@ -67,6 +70,7 @@ import { HealthController } from './health/health.controller';
     CertificatesModule,
     PrivacyModule,
     EnterpriseModule,
+    QaOfficerModule,
   ],
   controllers: [HealthController],
   providers: [

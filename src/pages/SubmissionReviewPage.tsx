@@ -42,6 +42,49 @@ export function SubmissionReviewPage() {
   const [grades, setGrades] = useState<Record<string, number>>({});
   const [feedback, setFeedback] = useState<Record<string, string>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [instances, setInstances] = useState<
+    Array<{
+      id: string;
+      name: string;
+      status: string;
+      score: number | null;
+      time: string;
+      avatar: string;
+    }>
+  >([]);
+  const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    assessmentService
+      .listInstances()
+      .then((res) => {
+        if (cancelled) return;
+        const forAssessment = (res.data ?? []).filter(
+          (s) => s.assessmentId === id,
+        );
+        setInstances(
+          forAssessment.map((s) => ({
+            id: s.id,
+            name: s.learnerName ?? 'Learner',
+            status: s.status,
+            score: s.score ?? null,
+            time: s.submittedAt
+              ? new Date(s.submittedAt).toLocaleString()
+              : '—',
+            avatar: initialsFromName(s.learnerName ?? 'L'),
+          })),
+        );
+        if (forAssessment[0]?.id) setActiveSubmissionId(forAssessment[0].id);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   useEffect(() => {
     if (!id) {
@@ -74,6 +117,7 @@ export function SubmissionReviewPage() {
   }, [id]);
 
   const submissions = useMemo(() => {
+    if (instances.length) return instances;
     if (!assessment?.learnerName) return [];
     const sid = assessment.enrollmentId ?? assessment.id;
     return [
@@ -88,7 +132,7 @@ export function SubmissionReviewPage() {
         avatar: initialsFromName(assessment.learnerName),
       },
     ];
-  }, [assessment]);
+  }, [assessment, instances]);
   // Color-coded marking based on role
   const getMarkerConfig = () => {
     switch (userRole) {
@@ -147,8 +191,37 @@ export function SubmissionReviewPage() {
       [qId]: text
     });
   };
-  const handleSubmitGrades = () => {
-    toast.success(`Grades submitted as ${marker.label}`);
+  const handleSubmitGrades = async () => {
+    const submissionId = activeSubmissionId ?? selectedLearnerId;
+    if (!submissionId || !id) {
+      toast.error('No submission selected');
+      return;
+    }
+    const gradePayload = Object.entries(grades).map(([questionId, score]) => ({
+      questionId,
+      score,
+      feedback: feedback[questionId],
+    }));
+    if (!gradePayload.length) {
+      toast.error('Enter at least one score');
+      return;
+    }
+    try {
+      await assessmentService.humanGrade(submissionId, gradePayload);
+      await assessmentService.completeGrading(submissionId);
+      if (userRole === 'Assessor') {
+        await assessmentService.finaliseResult(id, {
+          result: 'C',
+          feedback: Object.values(feedback).filter(Boolean).join('\n') || undefined,
+        });
+      }
+      toast.success(`Grades submitted as ${marker.label}`);
+      navigate(-1);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to submit grades',
+      );
+    }
   };
 
   if (loading) {

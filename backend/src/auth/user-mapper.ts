@@ -16,6 +16,7 @@ const ROLE_CODE_TO_APP: Record<string, string> = {
   MODERATOR: 'Moderator',
   QA_OFFICER: 'QA Officer',
   SETA: 'SETA Official',
+  MENTOR: 'Workplace Mentor',
 };
 
 const ROLE_PRIORITY = [
@@ -26,6 +27,7 @@ const ROLE_PRIORITY = [
   'FACILITATOR',
   'ASSESSOR',
   'MODERATOR',
+  'MENTOR',
   'LEARNER',
 ] as const;
 

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -58,6 +58,31 @@ export class AssessmentInstancesController {
   ) {
     const data = await this.instances.humanGrade(id, body.grades, req.user);
     return { success: true, data };
+  }
+
+  @Roles('LEARNER', 'ASSESSOR', 'ADMIN', 'FACILITATOR')
+  @Patch(':id/progress')
+  async saveProgress(
+    @Param('id') id: string,
+    @Body() body: { responses?: unknown[] },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.instances.saveProgress(
+      id,
+      body.responses ?? [],
+      req.user,
+    );
+    return { success: true, data };
+  }
+
+  @Roles('ADMIN', 'ASSESSOR')
+  @Post(':id/complete-grading')
+  async completeGrading(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.instances.completeGrading(id, req.user);
+    return { success: true, data, message: 'Grading complete' };
   }
 
   @Roles('ADMIN', 'MODERATOR', 'QA_OFFICER')

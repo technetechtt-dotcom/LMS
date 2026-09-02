@@ -46,6 +46,16 @@ export function AssessmentTakingPage() {
   const [enrollmentId, setEnrollmentId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingAssessment, setLoadingAssessment] = useState(true);
+  const [submissionId, setSubmissionId] = useState<string | null>(null);
+
+  const buildResponsePayload = useCallback(
+    () =>
+      Object.entries(responses).map(([questionId, answer]) => ({
+        questionId,
+        answer,
+      })),
+    [responses],
+  );
 
   useEffect(() => {
     if (!id) {
@@ -57,7 +67,7 @@ export function AssessmentTakingPage() {
     setLoadingAssessment(true);
     assessmentService
       .getById(id)
-      .then((res) => {
+      .then(async (res) => {
         if (cancelled) return;
         const a = res.data;
         setHeaderTitle(a.title);
@@ -68,6 +78,24 @@ export function AssessmentTakingPage() {
         setQuestions(a.questions ?? []);
         setEnrollmentId(a.enrollmentId ?? linkedLearnerId ?? null);
         setLoadError(null);
+
+        try {
+          const attempt = await assessmentService.startAttempt(id);
+          const sub = attempt.data as {
+            id?: string;
+            responses?: Array<{ questionId: string; answer: unknown }>;
+          };
+          if (sub.id) setSubmissionId(sub.id);
+          if (Array.isArray(sub.responses) && sub.responses.length) {
+            const restored: Record<string, unknown> = {};
+            for (const r of sub.responses) {
+              if (r.questionId) restored[r.questionId] = r.answer;
+            }
+            setResponses(restored);
+          }
+        } catch {
+          /* start-attempt may fail for staff preview */
+        }
       })
       .catch(() => {
         if (!cancelled) setLoadError('Could not load assessment');
@@ -79,6 +107,32 @@ export function AssessmentTakingPage() {
       cancelled = true;
     };
   }, [id, linkedLearnerId]);
+
+  const handleSaveProgress = useCallback(async () => {
+    if (!submissionId) {
+      toast.error('No in-progress attempt to save');
+      return;
+    }
+    try {
+      await assessmentService.saveProgress(submissionId, buildResponsePayload());
+      toast.success('Progress saved — you can resume later');
+      navigate('/learner-assessments');
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Could not save progress',
+      );
+    }
+  }, [submissionId, buildResponsePayload, navigate]);
+
+  useEffect(() => {
+    if (!submissionId || isSubmitted) return;
+    const timer = setInterval(() => {
+      void assessmentService
+        .saveProgress(submissionId, buildResponsePayload())
+        .catch(() => undefined);
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [submissionId, isSubmitted, buildResponsePayload]);
 
   const handleSubmit = useCallback(async () => {
     if (!id || submitting) return;
@@ -414,7 +468,7 @@ export function AssessmentTakingPage() {
           <Button
             variant="ghost"
             leftIcon={<Save className="h-4 w-4" />}
-            onClick={() => toast.success('Progress saved')}>
+            onClick={() => void handleSaveProgress()}>
             
             Save & Exit
           </Button>

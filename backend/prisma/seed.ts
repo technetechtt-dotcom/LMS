@@ -126,10 +126,34 @@ async function main() {
     },
   } as Parameters<PrismaClient['user']['upsert']>[0]);
 
+  const mentor = await prisma.user.upsert({
+    where: { email: 'mentor@skillforge.co.za' },
+    update: {},
+    create: {
+      email: 'mentor@skillforge.co.za',
+      passwordHash,
+      firstName: 'David',
+      lastName: 'Pillay',
+    },
+  });
+
+  const qaOfficer = await prisma.user.upsert({
+    where: { email: 'qa@skillforge.co.za' },
+    update: {},
+    create: {
+      email: 'qa@skillforge.co.za',
+      passwordHash,
+      firstName: 'Nandi',
+      lastName: 'Sithole',
+    },
+  });
+
   const adminRole = await prisma.role.findUniqueOrThrow({ where: { code: 'ADMIN' } });
   const learnerRole = await prisma.role.findUniqueOrThrow({ where: { code: 'LEARNER' } });
   const assessorRole = await prisma.role.findUniqueOrThrow({ where: { code: 'ASSESSOR' } });
   const moderatorRole = await prisma.role.findUniqueOrThrow({ where: { code: 'MODERATOR' } });
+  const mentorRole = await prisma.role.findUniqueOrThrow({ where: { code: 'MENTOR' } });
+  const qaRole = await prisma.role.findUniqueOrThrow({ where: { code: 'QA_OFFICER' } });
   const setaRole = await prisma.role.findUniqueOrThrow({ where: { code: 'SETA' } });
   const facilitatorRoleRow = await prisma.role.findUniqueOrThrow({
     where: { code: 'FACILITATOR' },
@@ -147,6 +171,8 @@ async function main() {
         roleId: facilitatorRoleRow.id,
         isPrimary: true,
       },
+      { userId: mentor.id, organisationId: sdio.id, roleId: mentorRole.id, isPrimary: true },
+      { userId: qaOfficer.id, organisationId: sdio.id, roleId: qaRole.id, isPrimary: true },
       { userId: admin.id, organisationId: seta.id, roleId: setaRole.id, isPrimary: false },
     ],
     skipDuplicates: true,
@@ -198,46 +224,63 @@ async function main() {
     },
   });
 
-  const enrollment = await prisma.enrollment.create({
-    data: {
-      learnerId: learner.id,
-      programmeId: programme.id,
-      sdioOrganisationId: sdio.id,
-      employerOrganisationId: employer.id,
-      status: LearnerLifecycleStatus.ASSESSMENT,
-      startedAt: new Date(),
-      metadata: {
-        idNumber: '9001015009087',
-        progress: 72,
-        phone: '+27 82 000 0000',
-        setaStatus: 'compliant',
-        lastActivity: '2 hours ago',
-        lastActivityDescription: 'Assessment submission',
-        expectedCompletionDate: '2024-12-15',
+  const enrollment =
+    (await prisma.enrollment.findFirst({
+      where: {
+        learnerId: learner.id,
+        programmeId: programme.id,
+        deletedAt: null,
       },
-    },
-  });
+    })) ??
+    (await prisma.enrollment.create({
+      data: {
+        learnerId: learner.id,
+        programmeId: programme.id,
+        sdioOrganisationId: sdio.id,
+        employerOrganisationId: employer.id,
+        status: LearnerLifecycleStatus.ASSESSMENT,
+        startedAt: new Date(),
+        metadata: {
+          idNumber: '9001015009087',
+          progress: 72,
+          phone: '+27 82 000 0000',
+          setaStatus: 'compliant',
+          lastActivity: '2 hours ago',
+          lastActivityDescription: 'Assessment submission',
+          expectedCompletionDate: '2024-12-15',
+        },
+      },
+    }));
 
-  await prisma.enrollmentWorkflow.create({
-    data: {
-      enrollmentId: enrollment.id,
-      fromState: LearnerLifecycleStatus.TRAINING,
-      toState: LearnerLifecycleStatus.ASSESSMENT,
-      action: WorkflowAction.START_ASSESSMENT,
-      changedById: admin.id,
-      reason: 'Ready for formal assessment',
-    },
+  const workflowCount = await prisma.enrollmentWorkflow.count({
+    where: { enrollmentId: enrollment.id },
   });
+  if (workflowCount === 0) {
+    await prisma.enrollmentWorkflow.create({
+      data: {
+        enrollmentId: enrollment.id,
+        fromState: LearnerLifecycleStatus.TRAINING,
+        toState: LearnerLifecycleStatus.ASSESSMENT,
+        action: WorkflowAction.START_ASSESSMENT,
+        changedById: admin.id,
+        reason: 'Ready for formal assessment',
+      },
+    });
+  }
 
-  const assessment = await prisma.assessment.create({
-    data: {
-      enrollmentId: enrollment.id,
-      unitStandardId: unit.id,
-      assessorId: assessor.id,
-      result: CompetencyResult.C,
-      feedback: 'Consistent evidence submitted and verified',
-    },
-  });
+  const assessment =
+    (await prisma.assessment.findFirst({
+      where: { enrollmentId: enrollment.id, unitStandardId: unit.id, deletedAt: null },
+    })) ??
+    (await prisma.assessment.create({
+      data: {
+        enrollmentId: enrollment.id,
+        unitStandardId: unit.id,
+        assessorId: assessor.id,
+        result: CompetencyResult.C,
+        feedback: 'Consistent evidence submitted and verified',
+      },
+    }));
 
   const questionCount = await prisma.assessmentQuestion.count({
     where: { unitStandardId: unit.id, deletedAt: null },
@@ -282,8 +325,13 @@ async function main() {
     });
   }
 
-  await prisma.moderation.create({
-    data: {
+  await prisma.moderation.upsert({
+    where: { assessmentId: assessment.id },
+    update: {
+      decision: ModerationDecision.APPROVED,
+      feedback: 'Assessment aligns with moderation policy',
+    },
+    create: {
       assessmentId: assessment.id,
       moderatorId: moderator.id,
       decision: ModerationDecision.APPROVED,
@@ -291,19 +339,28 @@ async function main() {
     },
   });
 
-  await prisma.evidence.create({
-    data: {
+  const evidenceExists = await prisma.evidence.findFirst({
+    where: {
       enrollmentId: enrollment.id,
-      unitStandardId: unit.id,
-      outcomeId: outcome.id,
       fileName: 'network-installation-video.mp4',
-      fileType: 'video/mp4',
-      fileSize: 4021044,
-      storageKey: 'evidence/network-installation-video.mp4',
-      url: 'https://mock-s3/evidence/network-installation-video.mp4',
-      uploadedById: learner.id,
+      deletedAt: null,
     },
   });
+  if (!evidenceExists) {
+    await prisma.evidence.create({
+      data: {
+        enrollmentId: enrollment.id,
+        unitStandardId: unit.id,
+        outcomeId: outcome.id,
+        fileName: 'network-installation-video.mp4',
+        fileType: 'video/mp4',
+        fileSize: 4021044,
+        storageKey: 'evidence/network-installation-video.mp4',
+        url: 'https://mock-s3/evidence/network-installation-video.mp4',
+        uploadedById: learner.id,
+      },
+    });
+  }
 
   await prisma.workflowState.createMany({
     data: [

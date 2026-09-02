@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   ShieldCheck,
@@ -10,7 +10,18 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { ComplianceGauge } from '../components/dashboard/ComplianceGauge';
 import { ProgressBar } from '../components/ui/ProgressBar';
+import { complianceService } from '../services/api';
+
 export function CompliancePage() {
+  const [docCount, setDocCount] = useState(0);
+
+  useEffect(() => {
+    complianceService
+      .getDocuments()
+      .then((res) => setDocCount((res.data ?? []).length))
+      .catch(() => toast.error('Could not load compliance documents'));
+  }, []);
+
   const [checklist, setChecklist] = useState([
   {
     id: 1,
@@ -79,7 +90,8 @@ export function CompliancePage() {
             Compliance & Quality Assurance
           </h1>
           <p className="text-sm text-gray-500">
-            Monitor adherence to QCTO & SETA regulations.
+            Monitor adherence to SETA regulations. {docCount} compliance
+            documents on file.
           </p>
         </div>
         <Button
