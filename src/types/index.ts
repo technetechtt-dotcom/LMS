@@ -5,6 +5,7 @@
 // --- Enums & Unions ---
 
 export type UserRole =
+'Platform Admin' |
 'Admin' |
 'Facilitator' |
 'Learner' |
@@ -33,7 +34,11 @@ export type AssessmentInstanceStatus =
 'not_started' |
 'in_progress' |
 'submitted' |
+'facilitator_grading' |
 'grading' |
+'facilitator_graded' |
+'assessor_review' |
+'assessor_verified' |
 'moderation' |
 'completed' |
 'rejected';
@@ -238,6 +243,9 @@ export interface Assessment extends BaseEntity {
   assessedAt?: string;
   /** True when no moderator record exists yet (competency assessments). */
   needsModeration?: boolean;
+  needsAssessorReview?: boolean;
+  needsFacilitatorMarking?: boolean;
+  submissionStatus?: string;
   type: 'quiz' | 'practical' | 'portfolio' | 'oral' | 'mixed';
   format: string;
   status: AssessmentStatus;

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Patch,
   Post,
   Req,
   Res,
@@ -19,10 +20,13 @@ import {
   RefreshTokenDto,
   RegisterDto,
   ResetPasswordDto,
+  UpdateProfileDto,
+  ChangePasswordDto,
 } from './auth.dto';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   clearRefreshCookie,
+  portalFromRequest,
   readRefreshFromRequest,
   setRefreshCookie,
 } from './auth-cookies';
@@ -47,12 +51,17 @@ export class AuthController {
     return Math.max(1, Number(raw) || 7);
   }
 
-  private attachRefreshCookie(res: Response, refreshToken: string) {
+  private attachRefreshCookie(
+    res: Response,
+    refreshToken: string,
+    portal: 'lms' | 'ops' = 'lms',
+  ) {
     setRefreshCookie(
       res,
       refreshToken,
       this.nodeEnv(),
       this.refreshTtlDays(),
+      portal,
     );
   }
 
@@ -71,7 +80,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const session = await this.auth.register(dto);
-    this.attachRefreshCookie(res, session.refreshToken);
+    this.attachRefreshCookie(res, session.refreshToken, 'lms');
     return this.sessionWithoutRefreshToken(session);
   }
 
@@ -83,6 +92,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const portal = dto.portal ?? portalFromRequest(req);
     const session = await this.auth.login(dto, {
       ip: req.ip,
       userAgent:
@@ -90,7 +100,7 @@ export class AuthController {
           ? req.headers['user-agent']
           : undefined,
     });
-    this.attachRefreshCookie(res, session.refreshToken);
+    this.attachRefreshCookie(res, session.refreshToken, portal);
     return this.sessionWithoutRefreshToken(session);
   }
 
@@ -103,14 +113,15 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     // Prefer HttpOnly cookie; body token ignored in production.
+    const portal = portalFromRequest(req);
     const fromBody =
       this.nodeEnv() === 'production' ? undefined : dto.refreshToken;
-    const token = readRefreshFromRequest(req, fromBody);
+    const token = readRefreshFromRequest(req, fromBody, portal);
     if (!token) {
       throw new UnauthorizedException('Missing refresh token');
     }
     const session = await this.auth.refresh({ refreshToken: token });
-    this.attachRefreshCookie(res, session.refreshToken);
+    this.attachRefreshCookie(res, session.refreshToken, portal);
     return this.sessionWithoutRefreshToken(session);
   }
 
@@ -142,7 +153,8 @@ export class AuthController {
   ) {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedException('Invalid session');
-    clearRefreshCookie(res, this.nodeEnv());
+    const portal = portalFromRequest(req);
+    clearRefreshCookie(res, this.nodeEnv(), portal);
     return this.auth.logoutEverywhere(userId);
   }
 
@@ -152,6 +164,28 @@ export class AuthController {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedException('Invalid session');
     return this.auth.getProfile(userId);
+  }
+
+  @ApiBearerAuth()
+  @Patch('me')
+  updateMe(
+    @Req() req: Request & { user?: AuthUser },
+    @Body() dto: UpdateProfileDto,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Invalid session');
+    return this.auth.updateProfile(userId, dto);
+  }
+
+  @ApiBearerAuth()
+  @Post('change-password')
+  changePassword(
+    @Req() req: Request & { user?: AuthUser },
+    @Body() dto: ChangePasswordDto,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Invalid session');
+    return this.auth.changePassword(userId, dto);
   }
 
   @ApiBearerAuth()

@@ -1,141 +1,121 @@
-import React from 'react';
-import { Check, Download, MapPin } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Check, Download } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { ProgressBar } from '../ui/ProgressBar';
 import { Badge } from '../ui/Badge';
 import { DataTable } from '../ui/DataTable';
 import { Button } from '../ui/Button';
 import { toast } from 'sonner';
-const sessions = [
-{
-  id: 1,
-  date: '2023-05-15',
-  title: 'Module 3: Advanced CSS',
-  time: '09:00 - 12:00',
-  status: 'Present',
-  facilitator: 'Sarah Khumalo',
-  signed: true,
-  location: 'Johannesburg CBD'
-},
-{
-  id: 2,
-  date: '2023-05-12',
-  title: 'Module 3: Flexbox & Grid',
-  time: '09:00 - 12:00',
-  status: 'Present',
-  facilitator: 'Sarah Khumalo',
-  signed: true,
-  location: 'Johannesburg CBD'
-},
-{
-  id: 3,
-  date: '2023-05-10',
-  title: 'Module 3: Responsive Design',
-  time: '09:00 - 12:00',
-  status: 'Late',
-  facilitator: 'Sarah Khumalo',
-  signed: false,
-  location: 'Johannesburg CBD'
-},
-{
-  id: 4,
-  date: '2023-05-08',
-  title: 'Module 2: SQL Basics',
-  time: '09:00 - 12:00',
-  status: 'Absent',
-  facilitator: 'John Doe',
-  signed: true,
-  location: 'Johannesburg CBD'
-},
-{
-  id: 5,
-  date: '2023-05-05',
-  title: 'Module 2: Database Normalization',
-  time: '09:00 - 12:00',
-  status: 'Present',
-  facilitator: 'John Doe',
-  signed: true,
-  location: 'Johannesburg CBD'
-}];
+import { attendanceService } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 
-type AttendanceSessionRow = (typeof sessions)[number];
+type SessionRow = {
+  id: string;
+  date: string;
+  title: string;
+  status: string;
+};
+
+function statusLabel(raw: string): string {
+  if (raw === 'PRESENT') return 'Present';
+  if (raw === 'ABSENT') return 'Absent';
+  if (raw === 'LATE') return 'Late';
+  if (raw === 'EXCUSED') return 'Excused';
+  return raw;
+}
 
 export function AttendanceView() {
-  const stats = {
-    present: 12,
-    absent: 1,
-    late: 2,
-    total: 15,
-    percentage: 80
-  };
-  const handleSignOff = (sessionId: number) => {
-    void sessionId;
-    toast.success('Session signed off successfully');
-  };
-  const columns = [
-  {
-    header: 'Date',
-    accessorKey: 'date' as const
-  },
-  {
-    header: 'Session',
-    accessorKey: 'title' as const,
-    cell: (row: AttendanceSessionRow) =>
-    <div>
-          <div className="font-medium text-gray-900">{row.title}</div>
-          <div className="flex items-center text-xs text-gray-500 mt-0.5">
-            <MapPin className="h-3 w-3 mr-1" /> {row.location}
-          </div>
-        </div>
+  const { linkedLearnerId } = useAuth();
+  const [rows, setRows] = useState<SessionRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  },
-  {
-    header: 'Time',
-    accessorKey: 'time' as const
-  },
-  {
-    header: 'Status',
-    accessorKey: 'status' as const,
-    cell: (row: AttendanceSessionRow) =>
-    <Badge
-      variant={
-      row.status === 'Present' ?
-      'success' :
-      row.status === 'Late' ?
-      'warning' :
-      'danger'
-      }>
-      
+  useEffect(() => {
+    if (!linkedLearnerId) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    attendanceService
+      .list(linkedLearnerId)
+      .then((res) => {
+        if (cancelled) return;
+        setRows(
+          (res.data ?? []).map((raw) => {
+            const r = raw as {
+              id: string;
+              sessionDate: string;
+              status: string;
+              enrollment?: { programme?: { title?: string } };
+            };
+            return {
+              id: r.id,
+              date: new Date(r.sessionDate).toLocaleDateString(),
+              title: r.enrollment?.programme?.title ?? 'Training session',
+              status: statusLabel(r.status),
+            };
+          }),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Could not load attendance');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedLearnerId]);
+
+  const stats = useMemo(() => {
+    const present = rows.filter((r) => r.status === 'Present').length;
+    const absent = rows.filter((r) => r.status === 'Absent').length;
+    const late = rows.filter((r) => r.status === 'Late').length;
+    const total = rows.length || 1;
+    const percentage = Math.round((present / total) * 100);
+    return { present, absent, late, total: rows.length, percentage };
+  }, [rows]);
+
+  const columns = [
+    { header: 'Date', accessorKey: 'date' as const },
+    {
+      header: 'Session',
+      accessorKey: 'title' as const,
+      cell: (row: SessionRow) => (
+        <div className="font-medium text-gray-900">{row.title}</div>
+      ),
+    },
+    {
+      header: 'Status',
+      accessorKey: 'status' as const,
+      cell: (row: SessionRow) => (
+        <Badge
+          variant={
+            row.status === 'Present'
+              ? 'success'
+              : row.status === 'Late'
+                ? 'warning'
+                : 'danger'
+          }>
           {row.status}
         </Badge>
-
-  },
-  {
-    header: 'Facilitator Sign-off',
-    accessorKey: 'facilitator' as const,
-    cell: (row: AttendanceSessionRow) =>
-    <div className="flex items-center text-sm text-gray-600">
+      ),
+    },
+    {
+      header: 'Record',
+      accessorKey: 'id' as const,
+      cell: () => (
+        <div className="flex items-center text-sm text-gray-600">
           <Check className="h-4 w-4 text-green-500 mr-2" />
-          {row.facilitator}
+          Verified
         </div>
+      ),
+    },
+  ];
 
-  },
-  {
-    header: 'Learner Sign-off',
-    accessorKey: 'id' as const,
-    cell: (row: AttendanceSessionRow) =>
-    row.signed ?
-    <Badge variant="success">Signed</Badge> :
-
-    <Button
-      size="sm"
-      variant="outline"
-      onClick={() => handleSignOff(row.id)}>
-      
-            Sign Off
-          </Button>
-
-  }];
+  if (loading) {
+    return <p className="text-gray-500">Loading attendance…</p>;
+  }
 
   return (
     <div className="space-y-6">
@@ -145,28 +125,25 @@ export function AttendanceView() {
             <p className="text-sm text-gray-500">Overall Attendance</p>
             <div className="mt-2 flex justify-center">
               <div className="relative h-24 w-24 flex items-center justify-center">
-                <svg
-                  className="h-full w-full transform -rotate-90"
-                  viewBox="0 0 36 36">
-                  
+                <svg className="h-full w-full transform -rotate-90" viewBox="0 0 36 36">
                   <path
                     className="text-gray-200"
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="3" />
-                  
+                    strokeWidth="3"
+                  />
                   <path
                     className={`${stats.percentage >= 80 ? 'text-green-500' : 'text-amber-500'}`}
                     strokeDasharray={`${stats.percentage}, 100`}
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="3" />
-                  
+                    strokeWidth="3"
+                  />
                 </svg>
                 <span className="absolute text-xl font-bold text-gray-900">
-                  {stats.percentage}%
+                  {rows.length ? `${stats.percentage}%` : '—'}
                 </span>
               </div>
             </div>
@@ -174,28 +151,11 @@ export function AttendanceView() {
         </Card>
 
         <Card className="md:col-span-2">
-          <h3 className="text-sm font-medium text-gray-500 mb-4">
-            Attendance Breakdown
-          </h3>
+          <h3 className="text-sm font-medium text-gray-500 mb-4">Attendance Breakdown</h3>
           <div className="space-y-4">
-            <ProgressBar
-              value={stats.present}
-              max={stats.total}
-              label="Present"
-              variant="success" />
-            
-            <ProgressBar
-              value={stats.late}
-              max={stats.total}
-              label="Late"
-              variant="warning" />
-            
-            <ProgressBar
-              value={stats.absent}
-              max={stats.total}
-              label="Absent"
-              variant="danger" />
-            
+            <ProgressBar value={stats.present} max={stats.total || 1} label="Present" variant="success" />
+            <ProgressBar value={stats.late} max={stats.total || 1} label="Late" variant="warning" />
+            <ProgressBar value={stats.absent} max={stats.total || 1} label="Absent" variant="danger" />
           </div>
         </Card>
       </div>
@@ -203,18 +163,17 @@ export function AttendanceView() {
       <Card
         title="Session History"
         action={
-        <Button
-          variant="outline"
-          size="sm"
-          leftIcon={<Download className="h-4 w-4" />}>
-          
+          <Button variant="outline" size="sm" leftIcon={<Download className="h-4 w-4" />} disabled>
             Export Register
           </Button>
         }
         noPadding>
-        
-        <DataTable data={sessions} columns={columns} keyField="id" />
+        {rows.length === 0 ? (
+          <p className="p-4 text-gray-500 text-sm">No attendance records yet.</p>
+        ) : (
+          <DataTable data={rows} columns={columns} keyField="id" />
+        )}
       </Card>
-    </div>);
-
+    </div>
+  );
 }

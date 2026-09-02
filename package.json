@@ -5,9 +5,11 @@
   "type": "commonjs",
   "scripts": {
     "dev": "npx vite",
+    "dev:ops": "cross-env VITE_API_URL=http://localhost:8787 VITE_AUTH_PORTAL=ops npx vite --config vite.ops.config.ts",
     "dev:api": "npm --prefix backend run start:dev",
-    "dev:full": "concurrently -n web,api -c blue,green \"cross-env VITE_API_URL=http://localhost:8787 npm run dev\" \"npm run dev:api\"",
+    "dev:full": "concurrently -n lms,ops,api -c blue,magenta,green \"cross-env VITE_API_URL=http://localhost:8787 npm run dev\" \"cross-env VITE_API_URL=http://localhost:8787 VITE_AUTH_PORTAL=ops npm run dev:ops\" \"npm run dev:api\"",
     "build": "npx vite build",
+    "build:ops": "cross-env VITE_AUTH_PORTAL=ops npx vite build --config vite.ops.config.ts",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "typecheck": "tsc --noEmit",
     "preview": "npx vite preview",

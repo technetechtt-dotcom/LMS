@@ -4,21 +4,30 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
 import { toast } from 'sonner';
+import { auditService } from '../../services/api';
+
 export function FeedbackWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [rating, setRating] = useState(0);
   const [type, setType] = useState('general');
   const [message, setMessage] = useState('');
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      await auditService.log(
+        'USER_FEEDBACK',
+        'feedback',
+        type,
+        `rating=${rating}; ${message.trim()}`,
+      );
       toast.success('Thank you for your feedback!');
       setIsOpen(false);
       setRating(0);
       setType('general');
       setMessage('');
-    }, 500);
+    } catch {
+      toast.error('Could not submit feedback');
+    }
   };
   return (
     <>

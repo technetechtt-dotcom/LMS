@@ -8,7 +8,7 @@ import React, {
   type ReactNode,
 } from 'react';
 import type { LoginCredentials, User } from '../types';
-import { AUTH_STORAGE_KEY } from '../config/authStorage';
+import { getAuthStorageKey } from '../config/authPortal';
 import { authService, auditService } from '../services/api';
 
 interface PersistedAuth {
@@ -36,7 +36,7 @@ function linkedLearnerFromUser(user: User | null | undefined): string | null {
 
 function loadPersisted(): PersistedAuth | null {
   try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    const raw = localStorage.getItem(getAuthStorageKey());
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedAuth;
     if (!parsed?.user?.id || !parsed?.user?.email) return null;
@@ -55,8 +55,9 @@ function loadPersisted(): PersistedAuth | null {
 
 function persistState(state: PersistedAuth | null) {
   try {
-    if (!state) localStorage.removeItem(AUTH_STORAGE_KEY);
-    else localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(state));
+    const key = getAuthStorageKey();
+    if (!state) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(state));
   } catch {
     /* private mode / quota */
   }

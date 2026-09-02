@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Award, Download, CheckCircle } from 'lucide-react';
+import { Award, Download, CheckCircle, Plus } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { DataTable } from '../components/ui/DataTable';
 import { Badge } from '../components/ui/Badge';
+import { Modal } from '../components/ui/Modal';
+import { Input } from '../components/ui/Input';
 import { toast } from 'sonner';
 import { certificateService } from '../services/api';
 
@@ -19,13 +21,19 @@ type IssuedCertificateRow = {
 export function CertificatesPage() {
   const [rows, setRows] = useState<IssuedCertificateRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showIssue, setShowIssue] = useState(false);
+  const [issueForm, setIssueForm] = useState({
+    enrollmentId: '',
+    title: 'Certificate of Competency',
+    programmeName: '',
+    learnerName: '',
+  });
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadRows = () => {
+    setLoading(true);
     certificateService
       .getAll()
       .then((res) => {
-        if (cancelled) return;
         setRows(
           (res.data ?? []).map((c) => ({
             id: String(c.id ?? ''),
@@ -39,15 +47,12 @@ export function CertificatesPage() {
           })),
         );
       })
-      .catch(() => {
-        if (!cancelled) toast.error('Could not load credentials');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => toast.error('Could not load credentials'))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadRows();
   }, []);
 
   const columns = [
@@ -66,20 +71,57 @@ export function CertificatesPage() {
       header: 'Actions',
       accessorKey: 'id' as const,
       cell: (row: IssuedCertificateRow) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          leftIcon={<Download className="h-4 w-4" />}
-          onClick={async () => {
-            try {
-              const res = await certificateService.downloadUrl(row.id);
-              window.open(res.data.downloadUrl, '_blank', 'noopener');
-            } catch {
-              toast.error('Download failed');
-            }
-          }}>
-          PDF
-        </Button>
+        <div className="flex gap-1 flex-wrap">
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={<Download className="h-4 w-4" />}
+            onClick={async () => {
+              try {
+                const res = await certificateService.downloadUrl(row.id);
+                window.open(res.data.downloadUrl, '_blank', 'noopener');
+              } catch {
+                toast.error('Download failed');
+              }
+            }}>
+            PDF
+          </Button>
+          {row.status !== 'REVOKED' && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await certificateService.revoke(row.id, 'Administrative revoke');
+                    toast.success('Credential revoked');
+                    setRows((prev) =>
+                      prev.map((r) =>
+                        r.id === row.id ? { ...r, status: 'REVOKED' } : r,
+                      ),
+                    );
+                  } catch {
+                    toast.error('Revoke failed');
+                  }
+                }}>
+                Revoke
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await certificateService.reissue(row.id);
+                    toast.success('Credential reissued');
+                  } catch {
+                    toast.error('Reissue failed');
+                  }
+                }}>
+                Reissue
+              </Button>
+            </>
+          )}
+        </div>
       ),
     },
   ];
@@ -96,6 +138,9 @@ export function CertificatesPage() {
             Issue and manage competency credentials with public verification.
           </p>
         </div>
+        <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowIssue(true)}>
+          Issue credential
+        </Button>
       </div>
 
       <Card title="Issued credentials">
@@ -119,6 +164,70 @@ export function CertificatesPage() {
           </div>
         </div>
       </Card>
+
+      <Modal
+        isOpen={showIssue}
+        onClose={() => setShowIssue(false)}
+        title="Issue credential"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowIssue(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!issueForm.enrollmentId.trim()) {
+                  toast.error('Enrollment ID is required');
+                  return;
+                }
+                try {
+                  await certificateService.issue({
+                    enrollmentId: issueForm.enrollmentId.trim(),
+                    title: issueForm.title || undefined,
+                    programmeName: issueForm.programmeName || undefined,
+                    learnerName: issueForm.learnerName || undefined,
+                  });
+                  toast.success('Credential issued');
+                  setShowIssue(false);
+                  loadRows();
+                } catch {
+                  toast.error('Issue failed');
+                }
+              }}>
+              Issue
+            </Button>
+          </>
+        }>
+        <div className="space-y-3">
+          <Input
+            label="Enrollment ID"
+            value={issueForm.enrollmentId}
+            onChange={(e) =>
+              setIssueForm((f) => ({ ...f, enrollmentId: e.target.value }))
+            }
+            placeholder="UUID from learner enrolment"
+          />
+          <Input
+            label="Title"
+            value={issueForm.title}
+            onChange={(e) => setIssueForm((f) => ({ ...f, title: e.target.value }))}
+          />
+          <Input
+            label="Programme name (optional)"
+            value={issueForm.programmeName}
+            onChange={(e) =>
+              setIssueForm((f) => ({ ...f, programmeName: e.target.value }))
+            }
+          />
+          <Input
+            label="Learner name (optional)"
+            value={issueForm.learnerName}
+            onChange={(e) =>
+              setIssueForm((f) => ({ ...f, learnerName: e.target.value }))
+            }
+          />
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -19,6 +19,16 @@ export class CreateInstrumentDto {
   @IsInt()
   @Min(0)
   maxAttempts?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  passMark?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  timeLimitMinutes?: number;
 }
 
 export class UpdateInstrumentDto {
@@ -30,6 +40,16 @@ export class UpdateInstrumentDto {
   @IsInt()
   @Min(0)
   maxAttempts?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  passMark?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  timeLimitMinutes?: number;
 }
 
 export class ReplaceInstrumentQuestionsDto {

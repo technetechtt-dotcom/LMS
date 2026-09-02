@@ -10,8 +10,8 @@ import {
   UserX,
   CheckCircle,
   Smartphone,
-  Zap } from
-'lucide-react';
+  Zap,
+} from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Select';
@@ -20,8 +20,10 @@ import { DataTable } from '../components/ui/DataTable';
 import { StatCard } from '../components/dashboard/StatCard';
 import { Avatar } from '../components/ui/Avatar';
 import { Modal } from '../components/ui/Modal';
-import { attendanceService } from '../services/api';
+import { Input } from '../components/ui/Input';
+import { attendanceService, learnerService } from '../services/api';
 import { programmeService } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 type AttendanceRow = {
   id: string;
@@ -80,6 +82,8 @@ function mapAttendanceApi(raw: unknown): AttendanceRow {
 }
 
 export function AttendancePage() {
+  const { user, linkedLearnerId } = useAuth();
+  const isLearner = user?.role === 'Learner';
   const [showMarkAttendance, setShowMarkAttendance] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrPayload, setQrPayload] = useState<{
@@ -93,6 +97,14 @@ export function AttendancePage() {
   const [selectedProgrammeId, setSelectedProgrammeId] = useState('');
   const [attendanceData, setAttendanceData] = useState<AttendanceRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [manualLearners, setManualLearners] = useState<
+    Array<{ enrollmentId: string; name: string; status: string }>
+  >([]);
+  const [manualDate, setManualDate] = useState(
+    () => new Date().toISOString().slice(0, 10),
+  );
+  const [checkInToken, setCheckInToken] = useState('');
+  const [checkInSessionId, setCheckInSessionId] = useState('');
 
   useEffect(() => {
     programmeService
@@ -256,9 +268,63 @@ export function AttendancePage() {
 
   }];
 
-  const handleSaveAttendance = () => {
-    toast.success('Attendance saved successfully');
-    setShowMarkAttendance(false);
+  const handleSaveAttendance = async () => {
+    if (!selectedProgrammeId) {
+      toast.error('Select a programme');
+      return;
+    }
+    try {
+      for (const row of manualLearners) {
+        await attendanceService.markManual({
+          enrollmentId: row.enrollmentId,
+          sessionDate: manualDate,
+          status: row.status,
+        });
+      }
+      toast.success('Attendance saved');
+      setShowMarkAttendance(false);
+      const res = await attendanceService.list();
+      setAttendanceData((res.data ?? []).map(mapAttendanceApi));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Save failed');
+    }
+  };
+
+  const openManualModal = async () => {
+    try {
+      const res = await learnerService.getAll({ programme: selectedProgrammeId });
+      setManualLearners(
+        (res.data ?? []).map((l) => ({
+          enrollmentId: l.id,
+          name: l.name,
+          status: 'PRESENT',
+        })),
+      );
+      setShowMarkAttendance(true);
+    } catch {
+      toast.error('Could not load learners');
+    }
+  };
+
+  const handleLearnerCheckIn = async () => {
+    if (!checkInSessionId || !checkInToken) {
+      toast.error('Enter session ID and QR token');
+      return;
+    }
+    const enrollmentId = linkedLearnerId;
+    if (!enrollmentId) {
+      toast.error('No enrolment linked to your account');
+      return;
+    }
+    try {
+      await attendanceService.checkIn(checkInSessionId, checkInToken, enrollmentId);
+      toast.success('Checked in successfully');
+      setCheckInToken('');
+      const res = await attendanceService.list(enrollmentId);
+      setAttendanceData((res.data ?? []).map(mapAttendanceApi));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Check-in failed');
+    }
   };
   return (
     <div className="space-y-6">
@@ -275,7 +341,8 @@ export function AttendancePage() {
           <Button
             variant="outline"
             leftIcon={<Download className="h-4 w-4" />}
-            onClick={() => toast.success('Exporting attendance report...')}>
+            disabled
+            title="SETA export coming soon">
             
             Export SETA Report
           </Button>
@@ -305,16 +372,33 @@ export function AttendancePage() {
         </div>
       </div>
 
-      {/* Auto-Present Banner */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center">
-        <Zap className="h-5 w-5 text-blue-600 mr-3 flex-shrink-0" />
-        <p className="text-sm text-blue-800">
-          <span className="font-medium">Auto-Attendance:</span> Learners online
-          for 20+ minutes are automatically marked as Present.
-        </p>
-      </div>
+      {/* Learner QR check-in */}
+      {isLearner && (
+        <Card className="p-4 border-blue-200 bg-blue-50">
+          <h3 className="font-semibold text-gray-900 mb-3">QR check-in</h3>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <Input
+              label="Session ID"
+              value={checkInSessionId}
+              onChange={(e) => setCheckInSessionId(e.target.value)}
+              placeholder="From facilitator QR screen"
+            />
+            <Input
+              label="QR token"
+              value={checkInToken}
+              onChange={(e) => setCheckInToken(e.target.value)}
+              placeholder="Scan or paste token"
+            />
+            <div className="flex items-end">
+              <Button className="w-full" onClick={() => void handleLearnerCheckIn()}>
+                Check in
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
 
-      {/* Filters */}
+      {/* Attendance is recorded via QR check-in or manual register only */}
       <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col sm:flex-row gap-4 items-end">
         <div className="w-full sm:w-64">
           <Select
@@ -367,7 +451,8 @@ export function AttendancePage() {
         <Button
           variant="secondary"
           leftIcon={<Filter className="h-4 w-4" />}
-          onClick={() => toast.info('Filters applied')}>
+          disabled
+          title="Use programme selector above to filter records">
           
           Apply Filters
         </Button>
@@ -389,11 +474,11 @@ export function AttendancePage() {
                 <Button
                 variant="outline"
                 size="sm"
-                onClick={() => toast.info('Showing all records...')}>
+                onClick={() => setSelectedProgrammeId('')}>
                 
                   View All
                 </Button>
-                <Button size="sm" onClick={() => setShowMarkAttendance(true)}>
+                <Button size="sm" onClick={() => void openManualModal()}>
                   Mark Attendance
                 </Button>
               </div>
@@ -407,107 +492,31 @@ export function AttendancePage() {
 
             <DataTable data={attendanceData} columns={columns} keyField="id" />
             }
-            <div className="p-4 border-t border-gray-100 flex justify-between items-center">
+            <div className="p-4 border-t border-gray-100">
               <span className="text-sm text-gray-500">
-                {loading ?
-                '…' :
-
-                `${attendanceData.length} record${attendanceData.length === 1 ? '' : 's'}`
-                }
+                {loading
+                  ? '…'
+                  : `${attendanceData.length} record${attendanceData.length === 1 ? '' : 's'}`}
               </span>
-              <div className="flex space-x-1">
-                <Button variant="outline" size="sm">
-                  Previous
-                </Button>
-                <Button size="sm" className="bg-brand-navy text-white">
-                  1
-                </Button>
-                <Button variant="outline" size="sm">
-                  2
-                </Button>
-                <Button variant="outline" size="sm">
-                  Next
-                </Button>
-              </div>
             </div>
           </Card>
         </div>
 
         <div className="space-y-6">
-          <Card
-            title="AI Attendance Insights"
-            className="border-l-4 border-l-brand-teal">
-            
-            <div className="absolute top-4 right-4">
-              <Badge variant="info" className="bg-brand-navy text-white">
-                AI
-              </Badge>
-            </div>
-            <div className="space-y-4 mt-2">
-              <div className="bg-red-50 p-3 rounded-md border border-red-100">
-                <div className="flex items-start">
-                  <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 mr-2" />
-                  <div>
-                    <h4 className="text-sm font-semibold text-red-900">
-                      Chronic Absenteeism Alert
-                    </h4>
-                    <p className="text-xs text-red-700 mt-1">
-                      3 learners have missed &gt;20% of classes this month
-                    </p>
-                    <button
-                      className="text-xs font-medium text-red-800 underline mt-2"
-                      onClick={() =>
-                      toast.info('Opening absenteeism details...')
-                      }>
-                      
-                      View Details
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-blue-50 p-3 rounded-md border border-blue-100">
-                <div className="flex items-start">
-                  <TrendingUp className="h-5 w-5 text-blue-600 mt-0.5 mr-2" />
-                  <div>
-                    <h4 className="text-sm font-semibold text-blue-900">
-                      Attendance Pattern
-                    </h4>
-                    <p className="text-xs text-blue-700 mt-1">
-                      Monday mornings show 15% lower attendance rates
-                    </p>
-                    <button
-                      className="text-xs font-medium text-blue-800 underline mt-2"
-                      onClick={() =>
-                      toast.info('Opening attendance analysis...')
-                      }>
-                      
-                      View Analysis
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+          <Card title="Attendance summary">
+            <p className="text-sm text-gray-600">
+              {attendanceData.length === 0
+                ? 'No attendance records yet for the selected programme.'
+                : `${attendanceData.filter((r) => r.status === 'Present').length} present of ${attendanceData.length} register entries loaded.`}
+            </p>
           </Card>
 
-          <Card title="SETA Compliance Status">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-600">
-                Register Completeness
-              </span>
-              <span className="text-sm font-bold text-green-600">98%</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
-              <div
-                className="bg-green-500 h-2 rounded-full"
-                style={{
-                  width: '98%'
-                }}>
-              </div>
-            </div>
-            <div className="flex items-center text-xs text-gray-500">
-              <CheckCircle className="h-3 w-3 text-green-500 mr-1" />
-              Ready for monthly submission
-            </div>
+          <Card title="Register status">
+            <p className="text-sm text-gray-600">
+              {attendanceData.length === 0
+                ? 'Open a programme register to view compliance readiness.'
+                : `${Math.round((attendanceData.filter((r) => r.status === 'Present').length / attendanceData.length) * 100)}% present in loaded records.`}
+            </p>
           </Card>
         </div>
       </div>
@@ -518,48 +527,44 @@ export function AttendancePage() {
         title="Mark Attendance">
         
         <div className="space-y-4">
+          <Input
+            label="Session date"
+            type="date"
+            value={manualDate}
+            onChange={(e) => setManualDate(e.target.value)}
+          />
           <Select
             label="Programme"
+            value={selectedProgrammeId}
+            onChange={(e) => setSelectedProgrammeId(e.target.value)}
             options={[
-            {
-              value: 'it',
-              label: 'IT Skills Program'
-            },
-            {
-              value: 'business',
-              label: 'Business Administration'
-            }]
-            } />
-          
+              { value: '', label: 'Select programme' },
+              ...programmes.map((p) => ({ value: p.id, label: p.title })),
+            ]}
+          />
           <div className="text-sm font-medium text-gray-700 mb-2">Learners</div>
           <div className="space-y-2 max-h-60 overflow-y-auto border border-gray-200 rounded-md p-2">
-            {[
-            'Thandi Mokoena',
-            'Sipho Ndlovu',
-            'Nomsa Dlamini',
-            'David van der Merwe'].
-            map((name, i) =>
-            <div
-              key={i}
-              className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-              
-                <span className="text-sm text-gray-900">{name}</span>
-                <div className="flex gap-3">
-                  <label className="flex items-center text-xs font-medium">
-                    <input
-                    type="radio"
-                    name={`att-${i}`}
-                    className="mr-1"
-                    defaultChecked />
-                  {' '}
-                    P
-                  </label>
-                  <label className="flex items-center text-xs font-medium">
-                    <input type="radio" name={`att-${i}`} className="mr-1" /> A
-                  </label>
-                </div>
+            {manualLearners.map((row, i) => (
+              <div
+                key={row.enrollmentId}
+                className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+                <span className="text-sm text-gray-900">{row.name}</span>
+                <Select
+                  value={row.status}
+                  onChange={(e) => {
+                    const next = [...manualLearners];
+                    next[i] = { ...row, status: e.target.value };
+                    setManualLearners(next);
+                  }}
+                  options={[
+                    { value: 'PRESENT', label: 'Present' },
+                    { value: 'ABSENT', label: 'Absent' },
+                    { value: 'LATE', label: 'Late' },
+                    { value: 'EXCUSED', label: 'Excused' },
+                  ]}
+                />
               </div>
-            )}
+            ))}
           </div>
           <div className="flex justify-end space-x-3 pt-4">
             <Button

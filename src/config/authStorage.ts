@@ -1,17 +1,21 @@
-/** Must match persisted session key in AuthContext */
-export const AUTH_STORAGE_KEY = 'skillforge_auth_v1';
+import { getAuthStorageKey } from './authPortal';
 
 type StoredAuth = {
   user?: { organisationId?: string; [key: string]: unknown };
   accessToken?: string;
-  /** @deprecated Refresh tokens are HttpOnly cookies; ignored if present. */
-  refreshToken?: string;
   linkedLearnerId?: string | null;
 };
 
+/** @deprecated Use getAuthStorageKey() — kept for imports that expect a constant. */
+export const AUTH_STORAGE_KEY = 'skillforge_auth_v1';
+
+function storageKey() {
+  return getAuthStorageKey();
+}
+
 export function getStoredAccessToken(): string | undefined {
   try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as StoredAuth;
     const t = parsed?.accessToken;
@@ -21,10 +25,9 @@ export function getStoredAccessToken(): string | undefined {
   }
 }
 
-/** Active organisation id from persisted user profile (for X-Organisation-Id). */
 export function getStoredOrganisationId(): string | undefined {
   try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as StoredAuth;
     const id = parsed?.user?.organisationId;
@@ -34,10 +37,6 @@ export function getStoredOrganisationId(): string | undefined {
   }
 }
 
-/**
- * Refresh tokens are no longer read from localStorage (HttpOnly cookie).
- * Kept for backward-compatible silent refresh fallback during migration.
- */
 export function getStoredRefreshToken(): string | undefined {
   return undefined;
 }
@@ -48,18 +47,35 @@ export function applyRefreshedTokens(
   user?: unknown,
 ) {
   try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    const prev = raw
-      ? (JSON.parse(raw) as Record<string, unknown>)
-      : {};
+    const raw = localStorage.getItem(storageKey());
+    const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
     const next: Record<string, unknown> = {
       ...prev,
       accessToken,
       ...(user !== undefined ? { user } : {}),
     };
-    // Never persist refresh tokens client-side.
     delete next.refreshToken;
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(storageKey(), JSON.stringify(next));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+export function setStoredOrganisationId(
+  organisationId: string,
+  organisationName?: string,
+) {
+  try {
+    const raw = localStorage.getItem(storageKey());
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as StoredAuth;
+    if (!parsed.user) return;
+    parsed.user = {
+      ...parsed.user,
+      organisationId,
+      ...(organisationName ? { organisation: organisationName } : {}),
+    };
+    localStorage.setItem(storageKey(), JSON.stringify(parsed));
   } catch {
     /* quota / private mode */
   }

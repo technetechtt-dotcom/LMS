@@ -17,7 +17,7 @@ export function countPendingModeration(
   return pendingModerationForProgramme(programmeId, assessments).length;
 }
 
-/** Assessments recorded against this programme for the current assessor user. */
+/** Assessments under a programme that still need assessor review. */
 export function pendingAssessmentsForAssessor(
   programmeId: string,
   assessments: Assessment[],
@@ -25,7 +25,10 @@ export function pendingAssessmentsForAssessor(
 ): Assessment[] {
   if (!assessorUserId) return [];
   return assessments.filter(
-    (a) => a.programmeId === programmeId && a.assessorId === assessorUserId,
+    (a) =>
+      a.programmeId === programmeId &&
+      a.assessorId === assessorUserId &&
+      a.needsAssessorReview === true,
   );
 }
 

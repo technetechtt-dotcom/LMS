@@ -1,5 +1,6 @@
 import type {
   Assessment,
+  AssessmentSubmission,
   Enrollment,
   Moderation,
   Programme,
@@ -14,6 +15,7 @@ export type AssessmentWithRelations = Assessment & {
   };
   unitStandard: UnitStandard;
   moderation: Moderation | null;
+  submissions?: AssessmentSubmission[];
 };
 
 /** Maps Prisma competency assessments → frontend `Assessment` document shape (quiz fields stubbed). */
@@ -21,6 +23,9 @@ export function mapAssessmentToApi(a: AssessmentWithRelations): Record<string, u
   const p = a.enrollment.programme;
   const learner = a.enrollment.learner;
   const learnerName = `${learner.firstName} ${learner.lastName}`.trim();
+  const latestSubmission = a.submissions?.[0];
+  const submissionStatus = latestSubmission?.status;
+  const competencyFinalised = ['C', 'NYC'].includes(a.result);
   return {
     id: a.id,
     title: a.unitStandard.title,
@@ -32,7 +37,17 @@ export function mapAssessmentToApi(a: AssessmentWithRelations): Record<string, u
     learnerName,
     assessorId: a.assessorId,
     assessedAt: a.assessedAt.toISOString(),
-    needsModeration: a.moderation == null,
+    submissionStatus,
+    needsFacilitatorMarking: ['submitted', 'facilitator_grading', 'grading'].includes(
+      submissionStatus ?? '',
+    ),
+    needsAssessorReview: ['facilitator_graded', 'assessor_review'].includes(
+      submissionStatus ?? '',
+    ),
+    needsModeration:
+      a.moderation == null &&
+      competencyFinalised &&
+      submissionStatus === 'assessor_verified',
     type: 'mixed',
     format: 'Unit standard • Competency',
     status: 'completed',

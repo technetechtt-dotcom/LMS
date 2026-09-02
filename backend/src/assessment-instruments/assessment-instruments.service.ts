@@ -17,6 +17,21 @@ import {
 export class AssessmentInstrumentsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async listUnitStandards(user?: AuthUser) {
+    requireOrganisationId(user);
+    return this.prisma.unitStandard.findMany({
+      where: { deletedAt: null },
+      select: {
+        id: true,
+        code: true,
+        title: true,
+        level: true,
+        credits: true,
+      },
+      orderBy: { code: 'asc' },
+    });
+  }
+
   async listByUnitStandard(unitStandardId: string, user?: AuthUser) {
     requireOrganisationId(user);
     return this.prisma.assessmentInstrument.findMany({
@@ -63,6 +78,8 @@ export class AssessmentInstrumentsService {
         title: dto.title ?? `Instrument v${version}`,
         status: 'DRAFT',
         maxAttempts: dto.maxAttempts ?? 3,
+        passMark: dto.passMark ?? 50,
+        timeLimitMinutes: dto.timeLimitMinutes ?? null,
       },
     });
   }
@@ -74,6 +91,10 @@ export class AssessmentInstrumentsService {
       data: {
         ...(dto.title !== undefined ? { title: dto.title } : {}),
         ...(dto.maxAttempts !== undefined ? { maxAttempts: dto.maxAttempts } : {}),
+        ...(dto.passMark !== undefined ? { passMark: dto.passMark } : {}),
+        ...(dto.timeLimitMinutes !== undefined
+          ? { timeLimitMinutes: dto.timeLimitMinutes }
+          : {}),
       },
     });
   }

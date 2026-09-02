@@ -7,7 +7,7 @@ import { Avatar } from '../components/ui/Avatar';
 import { Modal } from '../components/ui/Modal';
 import { FileUpload } from '../components/ui/FileUpload';
 import { Select } from '../components/ui/Select';
-import { messagingService } from '../services/api';
+import { messagingService, userService } from '../services/api';
 import type { Message } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
@@ -19,6 +19,12 @@ export function MessagingPage() {
   const [showAttachmentModal, setShowAttachmentModal] = useState(false);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [composeRecipientId, setComposeRecipientId] = useState('');
+  const [composeBody, setComposeBody] = useState('');
+  const [recipientOptions, setRecipientOptions] = useState<
+    Array<{ value: string; label: string }>
+  >([]);
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +106,25 @@ export function MessagingPage() {
     }
   }, [conversations, selectedChat]);
 
+  useEffect(() => {
+    if (!isComposeOpen) return;
+    userService
+      .getAll()
+      .then((res) => {
+        const options = (res.data ?? [])
+          .filter((u) => u.id !== user?.id)
+          .map((u) => ({
+            value: u.id,
+            label: `${u.firstName} ${u.lastName}`.trim(),
+          }));
+        setRecipientOptions(options);
+        if (options.length > 0 && !composeRecipientId) {
+          setComposeRecipientId(options[0].value);
+        }
+      })
+      .catch(() => toast.error('Could not load recipients'));
+  }, [isComposeOpen, user?.id, composeRecipientId]);
+
   const activeConversation = conversations.find((c) => c.id === selectedChat);
 
   const handleSendReply = async () => {
@@ -118,8 +143,26 @@ export function MessagingPage() {
   };
   const handleCompose = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsComposeOpen(false);
-    toast.success('Message sent successfully');
+    if (!composeRecipientId || !composeBody.trim()) {
+      toast.error('Select a recipient and enter a message');
+      return;
+    }
+    setSending(true);
+    try {
+      const res = await messagingService.send(
+        composeRecipientId,
+        composeBody.trim(),
+      );
+      setMessages((prev) => [...prev, res.data]);
+      setComposeBody('');
+      setComposeRecipientId('');
+      setIsComposeOpen(false);
+      toast.success('Message sent successfully');
+    } catch {
+      toast.error('Failed to send message');
+    } finally {
+      setSending(false);
+    }
   };
   return (
     <div className="h-[calc(100vh-8rem)] flex gap-6">
@@ -262,22 +305,14 @@ export function MessagingPage() {
         <form onSubmit={handleCompose} className="space-y-4">
           <Select
             label="Recipient"
-            options={[
-            {
-              value: 'sarah',
-              label: 'Sarah Khumalo (Facilitator)'
-            },
-            {
-              value: 'david',
-              label: 'David Naidoo (Mentor)'
-            },
-            {
-              value: 'admin',
-              label: 'System Admin'
-            }]
-            } />
-          
-          <Input label="Subject" placeholder="Enter message subject" required />
+            value={composeRecipientId}
+            onChange={(e) => setComposeRecipientId(e.target.value)}
+            options={
+              recipientOptions.length
+                ? recipientOptions
+                : [{ value: '', label: 'Loading users…' }]
+            }
+          />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Message
@@ -285,14 +320,18 @@ export function MessagingPage() {
             <textarea
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-brand-navy focus:ring-brand-navy"
               rows={5}
-              required />
-            
+              required
+              value={composeBody}
+              onChange={(e) => setComposeBody(e.target.value)}
+            />
           </div>
           <div className="flex justify-end space-x-3 pt-4">
-            <Button variant="ghost" onClick={() => setIsComposeOpen(false)}>
+            <Button variant="ghost" type="button" onClick={() => setIsComposeOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit">Send Message</Button>
+            <Button type="submit" disabled={sending}>
+              Send Message
+            </Button>
           </div>
         </form>
       </Modal>
@@ -303,7 +342,20 @@ export function MessagingPage() {
         title="Attach File">
         
         <div className="space-y-4">
-          <FileUpload onUpload={(files) => console.log(files)} />
+          <FileUpload
+            onUpload={(files) => {
+              if (files.length && activeConversation) {
+                void messagingService
+                  .send(activeConversation.peerId, replyText || 'Attachment', files)
+                  .then((res) => {
+                    setMessages((prev) => [...prev, res.data]);
+                    toast.success('File sent');
+                    setShowAttachmentModal(false);
+                  })
+                  .catch(() => toast.error('Could not send attachment'));
+              }
+            }}
+          />
           <div className="flex justify-end space-x-3 pt-4">
             <Button
               variant="ghost"
@@ -312,12 +364,9 @@ export function MessagingPage() {
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                toast.success('File attached');
-                setShowAttachmentModal(false);
-              }}>
+              onClick={() => setShowAttachmentModal(false)}>
               
-              Attach
+              Close
             </Button>
           </div>
         </div>

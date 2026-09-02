@@ -24,8 +24,10 @@ import { DataTable } from '../components/ui/DataTable';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { Avatar } from '../components/ui/Avatar';
 import { Modal } from '../components/ui/Modal';
-import { learnerService } from '../services/api';
-import type { Learner } from '../types';
+import { learnerService, programmeService } from '../services/api';
+import { exportRecordsAsJson } from '../utils/exportData';
+import { messagingService } from '../services/api';
+import type { Learner, Programme } from '../types';
 
 export type LearnerTableRow = {
   id: string;
@@ -73,15 +75,44 @@ export function LearnersPage() {
   const [apiLearners, setApiLearners] = useState<Learner[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [showMultiProgramOnly, setShowMultiProgramOnly] = useState(false);
+  const [messageBody, setMessageBody] = useState('');
+  const [programmes, setProgrammes] = useState<Programme[]>([]);
+  const [addForm, setAddForm] = useState({
+    name: '',
+    email: '',
+    idNumber: '',
+    phone: '',
+    programmeId: '',
+  });
+  const [editForm, setEditForm] = useState({
+    name: '',
+    email: '',
+    idNumber: '',
+    programmeId: '',
+  });
+  const [savingLearner, setSavingLearner] = useState(false);
+
+  const reloadLearners = () => {
+    setLoading(true);
+    return learnerService
+      .getAll()
+      .then((res) => {
+        setApiLearners(res.data);
+        setLoadError(null);
+      })
+      .catch(() => setLoadError('Could not load learners'))
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    learnerService
-      .getAll()
-      .then((res) => {
+    Promise.all([learnerService.getAll(), programmeService.getAll()])
+      .then(([learnerRes, progRes]) => {
         if (!cancelled) {
-          setApiLearners(res.data);
+          setApiLearners(learnerRes.data);
+          setProgrammes(progRes.data ?? []);
           setLoadError(null);
         }
       })
@@ -122,14 +153,18 @@ export function LearnersPage() {
 
   const filteredLearners = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return learners;
-    return learners.filter(
+    let rows = learners;
+    if (showMultiProgramOnly) {
+      rows = rows.filter((l) => l.programCount > 1);
+    }
+    if (!q) return rows;
+    return rows.filter(
       (row) =>
         row.name.toLowerCase().includes(q) ||
         row.email.toLowerCase().includes(q) ||
         row.idNo.toLowerCase().includes(q),
     );
-  }, [learners, searchQuery]);
+  }, [learners, searchQuery, showMultiProgramOnly]);
 
   const multiProgramLearners = useMemo(
     () => learners.filter((l) => l.programCount > 1).length,
@@ -254,7 +289,7 @@ export function LearnersPage() {
         className="hover:text-brand-blue"
         onClick={() => {
           setSelectedLearner(row);
-          setShowEditModal(true);
+          openEditModal(row);
         }}>
         
             <Edit className="h-4 w-4" />
@@ -269,9 +304,73 @@ export function LearnersPage() {
 
   }];
 
-  const handleAddLearner = () => {
-    toast.success('Learner added successfully');
-    setShowAddLearner(false);
+  const programmeOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All Programs' },
+      ...programmes.map((p) => ({ value: p.id, label: p.title })),
+    ],
+    [programmes],
+  );
+
+  const handleAddLearner = async () => {
+    if (!addForm.name.trim() || !addForm.email.trim() || !addForm.programmeId) {
+      toast.error('Name, email, and programme are required');
+      return;
+    }
+    setSavingLearner(true);
+    try {
+      await learnerService.create({
+        name: addForm.name.trim(),
+        email: addForm.email.trim(),
+        idNumber: addForm.idNumber.trim() || undefined,
+        phone: addForm.phone.trim() || undefined,
+        programmeId: addForm.programmeId,
+      });
+      toast.success('Learner added successfully');
+      setShowAddLearner(false);
+      setAddForm({ name: '', email: '', idNumber: '', phone: '', programmeId: '' });
+      await reloadLearners();
+    } catch {
+      toast.error('Could not add learner');
+    } finally {
+      setSavingLearner(false);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedLearner) return;
+    if (!editForm.name.trim() || !editForm.email.trim()) {
+      toast.error('Name and email are required');
+      return;
+    }
+    setSavingLearner(true);
+    try {
+      await learnerService.update(selectedLearner.id, {
+        name: editForm.name.trim(),
+        email: editForm.email.trim(),
+        idNumber: editForm.idNumber.trim() || undefined,
+        programmeId: editForm.programmeId || undefined,
+      });
+      toast.success('Learner updated successfully');
+      setShowEditModal(false);
+      await reloadLearners();
+    } catch {
+      toast.error('Could not update learner');
+    } finally {
+      setSavingLearner(false);
+    }
+  };
+
+  const openEditModal = (row: LearnerTableRow) => {
+    const api = apiLearners.find((l) => l.id === row.id);
+    setSelectedLearner(row);
+    setEditForm({
+      name: row.name,
+      email: row.email,
+      idNumber: row.idNo,
+      programmeId: api?.programmeId ?? '',
+    });
+    setShowEditModal(true);
   };
 
   if (loading) {
@@ -308,7 +407,9 @@ export function LearnersPage() {
           <Button
             variant="outline"
             leftIcon={<Download className="h-4 w-4" />}
-            onClick={() => toast.success('Exporting learner data...')}>
+            onClick={() =>
+              exportRecordsAsJson('learners.json', filteredLearners, 'Learner export')
+            }>
             
             Export
           </Button>
@@ -328,7 +429,10 @@ export function LearnersPage() {
           </h3>
           <button
             className="text-sm text-brand-blue hover:underline"
-            onClick={() => toast.info('Filters cleared')}>
+            onClick={() => {
+              setSearchQuery('');
+              toast.success('Filters cleared');
+            }}>
             
             Clear all
           </button>
@@ -344,12 +448,8 @@ export function LearnersPage() {
           </div>
           <div className="col-span-1">
             <Select
-              options={[
-              {
-                value: 'all',
-                label: 'All Programs'
-              }]
-              } />
+              options={programmeOptions}
+            />
             
           </div>
           <div className="col-span-1">
@@ -390,7 +490,7 @@ export function LearnersPage() {
         <Button
           size="sm"
           variant="outline"
-          onClick={() => toast.info('Showing flagged learners...')}>
+          onClick={() => setShowMultiProgramOnly(true)}>
           
           View Flagged
         </Button>
@@ -465,62 +565,48 @@ export function LearnersPage() {
         title="Add New Learner">
         
         <div className="space-y-4">
-          <Input label="Full Name" placeholder="Enter learner's full name" />
+          <Input
+            label="Full Name"
+            placeholder="Enter learner's full name"
+            value={addForm.name}
+            onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
+          />
           <Input
             label="Email Address"
             type="email"
-            placeholder="Enter email address" />
-          
+            placeholder="Enter email address"
+            value={addForm.email}
+            onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))}
+          />
           <div className="grid grid-cols-2 gap-4">
-            <Input label="ID Number" placeholder="SA ID Number" />
-            <Input label="Phone Number" placeholder="Enter phone number" />
+            <Input
+              label="ID Number"
+              placeholder="SA ID Number"
+              value={addForm.idNumber}
+              onChange={(e) => setAddForm((f) => ({ ...f, idNumber: e.target.value }))}
+            />
+            <Input
+              label="Phone Number"
+              placeholder="Enter phone number"
+              value={addForm.phone}
+              onChange={(e) => setAddForm((f) => ({ ...f, phone: e.target.value }))}
+            />
           </div>
           <Select
             label="Programme"
-            options={[
-            {
-              value: 'it',
-              label: 'IT Skills Program'
-            },
-            {
-              value: 'business',
-              label: 'Business Administration'
-            },
-            {
-              value: 'safety',
-              label: 'Workplace Safety'
-            }]
-            } />
-          
-          <div className="grid grid-cols-2 gap-4">
-            <Select
-              label="NQF Level"
-              options={[
-              {
-                value: '2',
-                label: 'Level 2'
-              },
-              {
-                value: '3',
-                label: 'Level 3'
-              },
-              {
-                value: '4',
-                label: 'Level 4'
-              },
-              {
-                value: '5',
-                label: 'Level 5'
-              }]
-              } />
-            
-            <Input label="Expected Completion" type="date" />
-          </div>
+            value={addForm.programmeId}
+            onChange={(e) =>
+              setAddForm((f) => ({ ...f, programmeId: e.target.value }))
+            }
+            options={programmes.map((p) => ({ value: p.id, label: p.title }))}
+          />
           <div className="flex justify-end space-x-3 pt-4">
             <Button variant="ghost" onClick={() => setShowAddLearner(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddLearner}>Add Learner</Button>
+            <Button onClick={handleAddLearner} disabled={savingLearner}>
+              Add Learner
+            </Button>
           </div>
         </div>
       </Modal>
@@ -536,57 +622,54 @@ export function LearnersPage() {
               <label className="block text-sm font-medium text-slate-700 mb-1">
                 Full Name
               </label>
-              <Input defaultValue={selectedLearner?.name} />
+              <Input
+                value={editForm.name}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, name: e.target.value }))
+                }
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
                 ID Number
               </label>
-              <Input defaultValue="9001015000080" />
+              <Input
+                value={editForm.idNumber}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, idNumber: e.target.value }))
+                }
+              />
             </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Email Address
             </label>
-            <Input defaultValue={selectedLearner?.email} type="email" />
+            <Input
+              value={editForm.email}
+              onChange={(e) =>
+                setEditForm((f) => ({ ...f, email: e.target.value }))
+              }
+              type="email"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Programme
             </label>
             <Select
-              defaultValue={selectedLearner?.program}
-              options={[
-                { value: 'Software Engineering', label: 'Software Engineering' },
-                { value: 'Data Science', label: 'Data Science' },
-                { value: 'Cloud Computing', label: 'Cloud Computing' },
-              ]}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Status
-            </label>
-            <Select
-              defaultValue={selectedLearner?.status}
-              options={[
-                { value: 'Active', label: 'Active' },
-                { value: 'At Risk', label: 'At Risk' },
-                { value: 'Completed', label: 'Completed' },
-              ]}
+              value={editForm.programmeId}
+              onChange={(e) =>
+                setEditForm((f) => ({ ...f, programmeId: e.target.value }))
+              }
+              options={programmes.map((p) => ({ value: p.id, label: p.title }))}
             />
           </div>
           <div className="flex justify-end space-x-2 pt-4">
             <Button variant="outline" onClick={() => setShowEditModal(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={() => {
-                toast.success('Learner updated successfully');
-                setShowEditModal(false);
-              }}>
-              
+            <Button onClick={handleSaveEdit} disabled={savingLearner}>
               Save Changes
             </Button>
           </div>
@@ -649,7 +732,8 @@ export function LearnersPage() {
               <Button
                 variant="outline"
                 className="w-full justify-start"
-                onClick={() => toast.success('Study plan generated')}>
+                disabled
+                title="Remedial study plans are not automated yet">
                 
                 <BookOpen className="w-4 h-4 mr-2" />
                 Generate Remedial Study Plan
@@ -680,8 +764,10 @@ export function LearnersPage() {
             </label>
             <textarea
               className="w-full h-32 px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-navy focus:border-transparent resize-none"
-              placeholder="Hi there, I noticed you haven't logged in recently...">
-            </textarea>
+              placeholder="Hi there, I noticed you haven't logged in recently..."
+              value={messageBody}
+              onChange={(e) => setMessageBody(e.target.value)}
+            />
           </div>
           <div className="flex justify-end space-x-2 pt-4">
             <Button
@@ -691,9 +777,20 @@ export function LearnersPage() {
               Cancel
             </Button>
             <Button
-              onClick={() => {
-                toast.success('Message sent successfully');
-                setShowMessageModal(false);
+              onClick={async () => {
+                const target = apiLearners.find((l) => l.id === selectedLearner?.id);
+                if (!target?.userId || !messageBody.trim()) {
+                  toast.error('Enter a message and select a learner');
+                  return;
+                }
+                try {
+                  await messagingService.send(target.userId, messageBody.trim());
+                  toast.success('Message sent successfully');
+                  setMessageBody('');
+                  setShowMessageModal(false);
+                } catch {
+                  toast.error('Could not send message');
+                }
               }}>
               
               <Mail className="w-4 h-4 mr-2" />

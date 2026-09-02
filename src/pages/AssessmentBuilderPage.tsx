@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -19,6 +19,7 @@ import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
+import { Modal } from '../components/ui/Modal';
 import type { QuestionType } from '../types';
 import { instrumentService } from '../services/api';
 
@@ -45,59 +46,118 @@ export function AssessmentBuilderPage() {
   const unitStandardId = searchParams.get('unitStandardId') ?? '';
   const [instrumentId, setInstrumentId] = useState(id ?? '');
   const isEditMode = !!instrumentId;
-  // Assessment Settings State
+  const [loading, setLoading] = useState(isEditMode);
   const [settings, setSettings] = useState({
-    title: isEditMode ? 'Programming Fundamentals Quiz' : '',
-    programme: isEditMode ? 'it' : '',
-    module: isEditMode ? 'm1' : '',
-    unitStandard: isEditMode ? 'us3' : '',
-    type: isEditMode ? 'quiz' : 'quiz',
-    dueDate: isEditMode ? '2025-02-15' : '',
-    timeLimit: isEditMode ? 60 : 60,
-    passMark: isEditMode ? 50 : 50,
-    totalMarks: isEditMode ? 100 : 100,
-    status: isEditMode ? 'Published' : 'Draft'
+    title: '',
+    programme: '',
+    module: '',
+    unitStandard: unitStandardId,
+    type: 'quiz',
+    dueDate: '',
+    timeLimit: 60,
+    passMark: 50,
+    maxAttempts: 3,
+    totalMarks: 100,
+    status: 'Draft',
   });
-  // Questions State
-  const [questions, setQuestions] = useState<BuilderQuestion[]>([
-  {
-    id: 1,
-    type: 'multiple_choice',
-    text: 'What does HTML stand for?',
-    points: 5,
-    options: [
-    {
-      id: 'o1',
-      text: 'Hyper Text Markup Language',
-      isCorrect: true
-    },
-    {
-      id: 'o2',
-      text: 'High Tech Modern Language',
-      isCorrect: false
-    },
-    {
-      id: 'o3',
-      text: 'Hyper Transfer Markup Language',
-      isCorrect: false
-    }]
+  const [questions, setQuestions] = useState<BuilderQuestion[]>([]);
+  const [unitStandards, setUnitStandards] = useState<
+    Array<{ id: string; code: string; title: string }>
+  >([]);
+  const [showPreview, setShowPreview] = useState(false);
 
-  },
-  {
-    id: 2,
-    type: 'true_false',
-    text: 'CSS is used for structuring web content.',
-    points: 5,
-    correctAnswer: false
-  },
-  {
-    id: 3,
-    type: 'essay',
-    text: 'Explain the difference between client-side and server-side rendering.',
-    points: 20,
-    wordLimit: 500
-  }]
-  );
+  const effectiveUnitStandardId = settings.unitStandard || unitStandardId;
+
+  useEffect(() => {
+    instrumentService
+      .listUnitStandards()
+      .then((res) => setUnitStandards(res.data ?? []))
+      .catch(() => toast.error('Could not load unit standards'));
+  }, []);
+
+  useEffect(() => {
+    if (unitStandardId) {
+      setSettings((s) => ({ ...s, unitStandard: unitStandardId }));
+    }
+  }, [unitStandardId]);
+
+  useEffect(() => {
+    if (!instrumentId) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await instrumentService.getById(instrumentId);
+        const data = res.data as {
+          title?: string;
+          status?: string;
+          maxAttempts?: number;
+          passMark?: number;
+          timeLimitMinutes?: number | null;
+          unitStandardId?: string;
+          questions?: Array<{
+            id: string;
+            questionType?: string;
+            type?: string;
+            content?: string;
+            prompt?: string;
+            points?: number;
+            orderIndex?: number;
+            options?: string[];
+            correctIndex?: number;
+            correctAnswer?: boolean;
+          }>;
+        };
+        if (cancelled) return;
+        setSettings((s) => ({
+          ...s,
+          title: data.title ?? s.title,
+          unitStandard: data.unitStandardId ?? unitStandardId,
+          status: data.status === 'PUBLISHED' ? 'Published' : 'Draft',
+          maxAttempts: data.maxAttempts ?? s.maxAttempts,
+          passMark: data.passMark ?? s.passMark,
+          timeLimit: data.timeLimitMinutes ?? s.timeLimit,
+        }));
+        const mapped = (data.questions ?? []).map((q, idx) => {
+          const rawType = String(q.questionType ?? q.type ?? 'essay');
+          const type: QuestionType =
+            rawType === 'mcq_single' || rawType === 'multiple_choice'
+              ? 'multiple_choice'
+              : rawType === 'true_false'
+                ? 'true_false'
+                : rawType === 'short_answer'
+                  ? 'short_answer'
+                  : rawType === 'file_upload'
+                    ? 'file_upload'
+                    : 'essay';
+          return {
+            id: idx + 1,
+            type,
+            text: String(q.content ?? q.prompt ?? ''),
+            points: Number(q.points ?? 10),
+            options:
+              type === 'multiple_choice'
+                ? (q.options ?? []).map((text, oi) => ({
+                    id: `o${oi}`,
+                    text,
+                    isCorrect: oi === (q.correctIndex ?? 0),
+                  }))
+                : undefined,
+            correctAnswer:
+              type === 'true_false' ? Boolean(q.correctAnswer) : undefined,
+          };
+        });
+        setQuestions(mapped);
+      } catch {
+        toast.error('Could not load instrument');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [instrumentId, unitStandardId]);
   const handleAddQuestion = (type: QuestionType) => {
     const newQuestion = {
       id: Date.now(),
@@ -124,24 +184,27 @@ export function AssessmentBuilderPage() {
     toast.success('Question removed');
   };
   const handleSave = async (publish = false) => {
-    if (!unitStandardId) {
-      toast.error('Open builder with ?unitStandardId=<uuid> query parameter');
+    if (!effectiveUnitStandardId) {
+      toast.error('Select a unit standard before saving');
       return;
     }
     try {
+      const settingsPayload = {
+        title: settings.title || 'Draft instrument',
+        maxAttempts: settings.maxAttempts,
+        passMark: settings.passMark,
+        timeLimitMinutes: settings.timeLimit > 0 ? settings.timeLimit : undefined,
+      };
       let activeId = instrumentId;
       if (!activeId) {
         const created = await instrumentService.createDraft({
-          unitStandardId,
-          title: settings.title || 'Draft instrument',
-          maxAttempts: 3,
+          unitStandardId: effectiveUnitStandardId,
+          ...settingsPayload,
         });
         activeId = String(created.data.id ?? '');
         setInstrumentId(activeId);
       } else {
-        await instrumentService.update(activeId, {
-          title: settings.title,
-        });
+        await instrumentService.update(activeId, settingsPayload);
       }
       const apiQuestions = questions.map((q, idx) => ({
         type: q.type,
@@ -262,22 +325,23 @@ export function AssessmentBuilderPage() {
                 value: '',
                 label: 'Select Unit Standard'
               },
-              {
-                value: 'us1',
-                label: 'US 115753 - Use a GUI-based word processor'
-              },
-              {
-                value: 'us2',
-                label: 'US 115790 - Use electronic mail'
-              },
-              {
-                value: 'us3',
-                label: 'US 116940 - Apply computing fundamentals'
-              },
-              {
-                value: 'us4',
-                label: 'US 117924 - Database design'
-              }]
+              ...unitStandards.map((u) => ({
+                value: u.id,
+                label: `${u.code} — ${u.title}`,
+              })),
+              ]}
+              />
+            
+            <Input
+              label="Max attempts"
+              type="number"
+              min={0}
+              value={settings.maxAttempts}
+              onChange={(e) =>
+              setSettings({
+                ...settings,
+                maxAttempts: Number(e.target.value)
+              })
               } />
             
             <Select
@@ -386,20 +450,32 @@ export function AssessmentBuilderPage() {
             </h1>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" leftIcon={<Eye className="h-4 w-4" />}>
+            <Button
+              variant="outline"
+              leftIcon={<Eye className="h-4 w-4" />}
+              onClick={() => setShowPreview(true)}
+              disabled={questions.length === 0}>
               Preview
             </Button>
             <Button
+              variant="outline"
               leftIcon={<Save className="h-4 w-4" />}
-              onClick={() => void handleSave()}>
-              
-              Save & Publish
+              onClick={() => void handleSave(false)}>
+              Save draft
+            </Button>
+            <Button
+              leftIcon={<Save className="h-4 w-4" />}
+              onClick={() => void handleSave(true)}>
+              Publish
             </Button>
           </div>
         </div>
 
         {/* Builder Area */}
         <div className="flex-1 overflow-y-auto p-8">
+          {loading ? (
+            <div className="text-center text-gray-500 py-12">Loading instrument…</div>
+          ) : (
           <div className="max-w-3xl mx-auto space-y-6">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-lg font-bold text-gray-900">
@@ -594,10 +670,34 @@ export function AssessmentBuilderPage() {
                 </div>
               </Card>
             )}
-            <div className="h-20"></div> {/* Spacer */}
+            <div className="h-20"></div>
           </div>
+          )}
         </div>
       </div>
+
+      <Modal
+        isOpen={showPreview}
+        onClose={() => setShowPreview(false)}
+        title="Assessment preview"
+        size="lg">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            {settings.title || 'Untitled'} · Pass {settings.passMark}% ·{' '}
+            {settings.timeLimit} min · {settings.maxAttempts} attempts max
+          </p>
+          {questions.map((q, i) => (
+            <div key={q.id} className="border rounded-lg p-4">
+              <p className="font-medium text-gray-900">
+                {i + 1}. {q.text || '(No prompt)'}
+              </p>
+              <p className="text-xs text-gray-500 mt-1 capitalize">
+                {q.type.replace('_', ' ')} · {q.points} marks
+              </p>
+            </div>
+          ))}
+        </div>
+      </Modal>
     </div>);
 
 }

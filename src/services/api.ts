@@ -1,4 +1,5 @@
 import { apiFetchJSON, apiFetchFormData, buildQuery } from './httpClient';
+import { getAuthPortal } from '../config/authPortal';
 import type {
   User,
   Learner,
@@ -105,7 +106,10 @@ export const authService = {
     }
     const payload = await apiFetchJSON<RemoteLoginEnvelope>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify(credentials),
+      body: JSON.stringify({
+        ...credentials,
+        portal: getAuthPortal(),
+      }),
     });
     return {
       data: payload.user,
@@ -153,6 +157,29 @@ export const authService = {
     });
     const data = unwrapData(raw);
     return { data, success: true };
+  },
+
+  updateProfile: async (body: {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+  }): Promise<ApiResponse<User>> => {
+    const raw = await apiFetchJSON<User | ApiResponse<User>>('/auth/me', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+    const data = unwrapData(raw);
+    return { data, success: true };
+  },
+
+  changePassword: async (
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<ApiResponse<{ success: boolean }>> => {
+    return remotePostJson<{ success: boolean }>('/auth/change-password', {
+      currentPassword,
+      newPassword,
+    });
   },
 };
 
@@ -364,6 +391,16 @@ export const assessmentService = {
     return raw;
   },
 
+  completeFacilitatorGrading: async (
+    submissionId: string,
+  ): Promise<ApiResponse<AssessmentInstance>> => {
+    const raw = await remotePostJson<AssessmentInstance>(
+      `/assessment-instances/${encodeURIComponent(submissionId)}/complete-facilitator-grading`,
+      {},
+    );
+    return raw;
+  },
+
   finaliseResult: async (
     assessmentId: string,
     body: { result: 'C' | 'NYC'; feedback?: string },
@@ -377,6 +414,17 @@ export const assessmentService = {
 };
 
 export const instrumentService = {
+  listUnitStandards: async (): Promise<
+    ApiResponse<Array<{ id: string; code: string; title: string; level?: number; credits?: number }>>
+  > => {
+    const raw = await apiFetchJSON<
+      | ApiResponse<Array<{ id: string; code: string; title: string }>>
+      | Array<{ id: string; code: string; title: string }>
+    >('/assessment-instruments/unit-standards/list');
+    const list = unwrapData(raw);
+    return { data: Array.isArray(list) ? list : [], success: true };
+  },
+
   listByUnit: async (
     unitStandardId: string,
   ): Promise<ApiResponse<Record<string, unknown>[]>> => {
@@ -398,6 +446,8 @@ export const instrumentService = {
     unitStandardId: string;
     title?: string;
     maxAttempts?: number;
+    passMark?: number;
+    timeLimitMinutes?: number;
   }): Promise<ApiResponse<Record<string, unknown>>> => {
     return remotePostJson<Record<string, unknown>>(
       '/assessment-instruments',
@@ -407,7 +457,12 @@ export const instrumentService = {
 
   update: async (
     id: string,
-    body: { title?: string; maxAttempts?: number },
+    body: {
+      title?: string;
+      maxAttempts?: number;
+      passMark?: number;
+      timeLimitMinutes?: number;
+    },
   ): Promise<ApiResponse<Record<string, unknown>>> => {
     return remotePostJson<Record<string, unknown>>(
       `/assessment-instruments/${encodeURIComponent(id)}`,
@@ -469,6 +524,15 @@ export const moderationService = {
       `/moderation/history/${encodeURIComponent(assessmentId)}`,
     );
     return { data: unwrapData(raw as ApiResponse<unknown>), success: true };
+  },
+
+  create: async (body: {
+    assessmentId: string;
+    decision: ModerationDecision;
+    comments: string;
+    adjustedScore?: number;
+  }): Promise<ApiResponse<unknown>> => {
+    return remotePostJson<unknown>('/moderation', body);
   },
 };
 
@@ -537,6 +601,25 @@ export const certificateService = {
     learnerName?: string;
   }): Promise<ApiResponse<Record<string, unknown>>> => {
     return remotePostJson<Record<string, unknown>>('/certificates/issue', body);
+  },
+
+  revoke: async (
+    id: string,
+    reason?: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>(
+      `/certificates/${encodeURIComponent(id)}/revoke`,
+      { reason },
+    );
+  },
+
+  reissue: async (
+    id: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>(
+      `/certificates/${encodeURIComponent(id)}/reissue`,
+      {},
+    );
   },
 };
 
@@ -607,6 +690,130 @@ export const poeService = {
       `/poe-documents/${encodeURIComponent(documentId)}/verify`,
       {},
     );
+  },
+};
+
+export type PoeArtifactKind = 'WORKBOOK' | 'SUMMATIVE' | 'LEARNER_GUIDE';
+
+export interface PoeArtifact {
+  id: string;
+  kind: PoeArtifactKind;
+  title: string;
+  description?: string | null;
+  status: string;
+  enrollmentId: string;
+  learnerId: string;
+  learnerName: string;
+  programmeId: string;
+  programmeName: string;
+  facilitatorFeedback?: string | null;
+  assessorFeedback?: string | null;
+  moderatorFeedback?: string | null;
+  moderationOutcome?: string;
+  assessorId?: string | null;
+  moderatorId?: string | null;
+  url?: string | null;
+}
+
+export type PoeTransitionAction =
+  | 'issue'
+  | 'submit'
+  | 'facilitator_mark'
+  | 'allocate_assessor'
+  | 'assessor_mark'
+  | 'submit_moderation'
+  | 'moderate_approve'
+  | 'moderate_reject';
+
+export const poeArtifactService = {
+  getById: async (id: string): Promise<ApiResponse<PoeArtifact>> => {
+    const raw = await apiFetchJSON<PoeArtifact | ApiResponse<PoeArtifact>>(
+      `/poe-artifacts/${encodeURIComponent(id)}`,
+    );
+    return { data: unwrapData(raw), success: true };
+  },
+
+  listByEnrollment: async (
+    enrollmentId: string,
+  ): Promise<ApiResponse<PoeArtifact[]>> => {
+    const raw = await apiFetchJSON<PoeArtifact[] | ApiResponse<PoeArtifact[]>>(
+      `/poe-artifacts/by-enrollment/${encodeURIComponent(enrollmentId)}`,
+    );
+    const list = unwrapData(raw);
+    return { data: Array.isArray(list) ? list : [], success: true };
+  },
+
+  listQueue: async (
+    stage: 'facilitator' | 'assessor' | 'moderator',
+  ): Promise<
+    ApiResponse<
+      Array<{
+        id: string;
+        kind: PoeArtifactKind;
+        title: string;
+        status: string;
+        enrollmentId: string;
+        learnerName: string;
+        programmeId: string;
+        programmeName: string;
+        updatedAt: string;
+      }>
+    >
+  > => {
+    const raw = await apiFetchJSON<
+      | Array<{
+          id: string;
+          kind: PoeArtifactKind;
+          title: string;
+          status: string;
+          enrollmentId: string;
+          learnerName: string;
+          programmeId: string;
+          programmeName: string;
+          updatedAt: string;
+        }>
+      | ApiResponse<
+          Array<{
+            id: string;
+            kind: PoeArtifactKind;
+            title: string;
+            status: string;
+            enrollmentId: string;
+            learnerName: string;
+            programmeId: string;
+            programmeName: string;
+            updatedAt: string;
+          }>
+        >
+    >(`/poe-artifacts/queue/${encodeURIComponent(stage)}`);
+    const list = unwrapData(raw);
+    return { data: Array.isArray(list) ? list : [], success: true };
+  },
+
+  create: async (body: {
+    enrollmentId: string;
+    kind: PoeArtifactKind;
+    title: string;
+    description?: string;
+  }): Promise<ApiResponse<PoeArtifact>> => {
+    const raw = await remotePostJson<PoeArtifact>('/poe-artifacts', body);
+    return raw;
+  },
+
+  transition: async (
+    id: string,
+    action: PoeTransitionAction,
+    body?: {
+      feedback?: string;
+      assessorId?: string;
+      moderatorId?: string;
+    },
+  ): Promise<ApiResponse<PoeArtifact>> => {
+    const raw = await remotePostJson<PoeArtifact>(
+      `/poe-artifacts/${encodeURIComponent(id)}/transition`,
+      { action, ...body },
+    );
+    return raw;
   },
 };
 
@@ -714,6 +921,47 @@ export const materialService = {
     const data = unwrapData(raw as ApiResponse<TrainingMaterial>);
     return { data, success: true };
   },
+
+  getCompleteness: async (
+    programmeId?: string,
+  ): Promise<
+    ApiResponse<
+      Array<{
+        programmeId: string;
+        programmeName: string;
+        modules: Array<{
+          moduleCode: string;
+          family: 'KM' | 'PM' | 'WM';
+          programmeId: string;
+          programmeName: string;
+          requiredCount: number;
+          presentCount: number;
+          complete: boolean;
+          missing: Array<{ slug: string; label: string }>;
+          present: Array<{
+            slug: string;
+            label: string;
+            materialId: string;
+            title: string;
+          }>;
+        }>;
+        summary: {
+          totalModules: number;
+          completeModules: number;
+          incompleteModules: number;
+          overallPercent: number;
+        };
+      }>
+    >
+  > => {
+    const query = buildQuery({ programmeId });
+    const raw = await apiFetchJSON<unknown>(`/materials/completeness${query}`);
+    const data = unwrapData(raw);
+    return {
+      data: Array.isArray(data) ? data : [],
+      success: true,
+    };
+  },
 };
 
 export const programmeService = {
@@ -819,6 +1067,71 @@ export const organisationService = {
     >('/organisations');
     const list = unwrapData(raw);
     return { data: Array.isArray(list) ? list : [], success: true };
+  },
+
+  create: async (body: {
+    name: string;
+    type: string;
+    registrationNo?: string;
+  }): Promise<ApiResponse<{ id: string; name: string; type: string }>> => {
+    const raw = await apiFetchJSON<
+      | ApiResponse<{ id: string; name: string; type: string }>
+      | { id: string; name: string; type: string }
+    >('/organisations', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    return { data: unwrapData(raw), success: true };
+  },
+};
+
+export const opsService = {
+  overview: async (): Promise<
+    ApiResponse<{
+      scope: 'platform' | 'organisation';
+      organisations: number;
+      users: number;
+      programmes: number;
+      materials: number;
+      pendingInvitations: number;
+      activeEnrollments: number;
+    }>
+  > => {
+    const raw = await apiFetchJSON('/ops/overview');
+    return {
+      data: unwrapData(raw) as {
+        scope: 'platform' | 'organisation';
+        organisations: number;
+        users: number;
+        programmes: number;
+        materials: number;
+        pendingInvitations: number;
+        activeEnrollments: number;
+      },
+      success: true,
+    };
+  },
+
+  listInvitations: async (): Promise<
+    ApiResponse<
+      Array<{
+        id: string;
+        email: string;
+        status: string;
+        expiresAt: string;
+        mailStatus: string;
+        mailAttempts: number;
+        organisation: { id: string; name: string };
+        role: { id: string; code: string; name: string };
+      }>
+    >
+  > => {
+    const raw = await apiFetchJSON('/ops/invitations');
+    const list = unwrapData(raw);
+    return {
+      data: Array.isArray(list) ? list : [],
+      success: true,
+    };
   },
 };
 
@@ -1057,6 +1370,20 @@ export const invitationService = {
   }): Promise<ApiResponse<unknown>> => {
     return remotePostJson<unknown>('/auth/register', body);
   },
+
+  create: async (body: {
+    email: string;
+    roleId: string;
+  }): Promise<ApiResponse<unknown>> => {
+    return remotePostJson<unknown>('/invitations', body);
+  },
+
+  retryMail: async (id: string): Promise<ApiResponse<unknown>> => {
+    return remotePostJson<unknown>(
+      `/invitations/${encodeURIComponent(id)}/retry-mail`,
+      {},
+    );
+  },
 };
 
 export type CreateEnrollmentPayload = {
@@ -1134,6 +1461,11 @@ export const messagingService = {
   },
 };
 
+export const notificationService = {
+  list: () => messagingService.getNotifications(),
+  markRead: (id: string) => messagingService.markRead(id),
+};
+
 export const auditService = {
   log: async (
     action: string,
@@ -1148,7 +1480,6 @@ export const auditService = {
       details,
       at: new Date().toISOString(),
     };
-    console.log(`[AUDIT] ${action} ${entity}:${entityId} — ${details}`);
     try {
       await apiFetchJSON<unknown>('/audit/log', {
         method: 'POST',

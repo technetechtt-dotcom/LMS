@@ -47,6 +47,7 @@ describe('integrity DB E2E', () => {
   let orgB: string;
   let learnerId: string;
   let assessorId: string;
+  let facilitatorId: string;
   let otherAssessorId: string;
   let moderatorId: string;
   let adminId: string;
@@ -62,6 +63,12 @@ describe('integrity DB E2E', () => {
   let roleLearnerId: string;
   let invitedById: string;
 
+  const asFacilitator = (): AuthUser => ({
+    userId: facilitatorId,
+    email: `facilitator-${suffix}@e2e.test`,
+    organisationId: orgA,
+    roleCodes: ['FACILITATOR'],
+  });
   const asAssessor = (): AuthUser => ({
     userId: assessorId,
     email: `assessor-${suffix}@e2e.test`,
@@ -107,9 +114,10 @@ describe('integrity DB E2E', () => {
         update: {},
         create: { code, name: code },
       });
-    const [rLearner, rAssessor, rAdmin, rMod] = await Promise.all([
+    const [rLearner, rAssessor, rFacilitator, rAdmin, rMod] = await Promise.all([
       role('LEARNER'),
       role('ASSESSOR'),
+      role('FACILITATOR'),
       role('ADMIN'),
       role('MODERATOR'),
     ]);
@@ -134,15 +142,17 @@ describe('integrity DB E2E', () => {
         },
       });
 
-    const [learner, assessor, other, moderator, admin] = await Promise.all([
+    const [learner, assessor, facilitator, other, moderator, admin] = await Promise.all([
       mkUser(`learner-${suffix}@e2e.test`),
       mkUser(`assessor-${suffix}@e2e.test`),
+      mkUser(`facilitator-${suffix}@e2e.test`),
       mkUser(`other-${suffix}@e2e.test`),
       mkUser(`mod-${suffix}@e2e.test`),
       mkUser(`admin-${suffix}@e2e.test`),
     ]);
     learnerId = learner.id;
     assessorId = assessor.id;
+    facilitatorId = facilitator.id;
     otherAssessorId = other.id;
     moderatorId = moderator.id;
     adminId = admin.id;
@@ -152,6 +162,7 @@ describe('integrity DB E2E', () => {
       data: [
         { userId: learner.id, roleId: rLearner.id, organisationId: orgA },
         { userId: assessor.id, roleId: rAssessor.id, organisationId: orgA },
+        { userId: facilitator.id, roleId: rFacilitator.id, organisationId: orgA },
         { userId: other.id, roleId: rAssessor.id, organisationId: orgA },
         { userId: moderator.id, roleId: rMod.id, organisationId: orgA },
         { userId: admin.id, roleId: rAdmin.id, organisationId: orgA },
@@ -312,35 +323,72 @@ describe('integrity DB E2E', () => {
       instances.humanGrade(
         submissionId,
         [{ questionId, score: 4 }],
+        asAssessor(),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    await instances.humanGrade(
+      submissionId,
+      [{ questionId, score: 6 }],
+      asFacilitator(),
+    );
+    await instances.completeFacilitatorGrading(submissionId, asFacilitator());
+
+    await expect(
+      instances.humanGrade(
+        submissionId,
+        [{ questionId, score: 4 }],
         asOtherAssessor(),
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('rejects human score above question points and ignores client maxScore', async () => {
+    const fresh = await prisma.assessmentSubmission.create({
+      data: {
+        enrollmentId,
+        assessmentId,
+        instrumentId,
+        attemptNumber: 2,
+        status: 'submitted',
+        submittedAt: new Date(),
+        responses: [{ questionId, answer: 'essay' }],
+      },
+    });
+
     await expect(
       instances.humanGrade(
-        submissionId,
+        fresh.id,
         [{ questionId, score: 99, maxScore: 100 } as never],
-        asAssessor(),
+        asFacilitator(),
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     const graded = await instances.humanGrade(
-      submissionId,
+      fresh.id,
       [{ questionId, score: 7 }],
-      asAssessor(),
+      asFacilitator(),
     );
     expect(graded.score).toBe(7);
     const stored = await prisma.assessmentSubmission.findUniqueOrThrow({
-      where: { id: submissionId },
+      where: { id: fresh.id },
     });
     const responses = stored.responses as Array<{ maxScore: number; score: number }>;
     expect(responses[0].maxScore).toBe(10);
     expect(responses[0].score).toBe(7);
   });
 
-  it('lets allocated assessor finalise C/NYC; moderation does not overwrite it', async () => {
+  it('follows facilitator → assessor → moderator workflow; moderation does not overwrite C/NYC', async () => {
+    const row = await prisma.assessmentSubmission.findUniqueOrThrow({
+      where: { id: submissionId },
+    });
+    expect(row.status).toBe('facilitator_graded');
+
+    await instances.humanGrade(
+      submissionId,
+      [{ questionId, score: 8 }],
+      asAssessor(),
+    );
     await instances.completeGrading(submissionId, asAssessor());
     const finalised = await assessments.finaliseResult(
       assessmentId,

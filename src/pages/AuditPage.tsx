@@ -12,9 +12,17 @@ import { Tabs } from '../components/ui/Tabs';
 import { DataTable } from '../components/ui/DataTable';
 import { Badge } from '../components/ui/Badge';
 import { toast } from 'sonner';
-import { auditService } from '../services/api';
+import {
+  assessmentService,
+  attendanceService,
+  auditService,
+  learnerService,
+  programmeService,
+  userService,
+} from '../services/api';
+import { useNavigate } from 'react-router-dom';
 type AuditLearnerRecord = {
-  id: number;
+  id: string;
   name: string;
   idNo: string;
   status: string;
@@ -48,11 +56,157 @@ type AuditFacilitatorRecord = {
 };
 
 export function AuditPage() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('learners');
   const [auditRows, setAuditRows] = useState<
     Array<Record<string, unknown>>
   >([]);
   const [timeLeft, setTimeLeft] = useState(14385); // ~4 hours in seconds
+  const [findingNotes, setFindingNotes] = useState('');
+  const [learnerRecords, setLearnerRecords] = useState<AuditLearnerRecord[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AuditAttendanceRecord[]>([]);
+  const [assessmentRecords, setAssessmentRecords] = useState<AuditAssessmentRecord[]>([]);
+  const [facilitatorRecords, setFacilitatorRecords] = useState<AuditFacilitatorRecord[]>([]);
+  const [programmes, setProgrammes] = useState<Array<{ id: string; title: string }>>([]);
+  const [selectedProgrammeId, setSelectedProgrammeId] = useState('');
+
+  useEffect(() => {
+    programmeService
+      .getAll()
+      .then((res) => {
+        const list = (res.data ?? []).map((p) => ({ id: p.id, title: p.title }));
+        setProgrammes(list);
+        if (list.length > 0) setSelectedProgrammeId(list[0].id);
+      })
+      .catch(() => toast.error('Could not load programmes'));
+  }, []);
+
+  useEffect(() => {
+    attendanceService
+      .list()
+      .then((res) => {
+        const grouped = new Map<
+          string,
+          { date: string; session: string; facilitator: string; present: number; absent: number; signed: boolean }
+        >();
+        for (const raw of res.data ?? []) {
+          const r = raw as {
+            sessionDate: string;
+            status: string;
+            enrollment?: {
+              programme?: { title: string; id: string };
+            };
+          };
+          const programmeId = r.enrollment?.programme?.id ?? '';
+          if (selectedProgrammeId && programmeId !== selectedProgrammeId) continue;
+          const date = r.sessionDate.slice(0, 10);
+          const session = r.enrollment?.programme?.title ?? 'Training session';
+          const key = `${date}|${session}`;
+          const row = grouped.get(key) ?? {
+            date,
+            session,
+            facilitator: '—',
+            present: 0,
+            absent: 0,
+            signed: true,
+          };
+          if (r.status === 'PRESENT' || r.status === 'LATE') row.present += 1;
+          else row.absent += 1;
+          grouped.set(key, row);
+        }
+        setAttendanceRecords(
+          Array.from(grouped.values()).map((row, i) => ({
+            id: i + 1,
+            ...row,
+          })),
+        );
+      })
+      .catch(() => toast.error('Could not load attendance records'));
+  }, [selectedProgrammeId]);
+
+  useEffect(() => {
+    assessmentService
+      .listInstances()
+      .then((res) => {
+        setAssessmentRecords(
+          (res.data ?? []).map((inst, i) => ({
+            id: i + 1,
+            learner: inst.learnerName,
+            assessment: inst.assessmentTitle,
+            assessor: inst.gradedBy ?? '—',
+            score:
+              inst.percentage != null
+                ? `${Math.round(inst.percentage)}%`
+                : inst.score != null
+                  ? String(inst.score)
+                  : '—',
+            moderation: inst.moderationRecord
+                ? 'Completed'
+                : inst.status === 'moderation'
+                  ? 'Pending'
+                  : inst.status === 'completed'
+                    ? 'Graded'
+                    : 'In progress',
+            moderator: inst.moderationRecord?.moderatorName ?? '—',
+          })),
+        );
+      })
+      .catch(() => toast.error('Could not load assessment records'));
+  }, []);
+
+  useEffect(() => {
+    userService
+      .getAll()
+      .then((res) => {
+        const staff = (res.data ?? []).filter((u) =>
+          u.memberships.some((m) =>
+            ['FACILITATOR', 'ASSESSOR', 'MODERATOR'].includes(m.role.code),
+          ),
+        );
+        setFacilitatorRecords(
+          staff.map((u, i) => {
+            const role = u.memberships[0]?.role.name ?? 'Staff';
+            const expiry = u.lastLoginAt
+              ? new Date(u.lastLoginAt).toISOString().slice(0, 10)
+              : '—';
+            return {
+              id: i + 1,
+              name: `${u.firstName} ${u.lastName}`.trim(),
+              qual: role,
+              regNo: u.id.slice(0, 8).toUpperCase(),
+              expiry,
+              status: u.isActive ? 'Valid' : 'Inactive',
+            };
+          }),
+        );
+      })
+      .catch(() => toast.error('Could not load facilitator records'));
+  }, []);
+
+  useEffect(() => {
+    learnerService
+      .getAll()
+      .then((res) => {
+        const rows = (res.data ?? []).filter(
+          (l) => !selectedProgrammeId || l.programmeId === selectedProgrammeId,
+        );
+        setLearnerRecords(
+          rows.map((l) => ({
+            id: l.id,
+            name: l.name,
+            idNo: l.idNumber,
+            status: l.status === 'active' ? 'Verified' : 'Pending',
+            poeStatus:
+              l.progress >= 80
+                ? 'Complete'
+                : l.progress >= 40
+                  ? 'In Progress'
+                  : 'Incomplete',
+          })),
+        );
+      })
+      .catch(() => toast.error('Could not load learner audit records'));
+  }, [selectedProgrammeId]);
 
   useEffect(() => {
     auditService
@@ -72,98 +226,45 @@ export function AuditPage() {
     const s = seconds % 60;
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
-  // Mock Data
-  const learnerRecords = [
-  {
-    id: 1,
-    name: 'Thabo Mbeki',
-    idNo: '9501015890089',
-    status: 'Verified',
-    poeStatus: 'Complete'
-  },
-  {
-    id: 2,
-    name: 'Lerato Kganyago',
-    idNo: '9605120000000',
-    status: 'Verified',
-    poeStatus: 'In Progress'
-  },
-  {
-    id: 3,
-    name: 'Sipho Nkosi',
-    idNo: '9402025000000',
-    status: 'Pending',
-    poeStatus: 'Incomplete'
-  }];
 
-  const attendanceRecords = [
-  {
-    id: 1,
-    date: '2023-05-15',
-    session: 'Module 3: Advanced CSS',
-    facilitator: 'Sarah Khumalo',
-    present: 12,
-    absent: 3,
-    signed: true
-  },
-  {
-    id: 2,
-    date: '2023-05-12',
-    session: 'Module 3: Flexbox',
-    facilitator: 'Sarah Khumalo',
-    present: 14,
-    absent: 1,
-    signed: true
-  },
-  {
-    id: 3,
-    date: '2023-05-10',
-    session: 'Module 3: Responsive',
-    facilitator: 'Sarah Khumalo',
-    present: 15,
-    absent: 0,
-    signed: false
-  }];
+  const enrolledCount = learnerRecords.length;
+  const completionRate =
+    enrolledCount > 0
+      ? Math.round(
+          (learnerRecords.filter((l) => l.poeStatus === 'Complete').length /
+            enrolledCount) *
+            100,
+        )
+      : 0;
+  const complianceScore =
+    assessmentRecords.length > 0
+      ? Math.round(
+          (assessmentRecords.filter((a) => a.moderation === 'Completed').length /
+            assessmentRecords.length) *
+            100,
+        )
+      : 0;
+  const assessedCount = assessmentRecords.filter((a) => a.score !== '—').length;
+  const competentRate =
+    assessedCount > 0
+      ? Math.round(
+          (assessmentRecords.filter((a) => {
+            const pct = parseInt(a.score, 10);
+            return !Number.isNaN(pct) && pct >= 50;
+          }).length /
+            assessedCount) *
+            100,
+        )
+      : 0;
+  const moderationComplete =
+    assessmentRecords.length > 0
+      ? Math.round(
+          (assessmentRecords.filter((a) => a.moderation === 'Completed').length /
+            assessmentRecords.length) *
+            100,
+        )
+      : 0;
 
-  const assessmentRecords = [
-  {
-    id: 1,
-    learner: 'Thabo Mbeki',
-    assessment: 'Module 1',
-    assessor: 'Jane Smith',
-    score: '85%',
-    moderation: 'Completed',
-    moderator: 'Mike Jones'
-  },
-  {
-    id: 2,
-    learner: 'Lerato Kganyago',
-    assessment: 'Module 1',
-    assessor: 'Jane Smith',
-    score: '72%',
-    moderation: 'Pending',
-    moderator: '-'
-  }];
-
-  const facilitatorRecords = [
-  {
-    id: 1,
-    name: 'Sarah Khumalo',
-    qual: 'BSc Computer Science',
-    regNo: 'FAC-2023-001',
-    expiry: '2024-12-31',
-    status: 'Valid'
-  },
-  {
-    id: 2,
-    name: 'Jane Smith',
-    qual: 'Dip. IT',
-    regNo: 'ASS-2023-045',
-    expiry: '2023-11-30',
-    status: 'Expiring Soon'
-  }];
-
-  // Columns
   const learnerColumns = [
   {
     header: 'Learner Name',
@@ -194,11 +295,11 @@ export function AuditPage() {
   {
     header: 'Actions',
     accessorKey: 'id' as const,
-    cell: () =>
+    cell: (row: AuditLearnerRecord) =>
     <Button
       variant="ghost"
       size="sm"
-      onClick={() => toast.info('Opening POE viewer...')}>
+      onClick={() => navigate(`/learner/${row.id}`)}>
       
           View POE
         </Button>
@@ -334,20 +435,22 @@ export function AuditPage() {
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
               Selected Programme for Audit
             </label>
-            <select className="block w-full pl-0 pr-10 py-2 text-base border-none focus:ring-0 font-bold text-gray-900 bg-transparent cursor-pointer hover:bg-gray-50 rounded">
-              <option>
-                National Certificate: Systems Development (NQF 5) - Cohort
-                2023-A
-              </option>
-              <option>
-                FET Certificate: Project Management (NQF 4) - Cohort 2023-B
-              </option>
+            <select
+              className="block w-full pl-0 pr-10 py-2 text-base border-none focus:ring-0 font-bold text-gray-900 bg-transparent cursor-pointer hover:bg-gray-50 rounded"
+              value={selectedProgrammeId}
+              onChange={(e) => setSelectedProgrammeId(e.target.value)}>
+              {programmes.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title}
+                </option>
+              ))}
             </select>
           </div>
           <Button
             variant="outline"
             leftIcon={<Download className="h-4 w-4" />}
-            onClick={() => toast.success('Downloading Batch POE...')}>
+            disabled
+            title="Batch POE export requires learner selection from the directory">
             
             Download Batch POE
           </Button>
@@ -358,19 +461,19 @@ export function AuditPage() {
           <Card>
             <div className="text-center">
               <p className="text-sm text-gray-500">Enrolled Learners</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">45</p>
+              <p className="text-3xl font-bold text-gray-900 mt-1">{enrolledCount}</p>
             </div>
           </Card>
           <Card>
             <div className="text-center">
               <p className="text-sm text-gray-500">Completion Rate</p>
-              <p className="text-3xl font-bold text-brand-blue mt-1">68%</p>
+              <p className="text-3xl font-bold text-brand-blue mt-1">{completionRate}%</p>
             </div>
           </Card>
           <Card>
             <div className="text-center">
               <p className="text-sm text-gray-500">Compliance Score</p>
-              <p className="text-3xl font-bold text-green-600 mt-1">92%</p>
+              <p className="text-3xl font-bold text-green-600 mt-1">{complianceScore}%</p>
             </div>
           </Card>
         </div>
@@ -421,13 +524,13 @@ export function AuditPage() {
             <div className="space-y-4">
                 <div className="flex space-x-4 text-sm text-gray-500 mb-2">
                   <span>
-                    Total Assessed: <strong>42</strong>
+                    Total Assessed: <strong>{assessedCount}</strong>
                   </span>
                   <span>
-                    Competent Rate: <strong>88%</strong>
+                    Competent Rate: <strong>{competentRate}%</strong>
                   </span>
                   <span>
-                    Moderation Complete: <strong>65%</strong>
+                    Moderation Complete: <strong>{moderationComplete}%</strong>
                   </span>
                 </div>
                 <DataTable
@@ -453,11 +556,26 @@ export function AuditPage() {
             <textarea
               className="w-full border-gray-300 rounded-md shadow-sm focus:ring-brand-navy focus:border-brand-navy"
               rows={4}
-              placeholder="Enter audit findings, non-compliance issues, or general comments here..." />
+              placeholder="Enter audit findings, non-compliance issues, or general comments here..."
+              value={findingNotes}
+              onChange={(e) => setFindingNotes(e.target.value)} />
             
             <div className="flex justify-end">
               <Button
-                onClick={() => toast.success('Finding saved successfully')}>
+                onClick={async () => {
+                  if (!findingNotes.trim()) {
+                    toast.error('Enter findings before saving');
+                    return;
+                  }
+                  await auditService.log(
+                    'AUDIT_FINDING',
+                    'audit_session',
+                    'current',
+                    findingNotes.trim(),
+                  );
+                  toast.success('Finding saved successfully');
+                  setFindingNotes('');
+                }}>
                 
                 Save Finding
               </Button>

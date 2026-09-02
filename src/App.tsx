@@ -40,6 +40,7 @@ import { FacilitatorTrainingMaterialsPage } from './pages/FacilitatorTrainingMat
 import { AssessmentBuilderPage } from './pages/AssessmentBuilderPage';
 import { AssessmentTakingPage } from './pages/AssessmentTakingPage';
 import { SubmissionReviewPage } from './pages/SubmissionReviewPage';
+import { PoeArtifactReviewPage } from './pages/PoeArtifactReviewPage';
 import { AssessorDashboardPage } from './pages/AssessorDashboardPage';
 import { ModeratorDashboardPage } from './pages/ModeratorDashboardPage';
 import { QaOfficerDashboardPage } from './pages/QaOfficerDashboardPage';
@@ -49,6 +50,10 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { ProgrammeDetailPage } from './pages/ProgrammeDetailPage';
 import { CourseDetailPage } from './pages/CourseDetailPage';
+import { NotFoundPage } from './pages/NotFoundPage';
+import { NotificationsPage } from './pages/NotificationsPage';
+import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
+import { TermsPage } from './pages/TermsPage';
 function HomeRedirect() {
   const { user, isLoading } = useAuth();
   if (!isLoading && !user) {
@@ -74,6 +79,8 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
 
           <Route
             path="/"
@@ -130,6 +137,7 @@ function App() {
               }
             />
             <Route path="help" element={<HelpPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
 
             <Route
               path="learners"
@@ -348,6 +356,21 @@ function App() {
                 </RoleGate>
               }
             />
+            <Route
+              path="poe-artifacts/:id/review"
+              element={
+                <RoleGate
+                  allowedRoles={[
+                    'Admin',
+                    'Facilitator',
+                    'Assessor',
+                    'Moderator',
+                    'Learner',
+                  ]}>
+                  <PoeArtifactReviewPage />
+                </RoleGate>
+              }
+            />
 
             <Route
               path="compliance"
@@ -411,6 +434,7 @@ function App() {
               }
             />
           </Route>
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
     </Router>
   );

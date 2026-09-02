@@ -1037,7 +1037,8 @@ export function FacilitatorSETACompliancePage() {
             </h3>
             <Button
             leftIcon={<Calendar className="h-4 w-4" />}
-            onClick={() => toast.info('Opening scheduler...')}>
+            disabled
+            title="Scheduling is managed outside the LMS">
             
               Schedule Submission
             </Button>
@@ -1166,7 +1167,8 @@ export function FacilitatorSETACompliancePage() {
             </h3>
             <Button
             leftIcon={<Calendar className="h-4 w-4" />}
-            onClick={() => toast.info('Opening audit scheduler...')}>
+            disabled
+            title="Audit scheduling is managed outside the LMS">
             
               Schedule Audit
             </Button>
@@ -1190,7 +1192,8 @@ export function FacilitatorSETACompliancePage() {
                 size="sm"
                 variant="outline"
                 className="mt-3"
-                onClick={() => toast.info('Opening preparation checklist...')}>
+                disabled
+                title="Checklist is maintained offline">
                 
                   View Preparation Checklist
                 </Button>
@@ -1248,7 +1251,8 @@ export function FacilitatorSETACompliancePage() {
                       <td className="px-6 py-4">
                         <button
                       className="text-sm text-brand-blue hover:underline"
-                      onClick={() => toast.info('Opening audit report...')}>
+                      disabled
+                      title="Audit reports are filed offline">
                       
                           View Report
                         </button>

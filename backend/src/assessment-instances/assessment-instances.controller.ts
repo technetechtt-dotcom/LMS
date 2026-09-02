@@ -49,7 +49,7 @@ export class AssessmentInstancesController {
     return { success: true, data, message: 'Submitted' };
   }
 
-  @Roles('ADMIN', 'ASSESSOR')
+  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR')
   @Post(':id/human-grade')
   async humanGrade(
     @Param('id') id: string,
@@ -73,6 +73,16 @@ export class AssessmentInstancesController {
       req.user,
     );
     return { success: true, data };
+  }
+
+  @Roles('ADMIN', 'FACILITATOR')
+  @Post(':id/complete-facilitator-grading')
+  async completeFacilitatorGrading(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.instances.completeFacilitatorGrading(id, req.user);
+    return { success: true, data, message: 'Sent for assessor review' };
   }
 
   @Roles('ADMIN', 'ASSESSOR')

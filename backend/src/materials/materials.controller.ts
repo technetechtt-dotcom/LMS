@@ -30,6 +30,14 @@ import type { AuthUser } from '../common/types/request-with-user';
 export class MaterialsController {
   constructor(private readonly materials: MaterialsService) {}
 
+  @Get('completeness')
+  completeness(
+    @Query('programmeId') programmeId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.materials.completeness(req.user, programmeId);
+  }
+
   @Get()
   list(
     @Query() query: ListMaterialsQueryDto,

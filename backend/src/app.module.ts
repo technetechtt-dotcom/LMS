@@ -29,6 +29,7 @@ import { CertificatesModule } from './certificates/certificates.module';
 import { PrivacyModule } from './privacy/privacy.module';
 import { EnterpriseModule } from './enterprise/enterprise.module';
 import { QaOfficerModule } from './qa-officer/qa-officer.module';
+import { OpsModule } from './ops/ops.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -71,6 +72,7 @@ import { HealthController } from './health/health.controller';
     PrivacyModule,
     EnterpriseModule,
     QaOfficerModule,
+    OpsModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -7,6 +7,8 @@ import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Select';
 import { DataTable } from '../components/ui/DataTable';
 import { Badge } from '../components/ui/Badge';
+import { reportsService } from '../services/api';
+import { downloadJson } from '../utils/downloadJson';
 
 type SetaExportPreviewRow = {
   id: number;
@@ -160,7 +162,22 @@ export function SETAExportsPage() {
                 <Button
                   className="w-full"
                   leftIcon={<Download className="h-4 w-4" />}
-                  onClick={() => toast.success('Generating SETA export...')}>
+                  onClick={async () => {
+                    try {
+                      const [snap, progress] = await Promise.all([
+                        reportsService.getSetaSnapshot(),
+                        reportsService.getProgress(),
+                      ]);
+                      downloadJson('seta-export.json', {
+                        snapshot: snap.data,
+                        progress: progress.data,
+                        exportedAt: new Date().toISOString(),
+                      });
+                      toast.success('SETA export downloaded');
+                    } catch {
+                      toast.error('Export failed');
+                    }
+                  }}>
                   
                   Export Data
                 </Button>

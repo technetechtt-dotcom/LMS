@@ -6,6 +6,32 @@ function submitted(
   return s === 'submitted' || s === 'verified';
 }
 
+function requireWorkflowSignoffs(
+  row: OfficialPoeRequirementRow,
+  label: string,
+  reasons: string[],
+  moderatorAssigned: boolean,
+) {
+  if (!submitted(row.submission)) {
+    reasons.push(`${label} must be submitted by the learner.`);
+  }
+  if (!row.facilitatorMarkedSigned) {
+    reasons.push(
+      `${label} must be marked and signed by the assigned facilitator.`,
+    );
+  }
+  if (!row.assessorMarkedSigned) {
+    reasons.push(
+      `${label} must be reviewed and signed by the assigned assessor.`,
+    );
+  }
+  if (moderatorAssigned && row.moderatorMarkedSigned !== true) {
+    reasons.push(
+      `${label} must be signed off by the assigned moderator for this programme.`,
+    );
+  }
+}
+
 export function evaluateOfficialPoeReadiness(
   rows: OfficialPoeRequirementRow[],
   moderatorAssigned: boolean,
@@ -21,31 +47,17 @@ export function evaluateOfficialPoeReadiness(
 
   const wb = rows.find((r) => r.category === 'workbook');
   if (wb) {
-    if (!submitted(wb.submission)) {
-      reasons.push('Learner workbook must be submitted.');
-    }
-    if (!wb.facilitatorMarkedSigned) {
-      reasons.push(
-        'Learner workbook must be marked and signed by the assigned facilitator.',
-      );
-    }
+    requireWorkflowSignoffs(wb, 'Learner workbook', reasons, moderatorAssigned);
   }
 
   const sum = rows.find((r) => r.category === 'summative');
   if (sum) {
-    if (!submitted(sum.submission)) {
-      reasons.push('Summative assessment must be submitted.');
-    }
-    if (!sum.assessorMarkedSigned) {
-      reasons.push(
-        'Summative assessment must be marked and signed by the assigned assessor.',
-      );
-    }
-    if (moderatorAssigned && sum.moderatorMarkedSigned !== true) {
-      reasons.push(
-        'Summative assessment must be signed off by the assigned moderator for this programme.',
-      );
-    }
+    requireWorkflowSignoffs(
+      sum,
+      'Summative assessment',
+      reasons,
+      moderatorAssigned,
+    );
   }
 
   return { canCompile: reasons.length === 0, blockingReasons: reasons };

@@ -17,7 +17,7 @@ import { AttendanceView } from '../components/learner/AttendanceView';
 import { FileUpload } from '../components/ui/FileUpload';
 import { toast } from 'sonner';
 import { jsPDF } from 'jspdf';
-import { learnerService, poeService } from '../services/api';
+import { learnerService, poeService, assessmentService } from '../services/api';
 import type { Learner } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { evaluateOfficialPoeReadiness } from '../utils/officialPoe';
@@ -100,6 +100,16 @@ export function LearnerProfilePage() {
   const [poeDocuments, setPoeDocuments] = useState<
     Array<{ id: string; title: string; status: 'verified' | 'pending' | 'completed'; type: string; date?: string }>
   >([]);
+  const [assessmentRows, setAssessmentRows] = useState<
+    Array<{
+      id: number;
+      title: string;
+      date: string;
+      score: number | string;
+      result: string;
+      assessor: string;
+    }>
+  >([]);
 
   const officialPoe = useMemo(
     () => ({
@@ -167,6 +177,48 @@ export function LearnerProfilePage() {
       cancelled = true;
     };
   }, [id, navigate, user?.role]);
+
+  useEffect(() => {
+    if (!id || !learnerRecord) return;
+    let cancelled = false;
+    void assessmentService
+      .listInstances()
+      .then((res) => {
+        if (cancelled) return;
+        const rows = (res.data ?? [])
+          .filter(
+            (inst) =>
+              inst.learnerId === id || inst.learnerId === learnerRecord.userId,
+          )
+          .map((inst, idx) => ({
+            id: idx + 1,
+            title: inst.assessmentTitle,
+            date: inst.submittedAt
+              ? inst.submittedAt.slice(0, 10)
+              : '-',
+            score:
+              inst.percentage != null
+                ? Math.round(inst.percentage)
+                : inst.score != null
+                  ? inst.score
+                  : '-',
+            result:
+              inst.isPassed === true
+                ? 'Competent'
+                : inst.isPassed === false
+                  ? 'Not Yet Competent'
+                  : 'Pending',
+            assessor: inst.gradedBy ?? '-',
+          }));
+        setAssessmentRows(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setAssessmentRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, learnerRecord]);
 
   useEffect(() => {
     if (!id) return;
@@ -286,33 +338,6 @@ export function LearnerProfilePage() {
     poePracticalItems.length +
     poeWorkplaceItems.length;
 
-  const assessments = [
-    {
-      id: 1,
-      title: 'Module 1: Intro to Programming',
-      date: '2023-02-20',
-      score: 85,
-      result: 'Competent',
-      assessor: 'Jane Smith',
-    },
-    {
-      id: 2,
-      title: 'Module 2: Database Design',
-      date: '2023-03-15',
-      score: 72,
-      result: 'Competent',
-      assessor: 'Jane Smith',
-    },
-    {
-      id: 3,
-      title: 'Module 3: Web Development',
-      date: '-',
-      score: '-',
-      result: 'Pending',
-      assessor: '-',
-    },
-  ];
-
   const assessmentColumns = [
     {
       header: 'Assessment Title',
@@ -364,9 +389,9 @@ export function LearnerProfilePage() {
     doc.setFontSize(16);
     doc.text('Assessment Summary', 20, 80);
     let y = 90;
-    assessments.forEach((a) => {
-      doc.setFontSize(12);
-      doc.text(`${a.title} - ${a.result} (${a.score}%)`, 20, y);
+    assessmentRows.forEach((a) => {
+      const scoreLabel = a.score === '-' ? '—' : `${a.score}%`;
+      doc.text(`${a.title} - ${a.result} (${scoreLabel})`, 20, y);
       y += 10;
     });
     doc.save('lms_assessment_summary.pdf');
@@ -599,28 +624,30 @@ export function LearnerProfilePage() {
               canCompile={canCompile}
               blockingReasons={blockingReasons}
               onCompileDownload={downloadOfficialPoe}
+              allowReview
             />
 
             <Card title="QCTO PoE structure & requirements">
               <div className="space-y-4 text-sm text-gray-700">
                 <div>
                   <h4 className="font-semibold text-gray-900">
-                    Knowledge modules (KM) — three-part set
+                    Knowledge modules (KM) — five-part set
                   </h4>
                   <p className="mt-2">
-                    Occupational programmes typically package each{' '}
-                    <strong>knowledge module</strong> as{' '}
-                    <strong>three PDFs per KM</strong>, for example KM-XX:
+                    Each <strong>knowledge module</strong> (
+                    <span className="font-mono">KM-XX</span>) includes five standard
+                    documents:
                   </p>
-                  <ul className="mt-2 space-y-1 list-disc list-inside font-mono text-xs sm:text-sm text-gray-800 bg-gray-50 border border-gray-100 rounded-md px-3 py-2">
-                    <li>KM-XX-Learner Guide.pdf — textbook-style teaching content</li>
+                  <ul className="mt-2 space-y-1 list-disc list-inside text-sm">
+                    <li>Facilitator Guide</li>
+                    <li>Summative Assessment Memo</li>
+                    <li>Learner Guide</li>
                     <li>
-                      KM-XX-Learner Workbook.pdf — homework, tasks, self-study
-                      prompts
+                      Learner Workbook — facilitator → assessor → moderator
+                      workflow
                     </li>
                     <li>
-                      KM-XX-Summative Assessment.pdf — formal KM summative
-                      assessment
+                      Summative Assessment — same workflow
                     </li>
                   </ul>
                   <p className="mt-2">
@@ -634,21 +661,36 @@ export function LearnerProfilePage() {
 
                 <div>
                   <h4 className="font-semibold text-gray-900">
+                    Practical (PM) &amp; workplace (WM) modules
+                  </h4>
+                  <ul className="mt-2 space-y-1 list-disc list-inside text-sm">
+                    <li>
+                      <strong>PM-XX</strong> — practical skills, logbooks, and
+                      centre-based assessments.
+                    </li>
+                    <li>
+                      <strong>WM-XX</strong> — workplace placement evidence and
+                      mentor-validated workplace assessments (where required).
+                    </li>
+                  </ul>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-gray-900">
                     Components of a QCTO PoE
                   </h4>
                   <ul className="mt-2 space-y-1 list-disc list-inside">
                     <li>
-                      <strong>Knowledge component:</strong> KM learner guides,
-                      workbooks, and KM summatives, plus broader knowledge evidence
-                      as required by the SDP.
+                      <strong>Knowledge component:</strong> KM guides, memos,
+                      workbooks, and summatives per module.
                     </li>
                     <li>
-                      <strong>Practical component:</strong> logbooks, observation
-                      checklists, and practical assessments in simulated settings.
+                      <strong>Practical component:</strong> PM modules — logbooks,
+                      observation checklists, and practical assessments.
                     </li>
                     <li>
-                      <strong>Workplace experience:</strong> validated workplace
-                      evidence, supervisor feedback, and reports.
+                      <strong>Workplace experience:</strong> WM modules — validated
+                      workplace evidence and mentor sign-off.
                     </li>
                   </ul>
                 </div>
@@ -689,7 +731,7 @@ export function LearnerProfilePage() {
         {activeTab === 'assessments' && (
           <Card noPadding>
             <DataTable
-              data={assessments}
+              data={assessmentRows}
               columns={assessmentColumns}
               keyField="id"
               pagination={false}

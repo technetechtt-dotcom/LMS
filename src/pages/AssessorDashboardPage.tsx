@@ -21,9 +21,10 @@ import {
   pendingAssessmentsForAssessor,
 } from '../data/assessmentQueues';
 import { useAuth } from '../contexts/AuthContext';
-import { assessmentService, programmeService } from '../services/api';
-import type { Assessment } from '../types';
+import { assessmentService, poeArtifactService, programmeService } from '../services/api';
+import type { Assessment, AssessmentInstance } from '../types';
 import type { Programme } from '../types';
+import { poeKindLabel } from '../utils/poeWorkflow';
 
 export function AssessorDashboardPage() {
   const navigate = useNavigate();
@@ -33,6 +34,10 @@ export function AssessorDashboardPage() {
   );
   const [assignedProgrammes, setAssignedProgrammes] = useState<Programme[]>([]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [instances, setInstances] = useState<AssessmentInstance[]>([]);
+  const [poeQueue, setPoeQueue] = useState<
+    Array<{ id: string; title: string; kind: string; learnerName: string }>
+  >([]);
   const [dashLoading, setDashLoading] = useState(true);
 
   useEffect(() => {
@@ -40,13 +45,17 @@ export function AssessorDashboardPage() {
     setDashLoading(true);
     (async () => {
       try {
-        const [progRes, assessRes] = await Promise.all([
+        const [progRes, assessRes, instRes, poeRes] = await Promise.all([
           programmeService.getAll(),
           assessmentService.getAll(),
+          assessmentService.listInstances(),
+          poeArtifactService.listQueue('assessor'),
         ]);
         if (cancelled) return;
         setAssignedProgrammes(progRes.data ?? []);
         setAssessments(assessRes.data ?? []);
+        setInstances(instRes.data ?? []);
+        setPoeQueue(poeRes.data ?? []);
       } catch {
         if (!cancelled) toast.error('Could not load dashboard data');
       } finally {
@@ -59,9 +68,19 @@ export function AssessorDashboardPage() {
   }, []);
 
   const totalPending = useMemo(
-    () =>
-      assessments.filter((a) => a.assessorId === user?.id).length,
+    () => assessments.filter((a) => a.needsAssessorReview === true && a.assessorId === user?.id).length,
     [assessments, user?.id],
+  );
+
+  const completedCount = useMemo(
+    () =>
+      instances.filter(
+        (i) =>
+          i.status === 'completed' ||
+          i.status === 'assessor_verified' ||
+          i.status === 'rejected',
+      ).length,
+    [instances],
   );
 
   const stats = useMemo(
@@ -87,27 +106,29 @@ export function AssessorDashboardPage() {
         },
       },
       {
-        title: 'Completed This Month',
-        value: '28',
+        title: 'Completed',
+        value: String(completedCount),
         icon: <CheckCircle className="h-6 w-6" />,
         trend: {
-          value: 8,
-          label: 'from last month',
-          direction: 'up' as const,
+          value: 0,
+          label: 'graded instances',
+          direction: 'neutral' as const,
         },
       },
       {
-        title: 'Avg Turnaround',
-        value: '2.4 days',
+        title: 'In moderation',
+        value: String(
+          instances.filter((i) => i.status === 'assessor_verified').length,
+        ),
         icon: <Timer className="h-6 w-6" />,
         trend: {
-          value: 0.3,
-          label: 'improvement',
-          direction: 'up' as const,
+          value: 0,
+          label: 'awaiting sign-off',
+          direction: 'neutral' as const,
         },
       },
     ],
-    [assignedProgrammes.length, totalPending],
+    [assignedProgrammes.length, totalPending, completedCount, instances],
   );
 
   const filteredQueue = useMemo(() => {
@@ -208,11 +229,7 @@ export function AssessorDashboardPage() {
       <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center">
         <AlertCircle className="h-5 w-5 text-red-600 mr-3 flex-shrink-0" />
         <p className="text-sm text-red-800">
-          Learner assessments include the{' '}
-          <strong>learner workbook</strong>, <strong>summative assessment</strong>
-          , <strong>quizzes</strong>, and <strong>class tests</strong>. You only
-          see items for programmes assigned to you. Markings appear in{' '}
-          <span className="font-bold text-red-600">red</span>.
+          Learner submissions are marked first by facilitators (blue), then reviewed by assessors for marking quality and competency (red). Your queue shows items ready for assessor review.
         </p>
       </div>
 
@@ -293,6 +310,32 @@ export function AssessorDashboardPage() {
           <DataTable data={filteredQueue} columns={columns} keyField="id" />
         )}
       </Card>
+
+      {poeQueue.length > 0 && (
+        <Card title="Workbook & summative — awaiting assessor review" noPadding>
+          <ul className="divide-y">
+            {poeQueue.map((item) => (
+              <li
+                key={item.id}
+                className="px-6 py-3 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">
+                    {item.learnerName} — {item.title}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {poeKindLabel(item.kind)}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => navigate(`/poe-artifacts/${item.id}/review`)}>
+                  Review
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
     </div>
   );
 }

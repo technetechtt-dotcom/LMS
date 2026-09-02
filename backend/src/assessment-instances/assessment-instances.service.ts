@@ -9,8 +9,12 @@ import type { AuthUser } from '../common/types/request-with-user';
 import {
   assertAllocatedAssessor,
   assertEnrollmentAccess,
+  canAssessorReview,
+  canFacilitatorMark,
+  canModerateSubmission,
   enrollmentOrgWhere,
   isLearnerOnly,
+  isPlatformAdmin,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
 import {
@@ -244,11 +248,34 @@ export class AssessmentInstancesService {
     if (!user?.userId) {
       throw new ForbiddenException('Authentication required');
     }
-    await this.byId(id, user);
+    if (!canModerateSubmission(user)) {
+      throw new ForbiddenException('Only moderators may sign off assessments');
+    }
+
+    const row = await this.prisma.assessmentSubmission.findFirst({
+      where: {
+        id,
+        enrollment: enrollmentOrgWhere(requireOrganisationId(user)),
+      },
+      include: {
+        assessment: { select: { result: true, id: true } },
+      },
+    });
+    if (!row) throw new NotFoundException('Submission not found');
+    if (row.status !== 'assessor_verified') {
+      throw new BadRequestException(
+        'Moderation requires assessor-verified submissions',
+      );
+    }
+    if (!['C', 'NYC'].includes(row.assessment.result)) {
+      throw new BadRequestException(
+        'Assessor must finalise C/NYC competency before moderation',
+      );
+    }
 
     const status = decision === 'approve' ? 'completed' : 'rejected';
 
-    const row = await this.prisma.assessmentSubmission.update({
+    const updated = await this.prisma.assessmentSubmission.update({
       where: { id },
       data: {
         status,
@@ -279,7 +306,7 @@ export class AssessmentInstancesService {
       },
     });
 
-    return this.mapSubmission(row);
+    return this.mapSubmission(updated);
   }
 
   /** Human marks for essay / file / practical items; maxScore is always question.points. */
@@ -300,12 +327,35 @@ export class AssessmentInstancesService {
       include: { assessment: { select: { assessorId: true, unitStandardId: true } } },
     });
     if (!row) throw new NotFoundException('Submission not found');
-    if (!['submitted', 'grading'].includes(row.status)) {
+    const status = row.status;
+    const isAdmin =
+      isPlatformAdmin(user) || Boolean(user?.roleCodes?.includes('ADMIN'));
+
+    if (['submitted', 'facilitator_grading', 'grading'].includes(status)) {
+      if (!canFacilitatorMark(user)) {
+        throw new ForbiddenException(
+          'Only facilitators may perform initial marking at this stage',
+        );
+      }
+    } else if (['facilitator_graded', 'assessor_review'].includes(status)) {
+      if (!canAssessorReview(user)) {
+        throw new ForbiddenException(
+          'Only assessors may review facilitator marking',
+        );
+      }
+      if (!isAdmin) {
+        assertAllocatedAssessor(user, row.assessment.assessorId);
+      }
+    } else {
       throw new BadRequestException(
-        'Only submitted/grading attempts accept human grades',
+        `Cannot grade submission in status "${status}"`,
       );
     }
-    assertAllocatedAssessor(user, row.assessment.assessorId);
+
+    const nextStatus =
+      ['submitted', 'facilitator_grading', 'grading'].includes(status)
+        ? 'facilitator_grading'
+        : 'assessor_review';
 
     const questions = await this.prisma.assessmentQuestion.findMany({
       where: {
@@ -361,7 +411,7 @@ export class AssessmentInstancesService {
     const updated = await this.prisma.assessmentSubmission.update({
       where: { id },
       data: {
-        status: 'grading',
+        status: nextStatus,
         responses: merged as object[],
         humanGrades: grades as object[],
         score: totalScore,
@@ -424,6 +474,37 @@ export class AssessmentInstancesService {
     return this.mapSubmission(updated);
   }
 
+  /** Facilitator completes initial marking — queues for assessor review. */
+  async completeFacilitatorGrading(id: string, user?: AuthUser) {
+    const row = await this.prisma.assessmentSubmission.findFirst({
+      where: {
+        id,
+        enrollment: enrollmentOrgWhere(requireOrganisationId(user)),
+      },
+    });
+    if (!row) throw new NotFoundException('Submission not found');
+    if (!['facilitator_grading', 'grading'].includes(row.status)) {
+      throw new BadRequestException(
+        'Only facilitator-marked submissions can be sent for assessor review',
+      );
+    }
+    if (!canFacilitatorMark(user)) {
+      throw new ForbiddenException(
+        'Only facilitators may complete initial marking',
+      );
+    }
+
+    const updated = await this.prisma.assessmentSubmission.update({
+      where: { id },
+      data: { status: 'facilitator_graded', gradedAt: new Date() },
+      include: {
+        enrollment: { include: { learner: true } },
+        assessment: { include: { unitStandard: true } },
+      },
+    });
+    return this.mapSubmission(updated);
+  }
+
   /** Marks human grading complete — required before competency finalisation. */
   async completeGrading(id: string, user?: AuthUser) {
     const row = await this.prisma.assessmentSubmission.findFirst({
@@ -434,16 +515,23 @@ export class AssessmentInstancesService {
       include: { assessment: { select: { assessorId: true } } },
     });
     if (!row) throw new NotFoundException('Submission not found');
-    if (row.status !== 'grading') {
+    if (!['assessor_review', 'facilitator_graded'].includes(row.status)) {
       throw new BadRequestException(
-        'Only submissions in grading status can be marked complete',
+        'Only assessor-reviewed submissions can be verified',
       );
     }
-    assertAllocatedAssessor(user, row.assessment.assessorId);
+    if (!canAssessorReview(user)) {
+      throw new ForbiddenException('Only assessors may verify marking');
+    }
+    const isAdmin =
+      isPlatformAdmin(user) || Boolean(user?.roleCodes?.includes('ADMIN'));
+    if (!isAdmin) {
+      assertAllocatedAssessor(user, row.assessment.assessorId);
+    }
 
     const updated = await this.prisma.assessmentSubmission.update({
       where: { id },
-      data: { status: 'completed', gradedAt: new Date() },
+      data: { status: 'assessor_verified', gradedAt: new Date() },
       include: {
         enrollment: { include: { learner: true } },
         assessment: { include: { unitStandard: true } },

@@ -611,6 +611,10 @@ model AssessmentInstrument {
   publishedAt    DateTime?
   /// Max learner attempts against this published instrument (0 = unlimited).
   maxAttempts    Int                         @default(3)
+  /// Minimum percentage required for competent (C) outcome.
+  passMark       Int                         @default(50)
+  /// Optional time limit in minutes for learner attempts.
+  timeLimitMinutes Int?
   unitStandard   UnitStandard                @relation(fields: [unitStandardId], references: [id])
   questions      AssessmentQuestion[]
   submissions    AssessmentSubmission[]

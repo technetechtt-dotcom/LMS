@@ -257,27 +257,31 @@ export class PoeService {
     const summative = artifacts.find((a) => a.kind === 'SUMMATIVE');
     const moderatorAssigned = artifacts.some((a) => a.moderatorId != null);
 
+    const learningRow = (
+      artifact: PoeLearningArtifact | undefined,
+      id: string,
+      title: string,
+      category: 'workbook' | 'summative',
+    ) => ({
+      id,
+      artifactId: artifact?.id,
+      workflowStatus: artifact?.status,
+      title,
+      category,
+      submission: artifact ? this.artifactSubmission(artifact) : 'missing',
+      facilitatorMarkedSigned: Boolean(artifact?.facilitatorMarkedAt),
+      assessorMarkedSigned: Boolean(artifact?.assessorMarkedAt),
+      moderatorMarkedSigned: artifact?.moderationOutcome === 'APPROVED'
+        ? true
+        : artifact?.moderatorId
+          ? false
+          : ('na' as const),
+    });
+
     const rows = [
       ...adminRows,
-      {
-        id: 'lwb',
-        title: 'Learner workbook',
-        category: 'workbook' as const,
-        submission: workbook ? this.artifactSubmission(workbook) : 'missing',
-        facilitatorMarkedSigned: Boolean(workbook?.facilitatorMarkedAt),
-      },
-      {
-        id: 'sum',
-        title: 'Summative assessment',
-        category: 'summative' as const,
-        submission: summative ? this.artifactSubmission(summative) : 'missing',
-        assessorMarkedSigned: Boolean(summative?.assessorMarkedAt),
-        moderatorMarkedSigned: summative?.moderationOutcome === 'APPROVED'
-          ? true
-          : summative?.moderatorId
-            ? false
-            : ('na' as const),
-      },
+      learningRow(workbook, 'lwb', 'Learner workbook', 'workbook'),
+      learningRow(summative, 'sum', 'Summative assessment', 'summative'),
     ];
 
     return {

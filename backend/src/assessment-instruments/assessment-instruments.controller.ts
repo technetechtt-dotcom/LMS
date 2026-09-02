@@ -25,6 +25,12 @@ export class AssessmentInstrumentsController {
   constructor(private readonly instruments: AssessmentInstrumentsService) {}
 
   @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'QA_OFFICER')
+  @Get('unit-standards/list')
+  listUnitStandards(@Req() req: Request & { user?: AuthUser }) {
+    return this.instruments.listUnitStandards(req.user);
+  }
+
+  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'QA_OFFICER')
   @Get('by-unit/:unitStandardId')
   listByUnit(
     @Param('unitStandardId') unitStandardId: string,

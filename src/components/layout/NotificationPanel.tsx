@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, AlertCircle, Info, FileText } from 'lucide-react';
 interface Notification {
@@ -111,12 +112,12 @@ export function NotificationPanel({
             </div>
 
             <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 text-center">
-              <a
-              href="#"
-              className="text-xs font-medium text-gray-600 hover:text-brand-navy">
-              
+              <Link
+                to="/notifications"
+                onClick={onClose}
+                className="text-xs font-medium text-gray-600 hover:text-brand-navy">
                 View All Notifications
-              </a>
+              </Link>
             </div>
           </motion.div>
         </>

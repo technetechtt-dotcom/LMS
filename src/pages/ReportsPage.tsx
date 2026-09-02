@@ -9,6 +9,7 @@ import { DataTable } from '../components/ui/DataTable';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { reportsService } from '../services/api';
+import { downloadJson } from '../utils/downloadJson';
 
 type ReportListRow = {
   id: number;
@@ -48,6 +49,29 @@ export function ReportsPage() {
       ]
     : [];
 
+  const downloadSnapshot = async () => {
+    try {
+      const res = await reportsService.getSetaSnapshot();
+      downloadJson('seta-snapshot.json', res.data);
+      toast.success('Report downloaded');
+    } catch {
+      toast.error('Download failed');
+    }
+  };
+
+  const previewSnapshot = async () => {
+    try {
+      const res = await reportsService.getSetaSnapshot();
+      window.open(
+        `data:application/json,${encodeURIComponent(JSON.stringify(res.data, null, 2))}`,
+        '_blank',
+        'noopener',
+      );
+    } catch {
+      toast.error('Could not open preview');
+    }
+  };
+
   const columns = [
   {
     header: 'REPORT NAME',
@@ -83,19 +107,20 @@ export function ReportsPage() {
     <div className="flex space-x-2 text-gray-400">
           <button
         className="hover:text-brand-blue"
-        onClick={() => toast.info('Opening report preview...')}>
+        onClick={() => void previewSnapshot()}>
         
             <Eye className="h-4 w-4" />
           </button>
           <button
         className="hover:text-brand-blue"
-        onClick={() => toast.success('Downloading report...')}>
+        onClick={() => void downloadSnapshot()}>
         
             <Download className="h-4 w-4" />
           </button>
           <button
         className="hover:text-red-500"
-        onClick={() => toast.success('Report deleted')}>
+        disabled
+        title="Delete not supported">
         
             <Trash2 className="h-4 w-4" />
           </button>
@@ -103,9 +128,16 @@ export function ReportsPage() {
 
   }];
 
-  const handleGenerateReport = () => {
-    toast.success('Report generated successfully');
-    setShowGenerateReport(false);
+  const handleGenerateReport = async () => {
+    try {
+      const res = await reportsService.getSetaSnapshot();
+      setSnapshot(res.data);
+      downloadJson('seta-report.json', res.data);
+      toast.success('Report generated successfully');
+      setShowGenerateReport(false);
+    } catch {
+      toast.error('Could not generate report');
+    }
   };
   return (
     <div className="space-y-6">
@@ -161,15 +193,14 @@ export function ReportsPage() {
           
         </div>
         <div className="flex justify-end space-x-3">
-          <Button variant="outline" onClick={() => toast.info('Filters reset')}>
+          <Button variant="outline" onClick={() => setShowGenerateReport(false)}>
             Reset Filters
           </Button>
           <Button
             variant="secondary"
             leftIcon={<Filter className="h-4 w-4" />}
-            onClick={() => toast.info('Filters applied')}>
-            
-            Apply Filters
+            disabled
+            title="Configure filters in the form above">
           </Button>
         </div>
       </Card>
@@ -180,13 +211,13 @@ export function ReportsPage() {
         <div className="flex space-x-3 text-sm text-gray-500">
             <span
             className="flex items-center cursor-pointer hover:text-gray-700"
-            onClick={() => toast.success('Exporting as PDF...')}>
+            onClick={() => void downloadSnapshot()}>
             
               <FileText className="h-4 w-4 mr-1" /> PDF
             </span>
             <span
             className="flex items-center cursor-pointer hover:text-gray-700"
-            onClick={() => toast.success('Exporting as CSV...')}>
+            onClick={() => void downloadSnapshot()}>
             
               <FileText className="h-4 w-4 mr-1" /> CSV
             </span>

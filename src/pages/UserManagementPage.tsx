@@ -247,8 +247,9 @@ export function UserManagementPage() {
   };
 
   const handleBulkAction = (action: string, ids: string[]) => {
-    toast.success(
-      `${action === 'delete' ? 'Deleted' : 'Approved'} ${ids.length} users in selected learnership scope`,
+    if (!ids.length) return;
+    toast.info(
+      `Bulk ${action} for ${ids.length} user(s) is not available in this release`,
     );
   };
 
