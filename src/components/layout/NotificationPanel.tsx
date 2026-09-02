@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, AlertCircle, Info, FileText } from 'lucide-react';
 interface Notification {
@@ -14,12 +15,14 @@ interface NotificationPanelProps {
   onClose: () => void;
   notifications: Notification[];
   onMarkAllRead: () => void;
+  onNotificationClick?: (notification: Notification) => void;
 }
 export function NotificationPanel({
   isOpen,
   onClose,
   notifications,
-  onMarkAllRead
+  onMarkAllRead,
+  onNotificationClick
 }: NotificationPanelProps) {
   const getIcon = (type: Notification['type']) => {
     switch (type) {
@@ -81,8 +84,11 @@ export function NotificationPanel({
                   {notifications.map((notification) =>
               <li
                 key={notification.id}
-                className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${!notification.read ? 'bg-blue-50/50' : ''}`}>
-                
+                className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${!notification.read ? 'bg-blue-50/50' : ''}`}
+                onClick={() => {
+                  onNotificationClick?.(notification);
+                  onClose();
+                }}>
                       <div className="flex items-start space-x-3">
                         <div className="flex-shrink-0 mt-0.5">
                           {getIcon(notification.type)}
@@ -111,12 +117,12 @@ export function NotificationPanel({
             </div>
 
             <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 text-center">
-              <a
-              href="#"
-              className="text-xs font-medium text-gray-600 hover:text-brand-navy">
-              
+              <Link
+                to="/notifications"
+                onClick={onClose}
+                className="text-xs font-medium text-gray-600 hover:text-brand-navy">
                 View All Notifications
-              </a>
+              </Link>
             </div>
           </motion.div>
         </>

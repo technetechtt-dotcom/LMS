@@ -21,9 +21,10 @@ import {
   pendingModerationForProgramme,
 } from '../data/assessmentQueues';
 import { useAuth } from '../contexts/AuthContext';
-import { assessmentService, programmeService } from '../services/api';
+import { assessmentService, moderationService, poeArtifactService, programmeService } from '../services/api';
 import type { Assessment } from '../types';
 import type { Programme } from '../types';
+import { poeKindLabel } from '../utils/poeWorkflow';
 
 export function ModeratorDashboardPage() {
   const navigate = useNavigate();
@@ -33,6 +34,10 @@ export function ModeratorDashboardPage() {
   );
   const [assignedProgrammes, setAssignedProgrammes] = useState<Programme[]>([]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [moderationCount, setModerationCount] = useState(0);
+  const [poeQueue, setPoeQueue] = useState<
+    Array<{ id: string; title: string; kind: string; learnerName: string }>
+  >([]);
   const [dashLoading, setDashLoading] = useState(true);
 
   useEffect(() => {
@@ -40,13 +45,17 @@ export function ModeratorDashboardPage() {
     setDashLoading(true);
     (async () => {
       try {
-        const [progRes, assessRes] = await Promise.all([
+        const [progRes, assessRes, modRes, poeRes] = await Promise.all([
           programmeService.getAll(),
           assessmentService.getAll(),
+          moderationService.list(),
+          poeArtifactService.listQueue('moderator'),
         ]);
         if (cancelled) return;
         setAssignedProgrammes(progRes.data ?? []);
         setAssessments(assessRes.data ?? []);
+        setModerationCount((modRes.data ?? []).length);
+        setPoeQueue(poeRes.data ?? []);
       } catch {
         if (!cancelled) toast.error('Could not load dashboard data');
       } finally {
@@ -87,26 +96,29 @@ export function ModeratorDashboardPage() {
       },
       {
         title: 'Moderated This Month',
-        value: '15',
+        value: String(moderationCount),
         icon: <CheckCircle className="h-6 w-6" />,
         trend: {
-          value: 5,
-          label: 'from last month',
-          direction: 'up' as const,
+          value: 0,
+          label: 'total records',
+          direction: 'neutral' as const,
         },
       },
       {
         title: 'Compliance Rate',
-        value: '94%',
+        value:
+          assessments.length > 0
+            ? `${Math.round(((assessments.length - totalPendingMod) / assessments.length) * 100)}%`
+            : '—',
         icon: <ShieldCheck className="h-6 w-6" />,
         trend: {
-          value: 2,
-          label: 'improvement',
-          direction: 'up' as const,
+          value: 0,
+          label: 'moderated',
+          direction: 'neutral' as const,
         },
       },
     ],
-    [assignedProgrammes.length, totalPendingMod],
+    [assignedProgrammes.length, totalPendingMod, moderationCount, assessments.length],
   );
 
   const filteredQueue = useMemo(() => {
@@ -250,10 +262,7 @@ export function ModeratorDashboardPage() {
                   size="sm"
                   variant={active ? 'primary' : 'outline'}
                   className="w-full"
-                  onClick={() => {
-                    setSelectedProgrammeId(p.id);
-                    toast.info(`Moderation queue — ${p.title}`);
-                  }}>
+                  onClick={() => setSelectedProgrammeId(p.id)}>
                   View Moderation Queue{' '}
                   <ArrowRight className="h-3 w-3 ml-1 inline" />
                 </Button>
@@ -284,6 +293,33 @@ export function ModeratorDashboardPage() {
           <DataTable data={filteredQueue} columns={columns} keyField="id" />
         )}
       </Card>
+
+      {poeQueue.length > 0 && (
+        <Card title="Workbook & summative — awaiting moderation" noPadding>
+          <ul className="divide-y">
+            {poeQueue.map((item) => (
+              <li
+                key={item.id}
+                className="px-6 py-3 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">
+                    {item.learnerName} — {item.title}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {poeKindLabel(item.kind)}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => navigate(`/poe-artifacts/${item.id}/review`)}>
+                  Moderate
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <Card title="Moderation Checklist">
         <p className="text-sm text-gray-500 mb-4">

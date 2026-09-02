@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Save,
   Database,
@@ -13,10 +13,11 @@ import { Select } from '../components/ui/Select';
 import { DataTable } from '../components/ui/DataTable';
 import { Badge } from '../components/ui/Badge';
 import { toast } from 'sonner';
-import { api } from '../services/api';
+import { api, auditService, authService } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 type AuditLogRow = {
-  id: number;
+  id: string;
   timestamp: string;
   user: string;
   action: string;
@@ -33,11 +34,90 @@ type NlrdRecordRow = {
 };
 
 export function SettingsPage() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
   const [nlrdLoading, setNlrdLoading] = useState(false);
-  const handleSave = (e: React.FormEvent) => {
+  const [logs, setLogs] = useState<AuditLogRow[]>([]);
+  const [profileName, setProfileName] = useState(user?.name ?? '');
+  const [profileEmail, setProfileEmail] = useState(user?.email ?? '');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  useEffect(() => {
+    if (user?.name) setProfileName(user.name);
+    if (user?.email) setProfileEmail(user.email);
+  }, [user?.name, user?.email]);
+
+  useEffect(() => {
+    auditService.list(100).then((rows) => {
+      setLogs(
+        (rows as Array<Record<string, unknown>>).map((r, i) => ({
+          id: String(r.id ?? i),
+          timestamp: String(r.at ?? r.timestamp ?? '—'),
+          user: String(r.userName ?? r.user ?? 'System'),
+          action: String(r.action ?? '—'),
+          ip: String(r.ip ?? '—'),
+          status: String(r.status ?? 'Success'),
+        })),
+      );
+    });
+  }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success('Settings saved successfully');
+    const parts = profileName.trim().split(/\s+/).filter(Boolean);
+    const firstName = parts[0] ?? '';
+    const lastName = parts.slice(1).join(' ') || firstName;
+    if (!firstName || !profileEmail.trim()) {
+      toast.error('Name and email are required');
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      await authService.updateProfile({
+        firstName,
+        lastName,
+        email: profileEmail.trim(),
+      });
+      await auditService.log(
+        'PROFILE_UPDATE',
+        'user',
+        user?.id ?? 'self',
+        `Profile saved for ${profileEmail}`,
+      );
+      toast.success('Settings saved successfully');
+    } catch {
+      toast.error('Could not save profile');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword.length < 8) {
+      toast.error('New password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      await authService.changePassword(currentPassword, newPassword);
+      toast.success('Password updated');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch {
+      toast.error('Could not update password — check your current password');
+    } finally {
+      setSavingPassword(false);
+    }
   };
   const handleNLRDSubmit = async () => {
     setNlrdLoading(true);
@@ -50,40 +130,6 @@ export function SettingsPage() {
       setNlrdLoading(false);
     }
   };
-  const logs = [
-  {
-    id: 1,
-    timestamp: '2023-06-15 14:30:22',
-    user: 'John Doe',
-    action: 'User Login',
-    ip: '192.168.1.1',
-    status: 'Success'
-  },
-  {
-    id: 2,
-    timestamp: '2023-06-15 15:12:05',
-    user: 'Sarah Khumalo',
-    action: 'Assessment Graded',
-    ip: '10.0.0.5',
-    status: 'Success'
-  },
-  {
-    id: 3,
-    timestamp: '2023-06-15 16:45:11',
-    user: 'Thabo Mbeki',
-    action: 'Failed Login Attempt',
-    ip: '192.168.1.45',
-    status: 'Failed'
-  },
-  {
-    id: 4,
-    timestamp: '2023-06-16 09:00:01',
-    user: 'System',
-    action: 'Daily Backup',
-    ip: 'localhost',
-    status: 'Success'
-  }];
-
   const logColumns = [
   {
     header: 'Timestamp',
@@ -211,7 +257,7 @@ export function SettingsPage() {
             <form onSubmit={handleSave} className="space-y-6">
               <div className="flex items-center space-x-6 mb-6">
                 <div className="h-24 w-24 rounded-full bg-brand-navy flex items-center justify-center text-3xl font-bold text-white">
-                  JD
+                  {(profileName || 'U').slice(0, 2).toUpperCase()}
                 </div>
                 <Button variant="outline" size="sm">
                   Change Avatar
@@ -233,9 +279,8 @@ export function SettingsPage() {
                   variant="outline"
                   size="sm"
                   leftIcon={<Upload className="h-4 w-4" />}
-                  onClick={() =>
-                  toast.info('Opening file picker for signature image...')
-                  }>
+                  disabled
+                  title="Signature upload is not configured in this release">
                   
                     Upload Signature
                   </Button>
@@ -243,9 +288,8 @@ export function SettingsPage() {
                   variant="outline"
                   size="sm"
                   leftIcon={<PenTool className="h-4 w-4" />}
-                  onClick={() =>
-                  toast.info('Opening signature drawing pad...')
-                  }>
+                  disabled
+                  title="Signature pad is not configured in this release">
                   
                     Draw Signature
                   </Button>
@@ -257,24 +301,29 @@ export function SettingsPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Input label="First Name" defaultValue="John" />
-                <Input label="Last Name" defaultValue="Doe" />
                 <Input
-                label="Email Address"
-                defaultValue="john.doe@skillspro.co.za" />
-              
-                <Input label="Phone Number" defaultValue="+27 82 123 4567" />
+                  label="Full name"
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                />
+                <Input
+                  label="Email Address"
+                  type="email"
+                  value={profileEmail}
+                  onChange={(e) => setProfileEmail(e.target.value)}
+                />
+                <Input label="Phone Number" placeholder="Optional" disabled />
               </div>
 
-              <Input label="Job Title" defaultValue="Senior Administrator" />
+              <Input label="Job Title" placeholder="Optional" disabled />
               <Input
-              label="Organisation"
-              defaultValue="Skills Pro Academy"
-              disabled />
+                label="Organisation"
+                value={user?.organisation ?? ''}
+                disabled />
             
 
               <div className="flex justify-end pt-4">
-                <Button type="submit" leftIcon={<Save className="h-4 w-4" />}>
+                <Button type="submit" leftIcon={<Save className="h-4 w-4" />} disabled={savingProfile}>
                   Save Changes
                 </Button>
               </div>
@@ -285,12 +334,32 @@ export function SettingsPage() {
         {activeTab === 'security' &&
         <div className="space-y-6">
             <Card title="Change Password">
-              <form onSubmit={handleSave} className="space-y-4">
-                <Input label="Current Password" type="password" />
-                <Input label="New Password" type="password" />
-                <Input label="Confirm New Password" type="password" />
+              <form onSubmit={handlePasswordChange} className="space-y-4">
+                <Input
+                  label="Current Password"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                />
+                <Input
+                  label="New Password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                />
+                <Input
+                  label="Confirm New Password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                />
                 <div className="flex justify-end">
-                  <Button type="submit">Update Password</Button>
+                  <Button type="submit" disabled={savingPassword}>
+                    Update Password
+                  </Button>
                 </div>
               </form>
             </Card>

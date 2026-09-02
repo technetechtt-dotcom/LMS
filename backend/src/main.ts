@@ -3,6 +3,8 @@ import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser = require('cookie-parser');
+import helmet from 'helmet';
+import type { Express } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -10,6 +12,10 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const nodeEnv =
     typeof process.env.NODE_ENV === 'string' ? process.env.NODE_ENV : 'development';
+
+  const expressApp = app.getHttpAdapter().getInstance() as Express;
+  expressApp.set('trust proxy', 1);
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
   const rawOrigins = config.get<string>('FRONTEND_ORIGIN');
   const origins = (rawOrigins ?? '')
@@ -31,6 +37,7 @@ async function bootstrap() {
       'Content-Type',
       'Authorization',
       'X-Organisation-Id',
+      'X-Auth-Portal',
       'X-Org-Id',
       'X-Tenant-ID',
       'X-Correlation-Id',
@@ -61,4 +68,7 @@ async function bootstrap() {
   await app.listen(port);
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  console.error('Fatal bootstrap error:', err);
+  process.exit(1);
+});

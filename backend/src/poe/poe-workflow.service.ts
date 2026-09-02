@@ -168,6 +168,120 @@ export class PoeWorkflowService {
     });
   }
 
+  private mapQueueItem(
+    row: {
+      id: string;
+      kind: PoeLearningArtifactKind;
+      title: string;
+      status: PoeLearningArtifactStatus;
+      updatedAt: Date;
+      enrollment: {
+        id: string;
+        learner: { firstName: string; lastName: string };
+        programme: { id: string; title: string };
+      };
+    },
+  ) {
+    const learner = row.enrollment.learner;
+    return {
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      status: row.status,
+      enrollmentId: row.enrollment.id,
+      learnerName: `${learner.firstName} ${learner.lastName}`.trim(),
+      programmeId: row.enrollment.programme.id,
+      programmeName: row.enrollment.programme.title,
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  async byId(id: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const row = await this.prisma.poeLearningArtifact.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        enrollment: enrollmentOrgWhere(organisationId),
+      },
+      include: {
+        enrollment: {
+          include: {
+            learner: true,
+            programme: true,
+          },
+        },
+      },
+    });
+    if (!row) throw new NotFoundException('PoE artifact not found');
+    assertEnrollmentAccess(user, row.enrollment, 'PoE artifact');
+    const learner = row.enrollment.learner;
+    return {
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      description: row.description,
+      status: row.status,
+      enrollmentId: row.enrollmentId,
+      learnerId: row.enrollment.learnerId,
+      learnerName: `${learner.firstName} ${learner.lastName}`.trim(),
+      programmeId: row.enrollment.programme.id,
+      programmeName: row.enrollment.programme.title,
+      facilitatorFeedback: row.facilitatorFeedback,
+      assessorFeedback: row.assessorFeedback,
+      moderatorFeedback: row.moderatorFeedback,
+      moderationOutcome: row.moderationOutcome,
+      assessorId: row.assessorId,
+      moderatorId: row.moderatorId,
+      facilitatorMarkedAt: row.facilitatorMarkedAt?.toISOString() ?? null,
+      assessorMarkedAt: row.assessorMarkedAt?.toISOString() ?? null,
+      moderatedAt: row.moderatedAt?.toISOString() ?? null,
+      url: row.url,
+    };
+  }
+
+  async listQueue(
+    stage: 'facilitator' | 'assessor' | 'moderator',
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    const codes = user?.roleCodes ?? [];
+    const isAdmin =
+      codes.includes('ADMIN') || codes.includes('PLATFORM_ADMIN');
+
+    const statusByStage: Record<
+      typeof stage,
+      PoeLearningArtifactStatus[]
+    > = {
+      facilitator: ['LEARNER_SUBMITTED'],
+      assessor: ['ALLOCATED_TO_ASSESSOR'],
+      moderator: ['SUBMITTED_TO_MODERATOR'],
+    };
+
+    const rows = await this.prisma.poeLearningArtifact.findMany({
+      where: {
+        deletedAt: null,
+        kind: { in: ['WORKBOOK', 'SUMMATIVE'] },
+        status: { in: statusByStage[stage] },
+        enrollment: enrollmentOrgWhere(organisationId),
+        ...(stage === 'assessor' && !isAdmin
+          ? { assessorId: user!.userId }
+          : {}),
+        ...(stage === 'moderator' && !isAdmin
+          ? { moderatorId: user!.userId }
+          : {}),
+      },
+      include: {
+        enrollment: {
+          include: { learner: true, programme: true },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    return rows.map((r) => this.mapQueueItem(r));
+  }
+
   async transition(
     id: string,
     action: PoeTransitionAction,

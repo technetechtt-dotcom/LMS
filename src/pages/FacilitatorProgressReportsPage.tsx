@@ -34,6 +34,7 @@ import {
   type LearnershipProgressRow,
 } from '../services/api';
 import type { Learner } from '../types';
+import { downloadJson } from '../utils/downloadJson';
 
 function initialsFromName(name: string) {
   const p = name.trim().split(/\s+/).filter(Boolean);
@@ -329,7 +330,15 @@ export function FacilitatorProgressReportsPage() {
           </Button>
           <Button
             leftIcon={<Download className="h-4 w-4" />}
-            onClick={() => toast.success('Exporting report...')}>
+            onClick={() => {
+              downloadJson('facilitator-progress-report.json', {
+                learners,
+                progressRows,
+                setaSnapshot,
+                exportedAt: new Date().toISOString(),
+              });
+              toast.success('Report exported');
+            }}>
             
             Export Report
           </Button>

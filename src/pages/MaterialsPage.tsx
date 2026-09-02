@@ -30,12 +30,18 @@ import { FileUpload } from '../components/ui/FileUpload';
 import { useAuth } from '../contexts/AuthContext';
 import type { Programme, TrainingMaterial } from '../types';
 import { materialService, programmeService } from '../services/api';
-
-const KM_ARTIFACT_LABELS: Record<string, string> = {
-  'learner-guide': 'Learner Guide',
-  'learner-workbook': 'Learner Workbook',
-  summative: 'Summative Assessment',
-};
+import { openFileUrl, copySharePath } from '../utils/exportData';
+import { LearnershipCurriculumPanel } from '../components/curriculum/LearnershipCurriculumPanel';
+import { ModuleCompletenessPanel } from '../components/curriculum/ModuleCompletenessPanel';
+import {
+  ALL_CURRICULUM_ARTIFACTS,
+  ARTIFACT_LABELS,
+  artifactsForFamily,
+  defaultPoeComponentForArtifact,
+  moduleCodePlaceholder,
+  titleExample,
+  type ModuleFamily,
+} from '../utils/learnershipCurriculum';
 
 /** Row shape fed to Material Library columns (extends API model with UI fields). */
 export type MaterialTableRow = TrainingMaterial & {
@@ -56,12 +62,23 @@ function materialTableIcon(m: TrainingMaterial) {
     return <Presentation className="h-5 w-5 text-orange-500" />;
   }
   switch (m.artifactSlug) {
+    case 'facilitator-guide':
     case 'learner-guide':
       return <FileText className="h-5 w-5 text-brand-navy" />;
+    case 'summative-memo':
+      return <FileText className="h-5 w-5 text-amber-600" />;
     case 'learner-workbook':
       return <FileText className="h-5 w-5 text-blue-600" />;
     case 'summative':
       return <FileText className="h-5 w-5 text-purple-600" />;
+    case 'practical-guide':
+    case 'practical-workbook':
+    case 'practical-assessment':
+      return <FileText className="h-5 w-5 text-orange-600" />;
+    case 'workplace-guide':
+    case 'workplace-logbook':
+    case 'workplace-assessment':
+      return <FileText className="h-5 w-5 text-teal-600" />;
     default:
       return <FileText className="h-5 w-5 text-gray-500" />;
   }
@@ -80,12 +97,19 @@ export function MaterialsPage() {
   const [componentFilter, setComponentFilter] = useState<string>('all');
   const [programmeFilter, setProgrammeFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [shareEmails, setShareEmails] = useState('');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const [materialsList, setMaterialsList] = useState<TrainingMaterial[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadModuleCode, setUploadModuleCode] = useState('');
-  const [uploadKmType, setUploadKmType] = useState('na');
+  const [uploadModuleFamily, setUploadModuleFamily] = useState<ModuleFamily | 'other'>(
+    'KM',
+  );
+  const [uploadArtifactSlug, setUploadArtifactSlug] = useState('learner-guide');
   const [uploadProgrammeId, setUploadProgrammeId] = useState('');
   const [uploadModule, setUploadModule] = useState('m1');
   const [uploadPoeComponent, setUploadPoeComponent] = useState('Knowledge');
@@ -138,19 +162,49 @@ export function MaterialsPage() {
     };
   }, []);
 
-  /** Workbook and summative KM files are assessment instruments; the guide is knowledge content. */
-  useEffect(() => {
-    if (uploadKmType === 'learner-workbook' || uploadKmType === 'summative') {
-      setUploadPoeComponent('Assessment');
-    } else if (uploadKmType === 'learner-guide') {
-      setUploadPoeComponent('Knowledge');
+  const uploadArtifactOptions = useMemo(() => {
+    if (uploadModuleFamily === 'other') {
+      return [{ value: 'other', label: 'Other material' }];
     }
-  }, [uploadKmType]);
+    return artifactsForFamily(uploadModuleFamily).map((a) => ({
+      value: a.slug,
+      label: a.label,
+    }));
+  }, [uploadModuleFamily]);
+
+  useEffect(() => {
+    if (uploadModuleFamily === 'other') {
+      setUploadArtifactSlug('other');
+      return;
+    }
+    const first = artifactsForFamily(uploadModuleFamily)[0]?.slug ?? 'other';
+    setUploadArtifactSlug(first);
+    setUploadModuleCode((prev) => {
+      if (prev && detectFamilyFromCode(prev) === uploadModuleFamily) return prev;
+      return moduleCodePlaceholder(uploadModuleFamily);
+    });
+  }, [uploadModuleFamily]);
+
+  function detectFamilyFromCode(code: string): ModuleFamily | null {
+    const c = code.trim().toUpperCase();
+    if (c.startsWith('KM-')) return 'KM';
+    if (c.startsWith('PM-')) return 'PM';
+    if (c.startsWith('WM-')) return 'WM';
+    return null;
+  }
+
+  useEffect(() => {
+    if (uploadArtifactSlug === 'other' || uploadArtifactSlug === 'na') return;
+    setUploadPoeComponent(
+      defaultPoeComponentForArtifact(uploadArtifactSlug, uploadModuleCode),
+    );
+  }, [uploadArtifactSlug, uploadModuleCode]);
 
   const resetUploadForm = useCallback(() => {
     setUploadTitle('');
-    setUploadModuleCode('');
-    setUploadKmType('na');
+    setUploadModuleCode(moduleCodePlaceholder('KM'));
+    setUploadModuleFamily('KM');
+    setUploadArtifactSlug('learner-guide');
     setUploadProgrammeId(programmes[0]?.id ?? '');
     setUploadModule('m1');
     setUploadPoeComponent('Knowledge');
@@ -220,6 +274,37 @@ export function MaterialsPage() {
       })),
     [filteredMaterials],
   );
+
+  const totalPages = Math.max(1, Math.ceil(tableRows.length / pageSize));
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return tableRows.slice(start, start + pageSize);
+  }, [tableRows, page, pageSize]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, componentFilter, programmeFilter, artifactFilter]);
+
+  const handleShareByEmail = () => {
+    const emails = shareEmails
+      .split(',')
+      .map((e) => e.trim())
+      .filter(Boolean);
+    if (!emails.length) {
+      toast.error('Enter at least one email address');
+      return;
+    }
+    if (!selectedMaterial) return;
+    const link = `${window.location.origin}/materials?highlight=${selectedMaterial.id}`;
+    const subject = encodeURIComponent(`Training material: ${selectedMaterial.title}`);
+    const body = encodeURIComponent(
+      `Please review this training material:\n\n${selectedMaterial.title}\n${link}`,
+    );
+    window.location.href = `mailto:${emails.join(',')}?subject=${subject}&body=${body}`;
+    setShowShareModal(false);
+    setShareEmails('');
+    toast.success('Opening your email client…');
+  };
 
   const columns: Column<MaterialTableRow>[] = [
   {
@@ -328,7 +413,7 @@ export function MaterialsPage() {
                 </button>
                 <button
               className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center"
-              onClick={() => toast.success('Downloading material...')}>
+              onClick={() => openFileUrl(row.fileUrl, row.title)}>
               
                   <Download className="w-4 h-4 mr-2" />
                   Download
@@ -359,18 +444,23 @@ export function MaterialsPage() {
   ];
 
   const handleUpload = async () => {
-    const slug = uploadKmType === 'na' ? 'other' : uploadKmType;
+    const slug =
+      uploadArtifactSlug === 'na' ? 'other' : uploadArtifactSlug;
     const prog = programmes.find((p) => p.id === uploadProgrammeId);
     if (!prog) {
       toast.error('Select a programme for this material');
       return;
     }
     const meta: Partial<TrainingMaterial> = {
-      title: uploadTitle.trim() || undefined,
+      title:
+        uploadTitle.trim() ||
+        (uploadModuleFamily !== 'other'
+          ? titleExample(uploadModuleFamily, slug)
+          : undefined),
       moduleCode: uploadModuleCode.trim() ? uploadModuleCode.trim() : '—',
       artifactSlug: slug,
       artifactType:
-        slug === 'other' ? '—' : KM_ARTIFACT_LABELS[slug] ?? '—',
+        slug === 'other' ? '—' : ARTIFACT_LABELS[slug] ?? '—',
       poeComponent: uploadPoeComponent,
       programmeId: prog.id,
       programmeName: prog.title,
@@ -422,20 +512,19 @@ export function MaterialsPage() {
           <p className="text-sm text-gray-500">
             {isLearner ? (
               <>
-                Each <strong>Knowledge module (KM)</strong> typically includes a Learner Guide
-                (study content) plus assessment instruments —{' '}
-                <strong>Learner Workbook</strong> and <strong>Summative Assessment</strong>{' '}
-                (e.g. KM-XX-….pdf) — alongside practical and workplace PoE evidence. Workbook
-                and summative files are classified under <strong>Assessment</strong> in the
-                library.
+                Learnerships are built from <strong>Knowledge Modules (KM)</strong>,{' '}
+                <strong>Practical Modules (PM)</strong>, and{' '}
+                <strong>Workplace Modules (WM)</strong> where required. Each KM has five
+                documents: Facilitator Guide, Summative Memo, Learner Guide, Learner
+                Workbook, and Summative Assessment.
               </>
             ) : (
               <>
-                Every upload must be tied to a <strong>programme</strong> from your SDP list.
-                Upload the KM guide under <strong>Knowledge</strong>; workbook and summative
-                PDFs under <strong>Assessment</strong> (set automatically when you pick those
-                artefact types). Materials are listed in programme order. Naming:{' '}
-                <span className="font-mono text-xs">KM-XX-Learner Guide|Workbook|Summative Assessment</span>.
+                Tie every upload to a <strong>programme</strong>. Use module codes{' '}
+                <span className="font-mono text-xs">KM-XX</span>,{' '}
+                <span className="font-mono text-xs">PM-XX</span>, or{' '}
+                <span className="font-mono text-xs">WM-XX</span> and pick the matching
+                document type — PoE component is set automatically.
               </>
             )}
           </p>
@@ -462,6 +551,20 @@ export function MaterialsPage() {
           }
         </div>
       </div>
+
+      <Card title="Learnership module structure">
+        <LearnershipCurriculumPanel />
+      </Card>
+
+      {!isLearner && (
+        <Card title="Module completeness checker">
+          <ModuleCompletenessPanel
+            programmes={programmes}
+            programmeFilter={programmeFilter}
+            onProgrammeFilterChange={setProgrammeFilter}
+          />
+        </Card>
+      )}
 
       {showFilters &&
       <Card className="bg-gray-50 border-dashed">
@@ -514,37 +617,23 @@ export function MaterialsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Knowledge module file
+                Module / document type
               </label>
               <Select
               value={artifactFilter}
               onChange={(e) => setArtifactFilter(e.target.value)}
               options={[
-              {
-                value: 'all',
-                label: 'All files'
-              },
-              {
-                value: 'km-only',
-                label: 'KM triplet (KM-XX set)'
-              },
-              {
-                value: 'learner-guide',
-                label: 'Learner Guide only'
-              },
-              {
-                value: 'learner-workbook',
-                label: 'Learner Workbook only'
-              },
-              {
-                value: 'summative',
-                label: 'Summative Assessment only'
-              },
-              {
-                value: 'other',
-                label: 'Other materials'
-              }]
-              } />
+              { value: 'all', label: 'All files' },
+              { value: 'km-only', label: 'All KM modules (KM-XX)' },
+              { value: 'pm-only', label: 'All Practical modules (PM-XX)' },
+              { value: 'wm-only', label: 'All Workplace modules (WM-XX)' },
+              ...ALL_CURRICULUM_ARTIFACTS.map((a) => ({
+                value: a.slug,
+                label: a.label,
+              })),
+              { value: 'other', label: 'Other materials' },
+              ]}
+              />
             
             </div>
             <div className="flex items-end">
@@ -620,31 +709,12 @@ export function MaterialsPage() {
             value={artifactFilter}
             onChange={(e) => setArtifactFilter(e.target.value)}
             options={[
-            {
-              value: 'all',
-              label: 'All KM / files'
-            },
-            {
-              value: 'km-only',
-              label: 'KM-XX triplets'
-            },
-            {
-              value: 'learner-guide',
-              label: 'Learner Guide'
-            },
-            {
-              value: 'learner-workbook',
-              label: 'Learner Workbook'
-            },
-            {
-              value: 'summative',
-              label: 'Summative'
-            },
-            {
-              value: 'other',
-              label: 'Other'
-            }]
-            } />
+            { value: 'all', label: 'All modules / files' },
+            { value: 'km-only', label: 'KM modules' },
+            { value: 'pm-only', label: 'PM modules' },
+            { value: 'wm-only', label: 'WM modules' },
+            { value: 'other', label: 'Other' },
+            ]} />
           
         </div>
         <button
@@ -699,15 +769,43 @@ export function MaterialsPage() {
             noPadding
             action={
             <div className="flex space-x-2 text-gray-400">
-                <LayoutGrid className="h-5 w-5 cursor-pointer hover:text-gray-600" />
-                <List className="h-5 w-5 cursor-pointer text-gray-600" />
+                <LayoutGrid
+                  className={`h-5 w-5 cursor-pointer hover:text-gray-600 ${viewMode === 'grid' ? 'text-brand-navy' : ''}`}
+                  onClick={() => setViewMode('grid')}
+                />
+                <List
+                  className={`h-5 w-5 cursor-pointer hover:text-gray-600 ${viewMode === 'list' ? 'text-brand-navy' : ''}`}
+                  onClick={() => setViewMode('list')}
+                />
               </div>
             }>
             
             {loading ?
             <p className="p-6 text-sm text-gray-500">Loading materials…</p> :
-            <DataTable data={tableRows} columns={columns} keyField="id" />
-            }
+            viewMode === 'grid' ? (
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {paginatedRows.map((row) => (
+                  <div
+                    key={row.id}
+                    className="border border-gray-200 rounded-lg p-4 hover:border-brand-navy cursor-pointer"
+                    onClick={() => {
+                      setSelectedMaterial(row);
+                      setShowViewerModal(true);
+                    }}>
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-gray-100 rounded-lg">{row.icon}</div>
+                      <div>
+                        <p className="font-medium text-gray-900">{row.title}</p>
+                        <p className="text-xs text-gray-500 mt-1">{row.program}</p>
+                        <p className="text-xs text-gray-400 mt-1">{row.moduleCode}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+            <DataTable data={paginatedRows} columns={columns} keyField="id" />
+            )}
             <div className="p-4 border-t border-gray-100 flex justify-between items-center">
               <span className="text-sm text-gray-500">
                 {filteredMaterials.length} material
@@ -715,19 +813,21 @@ export function MaterialsPage() {
                 {materialsList.length} in library)
               </span>
               <div className="flex space-x-1">
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}>
                   Previous
                 </Button>
                 <Button size="sm" className="bg-brand-navy text-white">
-                  1
+                  {page}
                 </Button>
-                <Button variant="outline" size="sm">
-                  2
-                </Button>
-                <Button variant="outline" size="sm">
-                  3
-                </Button>
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
                   Next
                 </Button>
               </div>
@@ -762,40 +862,54 @@ export function MaterialsPage() {
           <div className="space-y-4">
             <Input
               label="Title"
-              placeholder="e.g. KM-XX-Learner Guide"
+              placeholder={
+                uploadModuleFamily !== 'other'
+                  ? titleExample(uploadModuleFamily, uploadArtifactSlug)
+                  : 'Document title'
+              }
               value={uploadTitle}
               onChange={(e) => setUploadTitle(e.target.value)}
             />
             <div className="grid grid-cols-2 gap-4">
-              <Input
-              label="Knowledge module code"
-              placeholder="KM-XX"
-              value={uploadModuleCode}
-              onChange={(e) => setUploadModuleCode(e.target.value)}
+              <Select
+              label="Module family"
+              value={uploadModuleFamily}
+              onChange={(e) =>
+                setUploadModuleFamily(e.target.value as ModuleFamily | 'other')
+              }
+              options={[
+                { value: 'KM', label: 'Knowledge Module (KM)' },
+                { value: 'PM', label: 'Practical Module (PM)' },
+                { value: 'WM', label: 'Workplace Module (WM)' },
+                { value: 'other', label: 'Other / not module-based' },
+              ]}
             />
               <Select
-              label="KM artefact type"
-              value={uploadKmType}
-              onChange={(e) => setUploadKmType(e.target.value)}
-              options={[
-              {
-                value: 'na',
-                label: 'Not part of a KM triplet'
-              },
-              {
-                value: 'learner-guide',
-                label: 'Learner Guide (.pdf)'
-              },
-              {
-                value: 'learner-workbook',
-                label: 'Learner Workbook (.pdf)'
-              },
-              {
-                value: 'summative',
-                label: 'Summative Assessment (.pdf)'
-              }]
-              } />
-            
+              label="Document type"
+              value={uploadArtifactSlug}
+              onChange={(e) => setUploadArtifactSlug(e.target.value)}
+              options={uploadArtifactOptions}
+            />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+              label="Module code"
+              placeholder={
+                uploadModuleFamily !== 'other'
+                  ? moduleCodePlaceholder(uploadModuleFamily)
+                  : 'Optional'
+              }
+              value={uploadModuleCode}
+              onChange={(e) => setUploadModuleCode(e.target.value)}
+              disabled={uploadModuleFamily === 'other'}
+            />
+              <div className="flex items-end">
+                <p className="text-xs text-gray-500 pb-2">
+                  {uploadModuleFamily !== 'other'
+                    ? `Use prefix ${uploadModuleFamily}-XX for ${uploadModuleFamily} modules`
+                    : 'No module code required'}
+                </p>
+              </div>
             </div>
             <Select
               label="PoE component"
@@ -983,7 +1097,7 @@ export function MaterialsPage() {
             </Button>
             <Button
               onClick={() => {
-                toast.success('Downloading material...');
+                openFileUrl(selectedMaterial?.fileUrl, selectedMaterial?.title);
                 setShowViewerModal(false);
               }}>
               
@@ -1012,7 +1126,9 @@ export function MaterialsPage() {
               
               <Button
                 variant="outline"
-                onClick={() => toast.success('Link copied to clipboard')}>
+                onClick={() =>
+                  void copySharePath(`/materials?highlight=${selectedMaterial?.id ?? ''}`)
+                }>
                 
                 Copy
               </Button>
@@ -1022,19 +1138,17 @@ export function MaterialsPage() {
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Share via Email
             </label>
-            <Input placeholder="Enter email addresses separated by commas" />
+            <Input
+              placeholder="Enter email addresses separated by commas"
+              value={shareEmails}
+              onChange={(e) => setShareEmails(e.target.value)} />
           </div>
           <div className="flex justify-end space-x-2 pt-4">
             <Button variant="outline" onClick={() => setShowShareModal(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={() => {
-                toast.success('Material shared successfully');
-                setShowShareModal(false);
-              }}>
-              
-              Send Invitation
+            <Button onClick={handleShareByEmail}>
+              Send via Email
             </Button>
           </div>
         </div>

@@ -10,7 +10,6 @@ import {
   FileText,
   Download,
   BarChart3,
-  Bot,
   HelpCircle,
   Settings,
   GraduationCap,
@@ -89,6 +88,11 @@ export function Sidebar({
           path: '/assessments'
         },
         {
+          name: 'Assessment Instruments',
+          icon: <FileCheck size={20} />,
+          path: '/facilitator-assessments'
+        },
+        {
           name: 'Materials',
           icon: <FolderOpen size={20} />,
           path: '/materials'
@@ -108,6 +112,11 @@ export function Sidebar({
       {
         section: 'COMPLIANCE',
         items: [
+        {
+          name: 'QA Workspace',
+          icon: <ShieldCheck size={20} />,
+          path: '/qa-dashboard'
+        },
         {
           name: 'Compliance',
           icon: <ShieldCheck size={20} />,
@@ -147,23 +156,6 @@ export function Sidebar({
           name: 'Settings',
           icon: <Settings size={20} />,
           path: '/settings'
-        }]
-
-      },
-      {
-        section: 'AI FEATURES',
-        items: [
-        {
-          name: 'AI Analytics',
-          icon: <BarChart3 size={20} />,
-          path: '/reports',
-          badge: 'AI'
-        },
-        {
-          name: 'AI Tutor',
-          icon: <Bot size={20} />,
-          path: '/messages',
-          badge: 'AI'
         }]
 
       }];
@@ -335,11 +327,6 @@ export function Sidebar({
           path: '/assessor-dashboard'
         },
         {
-          name: 'My Assessments',
-          icon: <FileCheck size={20} />,
-          path: '/assessor-dashboard'
-        },
-        {
           name: 'Assigned Programmes',
           icon: <FolderOpen size={20} />,
           path: '/programmes'
@@ -366,11 +353,6 @@ export function Sidebar({
         {
           name: 'Dashboard',
           icon: <LayoutDashboard size={20} />,
-          path: '/moderator-dashboard'
-        },
-        {
-          name: 'Moderation Queue',
-          icon: <ClipboardCheck size={20} />,
           path: '/moderator-dashboard'
         },
         {
@@ -408,9 +390,9 @@ export function Sidebar({
           path: '/facilitator-learners'
         },
         {
-          name: 'Logbooks',
-          icon: <FileCheck size={20} />,
-          path: '/workplace-mentor-dashboard'
+          name: 'Workplace Materials',
+          icon: <FolderOpen size={20} />,
+          path: '/materials'
         },
         {
           name: 'Messages',
@@ -446,6 +428,11 @@ export function Sidebar({
           name: 'Reports',
           icon: <FileText size={20} />,
           path: '/reports'
+        },
+        {
+          name: 'SETA Exports',
+          icon: <Download size={20} />,
+          path: '/seta-exports'
         },
         {
           name: 'Settings',

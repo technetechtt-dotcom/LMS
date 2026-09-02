@@ -113,3 +113,31 @@ export function assertAllocatedAssessor(
     );
   }
 }
+
+export function canFacilitatorMark(user?: AuthUser | null): boolean {
+  return Boolean(
+    user &&
+      (isPlatformAdmin(user) ||
+        user.roleCodes.includes('ADMIN') ||
+        user.roleCodes.includes('FACILITATOR')),
+  );
+}
+
+export function canAssessorReview(user?: AuthUser | null): boolean {
+  return Boolean(
+    user &&
+      (isPlatformAdmin(user) ||
+        user.roleCodes.includes('ADMIN') ||
+        user.roleCodes.includes('ASSESSOR')),
+  );
+}
+
+export function canModerateSubmission(user?: AuthUser | null): boolean {
+  return Boolean(
+    user &&
+      (isPlatformAdmin(user) ||
+        user.roleCodes.includes('MODERATOR') ||
+        user.roleCodes.includes('QA_OFFICER') ||
+        user.roleCodes.includes('ADMIN')),
+  );
+}

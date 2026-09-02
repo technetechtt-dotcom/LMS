@@ -7,4 +7,4 @@ export const PROGRAMME_KIND_LABELS: Record<ProgrammeKind, string> = {
 
 /** Shared PoE rule copy — applies to both programme kinds */
 export const PROGRAMME_POE_ARTIFACTS_NOTE =
-  'Every programme includes Learner Workbooks and Summative Assessments for each knowledge module (or equivalent structure).';
+  'Each Knowledge Module (KM) includes Facilitator Guide, Summative Memo, Learner Guide, Learner Workbook, and Summative Assessment. Practical (PM) and Workplace (WM) modules carry their own evidence sets where the qualification requires them.';

@@ -16,12 +16,30 @@ export class PoeWorkflowController {
   constructor(private readonly workflow: PoeWorkflowService) {}
 
   @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'LEARNER', 'QA_OFFICER')
+  @Get('queue/:stage')
+  listQueue(
+    @Param('stage') stage: 'facilitator' | 'assessor' | 'moderator',
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.workflow.listQueue(stage, req.user);
+  }
+
+  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'LEARNER', 'QA_OFFICER')
   @Get('by-enrollment/:enrollmentId')
   list(
     @Param('enrollmentId') enrollmentId: string,
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.workflow.list(enrollmentId, req.user);
+  }
+
+  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'LEARNER', 'QA_OFFICER')
+  @Get(':id')
+  byId(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.workflow.byId(id, req.user);
   }
 
   @Roles('ADMIN', 'FACILITATOR')

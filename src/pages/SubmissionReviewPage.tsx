@@ -16,8 +16,14 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { Avatar } from '../components/ui/Avatar';
-import { assessmentService } from '../services/api';
-import type { Assessment, Question } from '../types';
+import { assessmentService, moderationService, userService } from '../services/api';
+import type { Assessment, Question, QuestionResponse } from '../types';
+import { competencyFromScore, formatAnswerDisplay } from '../utils/grading';
+import {
+  canRoleEditSubmission,
+  submissionStageLabel,
+  workflowStepForRole,
+} from '../utils/assessmentWorkflow';
 
 function initialsFromName(name: string): string {
   const p = name.split(/\s+/).filter(Boolean);
@@ -36,8 +42,11 @@ export function SubmissionReviewPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedLearnerId, setSelectedLearnerId] = useState<string | null>(
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(
     null,
+  );
+  const [instanceResponses, setInstanceResponses] = useState<QuestionResponse[]>(
+    [],
   );
   const [grades, setGrades] = useState<Record<string, number>>({});
   const [feedback, setFeedback] = useState<Record<string, string>>({});
@@ -52,9 +61,50 @@ export function SubmissionReviewPage() {
       avatar: string;
     }>
   >([]);
-  const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(
-    null,
+
+  const [moderationHistory, setModerationHistory] = useState<
+    Array<Record<string, unknown>>
+  >([]);
+  const [moderatorOptions, setModeratorOptions] = useState<
+    Array<{ value: string; label: string }>
+  >([]);
+  const [allocateModeratorId, setAllocateModeratorId] = useState('');
+  const [moderationDecision, setModerationDecision] = useState<'approve' | 'reject'>(
+    'approve',
   );
+  const [moderationComments, setModerationComments] = useState('');
+
+  useEffect(() => {
+    if (!id) return;
+    moderationService
+      .history(id)
+      .then((res) => {
+        const rows = res.data;
+        setModerationHistory(
+          Array.isArray(rows) ? rows : rows ? [rows as Record<string, unknown>] : [],
+        );
+      })
+      .catch(() => setModerationHistory([]));
+  }, [id]);
+
+  useEffect(() => {
+    if (userRole !== 'SDP Admin' && userRole !== 'Facilitator') return;
+    userService
+      .getAll()
+      .then((res) => {
+        setModeratorOptions(
+          (res.data ?? [])
+            .filter((u) =>
+              u.memberships.some((m) => m.role.code === 'MODERATOR'),
+            )
+            .map((u) => ({
+              value: u.id,
+              label: `${u.firstName} ${u.lastName}`.trim(),
+            })),
+        );
+      })
+      .catch(() => setModeratorOptions([]));
+  }, [userRole]);
 
   useEffect(() => {
     if (!id) return;
@@ -66,25 +116,67 @@ export function SubmissionReviewPage() {
         const forAssessment = (res.data ?? []).filter(
           (s) => s.assessmentId === id,
         );
-        setInstances(
-          forAssessment.map((s) => ({
-            id: s.id,
-            name: s.learnerName ?? 'Learner',
-            status: s.status,
-            score: s.score ?? null,
-            time: s.submittedAt
-              ? new Date(s.submittedAt).toLocaleString()
-              : '—',
-            avatar: initialsFromName(s.learnerName ?? 'L'),
-          })),
-        );
-        if (forAssessment[0]?.id) setActiveSubmissionId(forAssessment[0].id);
+        const mapped = forAssessment.map((s) => ({
+          id: s.id,
+          name: s.learnerName ?? 'Learner',
+          status: s.status,
+          score: s.percentage ?? s.score ?? null,
+          time: s.submittedAt
+            ? new Date(s.submittedAt).toLocaleString()
+            : '—',
+          avatar: initialsFromName(s.learnerName ?? 'L'),
+        }));
+        setInstances(mapped);
+        if (mapped[0]?.id) setSelectedSubmissionId(mapped[0].id);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, [id]);
+
+  useEffect(() => {
+    if (!selectedSubmissionId) return;
+    let cancelled = false;
+    assessmentService
+      .getInstance(selectedSubmissionId)
+      .then((res) => {
+        if (cancelled) return;
+        const inst = res.data;
+        const responses = Array.isArray(inst.responses)
+          ? (inst.responses as QuestionResponse[])
+          : [];
+        setInstanceResponses(responses);
+        const g: Record<string, number> = {};
+        const f: Record<string, string> = {};
+        for (const r of responses) {
+          if (r.score != null) g[r.questionId] = r.score;
+          if (r.feedback) f[r.questionId] = r.feedback;
+        }
+        setGrades(g);
+        setFeedback(f);
+        setComments({});
+        if (!questions.length && responses.length) {
+          setQuestions(
+            responses.map((r, idx) => ({
+              id: r.questionId,
+              assessmentId: id ?? '',
+              type: r.questionType,
+              content: `Question ${idx + 1}`,
+              points: r.maxScore,
+              order: idx + 1,
+              isRequired: true,
+            })) as Question[],
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Could not load submission');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSubmissionId, id, questions.length]);
 
   useEffect(() => {
     if (!id) {
@@ -102,8 +194,6 @@ export function SubmissionReviewPage() {
         setAssessment(a);
         setQuestions(a.questions ?? []);
         setLoadError(null);
-        const sid = a.enrollmentId ?? a.id;
-        setSelectedLearnerId(sid);
       })
       .catch(() => {
         if (!cancelled) setLoadError('Could not load assessment');
@@ -172,7 +262,29 @@ export function SubmissionReviewPage() {
     }
   };
   const marker = getMarkerConfig();
-  const selectedSubmission = submissions.find((s) => s.id === selectedLearnerId);
+  const selectedSubmission = submissions.find(
+    (s) => s.id === selectedSubmissionId,
+  );
+  const canEdit =
+    selectedSubmission != null &&
+    canRoleEditSubmission(userRole, selectedSubmission.status);
+  const workflowStep = workflowStepForRole(userRole);
+  const headerStats = useMemo(() => {
+    const submitted = submissions.filter((s) =>
+      ['submitted', 'grading', 'completed'].includes(s.status),
+    ).length;
+    const graded = submissions.filter((s) => s.status === 'completed').length;
+    const scores = submissions
+      .map((s) => s.score)
+      .filter((n): n is number => n != null);
+    const avg = scores.length
+      ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+      : 0;
+    return { submitted, graded, avg };
+  }, [submissions]);
+
+  const responseForQuestion = (questionId: string) =>
+    instanceResponses.find((r) => r.questionId === questionId);
   const handleGradeChange = (qId: string, score: number) => {
     setGrades({
       ...grades,
@@ -192,11 +304,82 @@ export function SubmissionReviewPage() {
     });
   };
   const handleSubmitGrades = async () => {
-    const submissionId = activeSubmissionId ?? selectedLearnerId;
+    const submissionId = selectedSubmissionId;
     if (!submissionId || !id) {
       toast.error('No submission selected');
       return;
     }
+    if (!canEdit) {
+      toast.error('This submission is not at your workflow stage');
+      return;
+    }
+    const gradePayload = Object.entries(grades).map(([questionId, score]) => ({
+      questionId,
+      score,
+      feedback: [feedback[questionId], comments[questionId]]
+        .filter(Boolean)
+        .join(' — '),
+    }));
+    const totalMarks = questions.reduce((a, q) => a + q.points, 0);
+    const earned = Object.values(grades).reduce((a, b) => a + b, 0);
+    const passMark = assessment?.passMark ?? 50;
+    const previewResult = competencyFromScore(earned, totalMarks, passMark);
+    try {
+      if (userRole === 'Moderator') {
+        await assessmentService.moderate(
+          submissionId,
+          moderationDecision,
+          moderationComments ||
+            (moderationDecision === 'approve'
+              ? 'Moderation approved'
+              : 'Moderation rejected'),
+        );
+        toast.success(
+          moderationDecision === 'approve'
+            ? 'Moderation approved'
+            : 'Moderation rejected',
+        );
+      } else if (userRole === 'Facilitator') {
+        if (!gradePayload.length) {
+          toast.error('Enter at least one score');
+          return;
+        }
+        await assessmentService.humanGrade(submissionId, gradePayload);
+        await assessmentService.completeFacilitatorGrading(submissionId);
+        toast.success('Marks submitted for assessor review');
+      } else if (userRole === 'Assessor') {
+        if (!gradePayload.length) {
+          toast.error('Enter at least one score');
+          return;
+        }
+        await assessmentService.humanGrade(submissionId, gradePayload);
+        await assessmentService.completeGrading(submissionId);
+        const finalised = await assessmentService.finaliseResult(id, {
+          result: previewResult,
+          feedback:
+            Object.values(feedback).filter(Boolean).join('\n') || undefined,
+        });
+        const serverResult =
+          (finalised.data as { result?: string })?.result ?? previewResult;
+        toast.success(
+          `Assessor review complete — ${serverResult === 'C' ? 'Competent' : 'Not Yet Competent'}. Awaiting moderator sign-off.`,
+        );
+      } else {
+        toast.error('Your role cannot submit at this workflow stage');
+        return;
+      }
+      navigate(-1);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to submit',
+      );
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    const submissionId = selectedSubmissionId;
+    if (!submissionId || !canEdit) return;
+    if (userRole === 'Moderator') return;
     const gradePayload = Object.entries(grades).map(([questionId, score]) => ({
       questionId,
       score,
@@ -208,19 +391,9 @@ export function SubmissionReviewPage() {
     }
     try {
       await assessmentService.humanGrade(submissionId, gradePayload);
-      await assessmentService.completeGrading(submissionId);
-      if (userRole === 'Assessor') {
-        await assessmentService.finaliseResult(id, {
-          result: 'C',
-          feedback: Object.values(feedback).filter(Boolean).join('\n') || undefined,
-        });
-      }
-      toast.success(`Grades submitted as ${marker.label}`);
-      navigate(-1);
+      toast.success('Draft saved');
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : 'Failed to submit grades',
-      );
+      toast.error(err instanceof Error ? err.message : 'Save failed');
     }
   };
 
@@ -276,18 +449,50 @@ export function SubmissionReviewPage() {
             </span>
           </div>
           <div className="text-center px-4 border-l border-gray-200">
-            <div className="text-2xl font-bold text-gray-900">67</div>
+            <div className="text-2xl font-bold text-gray-900">{headerStats.submitted}</div>
             <div className="text-xs text-gray-500">Submitted</div>
           </div>
           <div className="text-center px-4 border-l border-gray-200">
-            <div className="text-2xl font-bold text-green-600">45</div>
+            <div className="text-2xl font-bold text-green-600">{headerStats.graded}</div>
             <div className="text-xs text-gray-500">Graded</div>
           </div>
           <div className="text-center px-4 border-l border-gray-200">
-            <div className="text-2xl font-bold text-brand-navy">74%</div>
+            <div className="text-2xl font-bold text-brand-navy">{headerStats.avg}%</div>
             <div className="text-xs text-gray-500">Avg Score</div>
           </div>
         </div>
+      </div>
+
+      <div className="bg-slate-50 border-b border-slate-200 px-6 py-3">
+        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+          Assessment workflow
+        </p>
+        <ol className="flex flex-wrap gap-2 text-xs">
+          {[
+            'Learner submits',
+            'Facilitator marks',
+            'Assessor reviews',
+            'Moderator approves',
+          ].map((label, i) => (
+            <li
+              key={label}
+              className={`px-3 py-1 rounded-full border ${
+                i + 1 === workflowStep
+                  ? 'bg-brand-navy text-white border-brand-navy'
+                  : i + 1 < workflowStep
+                    ? 'bg-green-50 text-green-800 border-green-200'
+                    : 'bg-white text-slate-500 border-slate-200'
+              }`}>
+              {i + 1}. {label}
+            </li>
+          ))}
+        </ol>
+        {selectedSubmission && (
+          <p className="text-sm text-slate-600 mt-2">
+            Current stage:{' '}
+            <strong>{submissionStageLabel(selectedSubmission.status)}</strong>
+          </p>
+        )}
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -303,8 +508,8 @@ export function SubmissionReviewPage() {
             {submissions.map((sub) =>
             <button
               key={sub.id}
-              onClick={() => setSelectedLearnerId(sub.id)}
-              className={`w-full flex items-center p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors ${selectedLearnerId === sub.id ? 'bg-blue-50 border-l-4 border-l-brand-navy' : ''}`}>
+              onClick={() => setSelectedSubmissionId(sub.id)}
+              className={`w-full flex items-center p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors ${selectedSubmissionId === sub.id ? 'bg-blue-50 border-l-4 border-l-brand-navy' : ''}`}>
               
                 <Avatar initials={sub.avatar} className="mr-3 h-10 w-10" />
                 <div className="flex-1 text-left">
@@ -316,14 +521,16 @@ export function SubmissionReviewPage() {
                 <div className="text-right">
                   <Badge
                   variant={
-                  sub.status === 'Graded' ?
+                  sub.status === 'completed' ?
                   'success' :
-                  sub.status === 'Submitted' ?
+                  sub.status === 'assessor_verified' ?
+                  'warning' :
+                  sub.status === 'facilitator_graded' ?
                   'info' :
                   'neutral'
                   }>
                   
-                    {sub.status}
+                    {submissionStageLabel(sub.status)}
                   </Badge>
                   {sub.score &&
                 <div className="text-xs font-bold mt-1">{sub.score}%</div>
@@ -332,6 +539,64 @@ export function SubmissionReviewPage() {
               </button>
             )}
           </div>
+          {(userRole === 'SDP Admin' || userRole === 'Facilitator') &&
+            moderatorOptions.length > 0 && (
+              <div className="p-4 border-t border-gray-200 space-y-2">
+                <p className="text-xs font-medium text-gray-500 uppercase">
+                  Allocate moderator
+                </p>
+                <select
+                  className="w-full rounded-md border-gray-300 text-sm"
+                  value={allocateModeratorId}
+                  onChange={(e) => setAllocateModeratorId(e.target.value)}>
+                  <option value="">Select moderator</option>
+                  {moderatorOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  className="w-full"
+                  disabled={!allocateModeratorId}
+                  onClick={async () => {
+                    if (!id || !allocateModeratorId) return;
+                    try {
+                      await moderationService.allocate(id, allocateModeratorId);
+                      toast.success('Moderator allocated');
+                      const hist = await moderationService.history(id);
+                      const rows = hist.data;
+                      setModerationHistory(
+                        Array.isArray(rows)
+                          ? rows
+                          : rows
+                            ? [rows as Record<string, unknown>]
+                            : [],
+                      );
+                    } catch {
+                      toast.error('Could not allocate moderator');
+                    }
+                  }}>
+                  Allocate
+                </Button>
+              </div>
+            )}
+          {moderationHistory.length > 0 && (
+            <div className="p-4 border-t border-gray-200 max-h-40 overflow-y-auto">
+              <p className="text-xs font-medium text-gray-500 uppercase mb-2">
+                Moderation history
+              </p>
+              <ul className="space-y-1 text-xs text-gray-600">
+                {moderationHistory.map((row, i) => (
+                  <li key={i}>
+                    {String(row.action ?? row.decision ?? 'Record')} —{' '}
+                    {String(row.at ?? row.createdAt ?? '')}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* Grading Area */}
@@ -383,29 +648,41 @@ export function SubmissionReviewPage() {
 
                 <p className="text-gray-900 font-medium mb-4">{q.content}</p>
 
-                {/* Mock Answer Display */}
                 <div className="bg-blue-50 p-4 rounded-md border border-blue-100 mb-4">
                   <p className="text-sm text-blue-900 font-medium mb-1">
                     Learner Answer:
                   </p>
-                  {q.type === 'essay' ?
-                <p className="text-gray-800">
-                      Client-side rendering happens in the browser using
-                      JavaScript, which can reduce server load but may have
-                      slower initial load times. Server-side rendering generates
-                      HTML on the server, improving SEO and initial load
-                      performance.
-                    </p> :
-                q.type === 'file_upload' ?
-                <div className="flex items-center gap-2 text-brand-blue underline cursor-pointer">
-                      <Download className="h-4 w-4" /> project_portfolio.pdf
-                    </div> :
-
-                <p className="text-gray-800">Hyper Text Markup Language</p>
-                }
+                  {(() => {
+                    const resp = responseForQuestion(q.id);
+                    if (q.type === 'file_upload' && resp?.fileName) {
+                      return (
+                        <div className="flex items-center gap-2 text-brand-blue">
+                          <Download className="h-4 w-4" />
+                          {resp.fileName}
+                        </div>
+                      );
+                    }
+                    return (
+                      <p className="text-gray-800">
+                        {formatAnswerDisplay(resp?.answer ?? null)}
+                      </p>
+                    );
+                  })()}
                 </div>
 
                 {/* Grading Controls - Color coded by role */}
+                {userRole === 'Moderator' ? (
+                <div className={`border-t-2 ${marker.borderClass} pt-4`}>
+                  <p className="text-sm text-gray-600">
+                    Score: {grades[q.id] ?? '—'} / {q.points}
+                  </p>
+                  {feedback[q.id] && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Feedback: {feedback[q.id]}
+                    </p>
+                  )}
+                </div>
+                ) : canEdit ? (
                 <div
                 className={`border-t-2 ${marker.borderClass} pt-4 space-y-3`}>
                 
@@ -474,6 +751,40 @@ export function SubmissionReviewPage() {
                   
                   </div>
                 </div>
+                ) : null}
+              </Card>
+            )}
+
+            {userRole === 'Moderator' && canEdit && (
+              <Card className="p-4 border-green-200">
+                <p className="text-sm text-gray-700 mb-3">
+                  Review facilitator marking and assessor competency decision. Record your moderation outcome.
+                </p>
+                <div className="flex gap-4 mb-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      checked={moderationDecision === 'approve'}
+                      onChange={() => setModerationDecision('approve')}
+                    />
+                    Approve
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      checked={moderationDecision === 'reject'}
+                      onChange={() => setModerationDecision('reject')}
+                    />
+                    Reject / return
+                  </label>
+                </div>
+                <textarea
+                  placeholder="Moderation comments (sampling notes, marking quality, compliance)..."
+                  value={moderationComments}
+                  onChange={(e) => setModerationComments(e.target.value)}
+                  rows={4}
+                  className={`w-full text-sm border rounded-md px-3 py-2 ${marker.borderClass}`}
+                />
               </Card>
             )}
 
@@ -485,9 +796,12 @@ export function SubmissionReviewPage() {
                   
                   <PenTool className={`h-3.5 w-3.5 ${marker.textClass}`} />
                   <span className={`text-xs font-medium ${marker.textClass}`}>
-                    Marking as {marker.label}
+                    {userRole === 'Moderator'
+                      ? 'Moderating as Moderator'
+                      : `Marking as ${marker.label}`}
                   </span>
                 </div>
+                {userRole !== 'Moderator' && (
                 <span className="text-sm text-gray-500">
                   <span className="font-medium text-gray-900">
                     {Object.keys(grades).length}
@@ -498,19 +812,37 @@ export function SubmissionReviewPage() {
                   </span>{' '}
                   questions graded
                 </span>
+                )}
+                {!canEdit && selectedSubmission && (
+                  <span className="text-sm text-amber-700">
+                    Read-only — {submissionStageLabel(selectedSubmission.status)}
+                  </span>
+                )}
               </div>
               <div className="flex gap-3">
+                {userRole !== 'Moderator' && (
                 <Button
                   variant="outline"
-                  leftIcon={<Save className="h-4 w-4" />}>
-                  
+                  leftIcon={<Save className="h-4 w-4" />}
+                  disabled={!canEdit}
+                  onClick={() => void handleSaveDraft()}>
                   Save Draft
                 </Button>
+                )}
                 <Button
                   leftIcon={<Send className="h-4 w-4" />}
-                  onClick={handleSubmitGrades}>
+                  disabled={!canEdit}
+                  onClick={() => void handleSubmitGrades()}>
                   
-                  Submit Grades
+                  {userRole === 'Moderator'
+                    ? moderationDecision === 'approve'
+                      ? 'Approve moderation'
+                      : 'Reject moderation'
+                    : userRole === 'Facilitator'
+                      ? 'Submit marks for assessor'
+                      : userRole === 'Assessor'
+                        ? 'Complete assessor review'
+                        : 'Submit grades'}
                 </Button>
               </div>
             </div>

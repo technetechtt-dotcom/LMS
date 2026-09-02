@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '../config/env';
+import { getAuthPortal } from '../config/authPortal';
 import {
   getStoredAccessToken,
   getStoredOrganisationId,
@@ -16,6 +17,24 @@ export class ApiNetworkError extends Error {
   }
 }
 
+/** Extract a human-readable message from API error responses. */
+export function parseApiErrorMessage(err: unknown, fallback = 'Request failed'): string {
+  if (err instanceof ApiNetworkError) {
+    const raw = err.body ?? err.message;
+    try {
+      const parsed = JSON.parse(raw) as { message?: string | string[] };
+      if (typeof parsed.message === 'string') return parsed.message;
+      if (Array.isArray(parsed.message)) return parsed.message.join(', ');
+    } catch {
+      if (raw && !raw.startsWith('{')) return raw;
+    }
+  }
+  if (err instanceof Error && err.message && !err.message.startsWith('{')) {
+    return err.message;
+  }
+  return fallback;
+}
+
 function resolveAuthHeader(
   options?: RequestInit & { accessToken?: string | null },
 ): string | undefined {
@@ -27,6 +46,10 @@ function withTenantHeaders(headers: Headers) {
   const orgId = getStoredOrganisationId();
   if (orgId && !headers.has('X-Organisation-Id')) {
     headers.set('X-Organisation-Id', orgId);
+  }
+  const portal = getAuthPortal();
+  if (portal === 'ops') {
+    headers.set('X-Auth-Portal', 'ops');
   }
 }
 

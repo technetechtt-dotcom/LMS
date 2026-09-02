@@ -26,6 +26,8 @@ export function getDefaultRouteForRole(role: UserRole): string {
       return '/audit';
     case 'QA Officer':
       return '/qa-dashboard';
+    case 'Platform Admin':
+      return '/login';
     case 'Admin':
     default:
       return '/dashboard';

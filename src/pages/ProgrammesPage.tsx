@@ -10,6 +10,7 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import type { Programme, ProgrammeKind } from '../types';
 import { programmeService } from '../services/api';
+import { exportRecordsAsJson } from '../utils/exportData';
 import { PROGRAMME_KIND_LABELS, PROGRAMME_POE_ARTIFACTS_NOTE } from '../utils/programmeKind';
 
 type NewProgrammeForm = {
@@ -258,8 +259,9 @@ export function ProgrammesPage() {
           <p className="text-sm text-gray-500">
             Each programme is either a{' '}
             <strong>skills programme</strong> or an{' '}
-            <strong>occupational programme</strong>. All include learner workbooks
-            and summative assessments.
+            <strong>occupational programme</strong>. All are structured into Knowledge
+            Modules (KM), Practical Modules (PM), and Workplace Modules (WM) where
+            required.
           </p>
           <p className="text-xs text-gray-500 mt-1 max-w-3xl">
             {PROGRAMME_POE_ARTIFACTS_NOTE}
@@ -269,7 +271,9 @@ export function ProgrammesPage() {
           <Button
             variant="outline"
             leftIcon={<Download className="h-4 w-4" />}
-            onClick={() => toast.success('Exporting programme data...')}>
+            onClick={() =>
+              exportRecordsAsJson('programmes.json', programmes, 'Programme export')
+            }>
             
             Export
           </Button>
@@ -334,7 +338,9 @@ export function ProgrammesPage() {
         <Button
           variant="secondary"
           leftIcon={<Filter className="h-4 w-4" />}
-          onClick={() => toast.info('Applying filters...')}>
+          onClick={() =>
+            toast.info('Filters apply automatically when you change a dropdown')
+          }>
           
           Filter
         </Button>

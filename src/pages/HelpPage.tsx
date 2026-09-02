@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   HelpCircle,
@@ -14,6 +14,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 export function HelpPage() {
   const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState('');
   const faqs = [
   {
     question: 'How do I reset my password?',
@@ -36,6 +37,15 @@ export function HelpPage() {
     'If you miss an assessment deadline, you must contact your facilitator immediately. Depending on the circumstances, you may be granted an extension or required to submit a supplementary assessment.'
   }];
 
+  const visibleFaqs = faqs.filter((faq) => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      faq.question.toLowerCase().includes(q) ||
+      faq.answer.toLowerCase().includes(q)
+    );
+  });
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <div className="text-center py-8">
@@ -45,7 +55,9 @@ export function HelpPage() {
         <div className="max-w-xl mx-auto">
           <Input
             placeholder="Search for articles, tutorials, or FAQs..."
-            icon={<Search className="h-5 w-5" />} />
+            icon={<Search className="h-5 w-5" />}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)} />
           
         </div>
       </div>
@@ -110,7 +122,12 @@ export function HelpPage() {
         <div className="lg:col-span-2" id="help-faq">
           <Card title="Frequently Asked Questions">
             <div className="space-y-4">
-              {faqs.map((faq, i) =>
+              {visibleFaqs.length === 0 ? (
+                <p className="text-sm text-gray-500 py-4 text-center">
+                  No FAQs match your search.
+                </p>
+              ) : (
+                visibleFaqs.map((faq, i) =>
               <div
                 key={i}
                 className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
@@ -121,6 +138,7 @@ export function HelpPage() {
                   </h4>
                   <p className="text-sm text-gray-600 ml-7">{faq.answer}</p>
                 </div>
+              )
               )}
             </div>
           </Card>

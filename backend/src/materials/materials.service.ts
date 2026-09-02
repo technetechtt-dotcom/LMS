@@ -8,24 +8,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../common/file-storage.service';
 import { CreateLearningMaterialDto, ListMaterialsQueryDto } from './materials.dto';
 import { AuthUser } from '../common/types/request-with-user';
-
-const ART_LABEL: Record<string, string> = {
-  'learner-guide': 'Learner Guide',
-  'learner-workbook': 'Learner Workbook',
-  summative: 'Summative Assessment',
-  other: '—',
-  na: '—',
-};
+import {
+  ARTIFACT_LABELS,
+  defaultPoeComponentForSlug,
+  detectModuleFamily,
+} from '../common/curriculum/learnership-curriculum';
+import { evaluateModuleCompleteness } from '../common/curriculum/module-completeness';
 
 function normalizeSlug(s?: string): string {
   if (!s || s === 'na') return 'other';
   return s;
-}
-
-/** Learner workbook and summative PDFs are assessment instruments; the guide is knowledge content. */
-function defaultPoeComponentForSlug(slug: string): string {
-  if (slug === 'learner-workbook' || slug === 'summative') return 'Assessment';
-  return 'Knowledge';
 }
 
 function formatFileSizeBytes(bytes: number): string {
@@ -89,7 +81,7 @@ export class MaterialsService {
       uploadedBy: m.uploadedById,
       moduleCode: m.moduleCode ?? '—',
       artifactSlug,
-      artifactType: m.artifactTypeLabel ?? ART_LABEL[artifactSlug] ?? '—',
+      artifactType: m.artifactTypeLabel ?? ARTIFACT_LABELS[artifactSlug] ?? '—',
       poeComponent: m.poeComponent,
       createdAt: m.createdAt.toISOString(),
       updatedAt: m.updatedAt.toISOString(),
@@ -116,7 +108,11 @@ export class MaterialsService {
     }
     if (q.artifact && q.artifact !== 'all') {
       if (q.artifact === 'km-only') {
-        out = out.filter((m) => (m.moduleCode ?? '').startsWith('KM-'));
+        out = out.filter((m) => detectModuleFamily(m.moduleCode) === 'KM');
+      } else if (q.artifact === 'pm-only') {
+        out = out.filter((m) => detectModuleFamily(m.moduleCode) === 'PM');
+      } else if (q.artifact === 'wm-only') {
+        out = out.filter((m) => detectModuleFamily(m.moduleCode) === 'WM');
       } else if (q.artifact === 'other') {
         out = out.filter((m) => normalizeSlug(m.artifactSlug) === 'other');
       } else {
@@ -198,8 +194,10 @@ export class MaterialsService {
         description: dto.description?.trim(),
         moduleCode: dto.moduleCode?.trim() || null,
         artifactSlug: slug,
-        artifactTypeLabel: dto.artifactType?.trim() || ART_LABEL[slug] || null,
-        poeComponent: dto.poeComponent?.trim() || defaultPoeComponentForSlug(slug),
+        artifactTypeLabel: dto.artifactType?.trim() || ARTIFACT_LABELS[slug] || null,
+        poeComponent:
+          dto.poeComponent?.trim() ||
+          defaultPoeComponentForSlug(slug, dto.moduleCode),
         moduleKey: dto.moduleId?.trim() || null,
         moduleLabel: dto.moduleName?.trim() || null,
         mediaKind,
@@ -269,8 +267,10 @@ export class MaterialsService {
         description: dto.description?.trim(),
         moduleCode: dto.moduleCode?.trim() || null,
         artifactSlug: slug,
-        artifactTypeLabel: dto.artifactType?.trim() || ART_LABEL[slug] || null,
-        poeComponent: dto.poeComponent?.trim() || defaultPoeComponentForSlug(slug),
+        artifactTypeLabel: dto.artifactType?.trim() || ARTIFACT_LABELS[slug] || null,
+        poeComponent:
+          dto.poeComponent?.trim() ||
+          defaultPoeComponentForSlug(slug, dto.moduleCode),
         moduleKey: dto.moduleId?.trim() || null,
         moduleLabel: dto.moduleName?.trim() || null,
         mediaKind,
@@ -293,5 +293,35 @@ export class MaterialsService {
       success: true,
       data: this.toClientRow(stored),
     };
+  }
+
+  async completeness(user: AuthUser | undefined, programmeId?: string) {
+    const orgId = user?.organisationId;
+    if (!orgId) {
+      return { data: [], success: true };
+    }
+
+    const rows = await this.prisma.learningMaterial.findMany({
+      where: {
+        deletedAt: null,
+        organisationId: orgId,
+        ...(programmeId?.trim() ? { programmeId: programmeId.trim() } : {}),
+      },
+      include: { programme: { select: { id: true, title: true } } },
+    });
+
+    const reports = evaluateModuleCompleteness(
+      rows.map((m) => ({
+        id: m.id,
+        title: m.title,
+        moduleCode: m.moduleCode,
+        artifactSlug: m.artifactSlug,
+        programmeId: m.programmeId,
+        programmeName: m.programme?.title ?? null,
+      })),
+      programmeId?.trim() || undefined,
+    );
+
+    return { data: reports, success: true };
   }
 }

@@ -17,7 +17,7 @@ export class OrganisationsController {
   }
 
   @AdminOnlyEndpoint()
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'PLATFORM_ADMIN')
   @Post()
   create(@Body() dto: CreateOrganisationDto) {
     return this.organisations.create(dto);

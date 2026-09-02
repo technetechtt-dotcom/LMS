@@ -1,5 +1,7 @@
+import path from 'path';
 import { defineConfig, devices } from '@playwright/test';
 
+const repoRoot = path.resolve(__dirname, '..');
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5173';
 const apiURL = process.env.PLAYWRIGHT_API_URL ?? 'http://localhost:8787';
 
@@ -22,13 +24,16 @@ export default defineConfig({
   webServer: process.env.CI
     ? [
         {
-          command: 'npm --prefix backend run start:prod',
+          command: 'npm run start:prod',
+          cwd: path.join(repoRoot, 'backend'),
           url: `${apiURL}/health`,
           reuseExistingServer: false,
           timeout: 120_000,
         },
         {
-          command: 'cross-env VITE_API_URL=http://localhost:8787 npm run dev -- --port 5173',
+          command:
+            'cross-env VITE_API_URL=http://localhost:8787 npm run dev -- --port 5173',
+          cwd: repoRoot,
           url: baseURL,
           reuseExistingServer: false,
           timeout: 120_000,

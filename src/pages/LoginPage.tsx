@@ -5,6 +5,8 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useAuth } from '../contexts/AuthContext';
 import { getDefaultRouteForRole } from '../utils/routing';
+import { getOpsUrl } from '../config/authPortal';
+import { parseApiErrorMessage } from '../services/httpClient';
 import { toast } from 'sonner';
 
 export function LoginPage() {
@@ -46,12 +48,15 @@ export function LoginPage() {
     if (!validate()) return;
     try {
       const profile = await login({ email, password });
+      if (profile.role === 'Platform Admin') {
+        toast.error('Platform operators must use the Ops Console.');
+        window.location.href = `${getOpsUrl()}/login`;
+        return;
+      }
       toast.success('Welcome back!');
       navigate(getDefaultRouteForRole(profile.role), { replace: true });
     } catch (error) {
-      const msg =
-        error instanceof Error ? error.message : 'Login failed. Please try again.';
-      toast.error(msg);
+      toast.error(parseApiErrorMessage(error, 'Login failed. Please try again.'));
     }
   };
 
@@ -153,19 +158,29 @@ export function LoginPage() {
             </div>
 
             <p className="mt-4 text-center text-xs text-gray-500 leading-relaxed">
-              Demo accounts (password 8+ characters; seed defaults use
-              Password123!){' '}
-              <code className="text-gray-700">admin@skillforge.co.za</code>,{' '}
-              <code className="text-gray-700">seta@skillforge.co.za</code>,{' '}
-              <code className="text-gray-700">thandi.mokoena@email.com</code>
-              . See <code className="text-gray-700">.env.example</code> for API
-              URL.
+              Demo password: <code className="text-gray-700">Password123!</code>
+              <br />
+              e.g. <code className="text-gray-700">admin@skillforge.co.za</code>,{' '}
+              <code className="text-gray-700">learner@skillforge.co.za</code>
+              <br />
+              Platform operators:{' '}
+              <a href={`${getOpsUrl()}/login`} className="text-brand-blue hover:underline">
+                Ops Console (port 5177)
+              </a>
             </p>
           </div>
         </div>
 
         <p className="mt-6 text-center text-xs text-gray-500">
-          POPIA-compliant system. See Privacy Policy and Terms of Service.
+          POPIA-compliant system. See{' '}
+          <Link to="/privacy" className="text-brand-blue hover:underline">
+            Privacy Policy
+          </Link>{' '}
+          and{' '}
+          <Link to="/terms" className="text-brand-blue hover:underline">
+            Terms of Service
+          </Link>
+          .
         </p>
       </div>
     </div>

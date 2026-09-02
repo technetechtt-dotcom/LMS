@@ -1037,7 +1037,10 @@ export function FacilitatorSETACompliancePage() {
             </h3>
             <Button
             leftIcon={<Calendar className="h-4 w-4" />}
-            onClick={() => toast.info('Opening scheduler...')}>
+            onClick={() => {
+              setActiveTab('submissions');
+              toast.info('Review upcoming SETA submissions below');
+            }}>
             
               Schedule Submission
             </Button>
@@ -1166,7 +1169,10 @@ export function FacilitatorSETACompliancePage() {
             </h3>
             <Button
             leftIcon={<Calendar className="h-4 w-4" />}
-            onClick={() => toast.info('Opening audit scheduler...')}>
+            onClick={() => {
+              setActiveTab('audits');
+              toast.info('Review audit and verification details below');
+            }}>
             
               Schedule Audit
             </Button>
@@ -1190,7 +1196,10 @@ export function FacilitatorSETACompliancePage() {
                 size="sm"
                 variant="outline"
                 className="mt-3"
-                onClick={() => toast.info('Opening preparation checklist...')}>
+                onClick={() => {
+                  setActiveTab('documents');
+                  toast.info('Upload and verify required compliance documents');
+                }}>
                 
                   View Preparation Checklist
                 </Button>
@@ -1248,7 +1257,8 @@ export function FacilitatorSETACompliancePage() {
                       <td className="px-6 py-4">
                         <button
                       className="text-sm text-brand-blue hover:underline"
-                      onClick={() => toast.info('Opening audit report...')}>
+                      disabled
+                      title="Audit reports are filed offline">
                       
                           View Report
                         </button>

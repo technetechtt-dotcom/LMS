@@ -14,6 +14,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { competencyFromPercentage } from '../common/grading/competency';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAssessmentDto, UpdateAssessmentDto } from './assessments.dto';
 import {
@@ -130,6 +131,10 @@ export class AssessmentsService {
           },
           unitStandard: true,
           moderation: true,
+          submissions: {
+            orderBy: { submittedAt: 'desc' },
+            take: 1,
+          },
         },
         orderBy: { assessedAt: 'desc' },
       })
@@ -155,6 +160,10 @@ export class AssessmentsService {
         },
         unitStandard: true,
         moderation: true,
+        submissions: {
+          orderBy: { submittedAt: 'desc' },
+          take: 1,
+        },
       },
     });
     if (!row) throw new NotFoundException('Assessment not found');
@@ -377,25 +386,28 @@ export class AssessmentsService {
     });
     if (!assessment) throw new NotFoundException('Assessment not found');
     assertAllocatedAssessor(user, assessment.assessorId);
-    if (body.result !== 'C' && body.result !== 'NYC') {
-      throw new BadRequestException('result must be C or NYC');
-    }
     const submitted = await this.prisma.assessmentSubmission.findFirst({
       where: {
         assessmentId: id,
-        status: 'completed',
+        status: 'assessor_verified',
       },
       orderBy: { submittedAt: 'desc' },
+      include: {
+        instrument: { select: { passMark: true } },
+      },
     });
     if (!submitted) {
       throw new BadRequestException(
         'Cannot finalise competency until grading is complete (GRADING_COMPLETE)',
       );
     }
+    const passMark = submitted.instrument?.passMark ?? 50;
+    const percentage = Number(submitted.percentage ?? 0);
+    const result = competencyFromPercentage(percentage, passMark);
     return this.prisma.assessment.update({
       where: { id },
       data: {
-        result: body.result,
+        result,
         feedback: body.feedback,
         assessedAt: new Date(),
         version: { increment: 1 },

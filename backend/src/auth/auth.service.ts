@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
-import type { LoginDto, RegisterDto } from './auth.dto';
+import type { LoginDto, RegisterDto, UpdateProfileDto, ChangePasswordDto } from './auth.dto';
 import { mapUserToApiProfile, type UserWithMemberships } from './user-mapper';
 import { MailService } from '../mail/mail.service';
 import { InvitationsService } from '../invitations/invitations.service';
@@ -112,7 +112,44 @@ export class AuthService {
 
     await this.logLoginAttempt(user.id, email, 'LOGIN_SUCCESS', meta, {});
 
+    const portal = dto.portal ?? 'lms';
+    const access = await this.userPortalAccess(user.id);
+    if (portal === 'ops' && !access.platform && !access.admin) {
+      throw new UnauthorizedException(
+        'This account is not authorised for the ops console',
+      );
+    }
+    if (portal === 'lms' && access.platform) {
+      throw new UnauthorizedException(
+        'Platform operators must sign in at http://localhost:5177',
+      );
+    }
+
     return this.issueSession(user.id, user.email);
+  }
+
+  private async userPortalAccess(userId: string): Promise<{
+    platform: boolean;
+    admin: boolean;
+  }> {
+    const rows = await this.prisma.userOrganisation.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+        role: { deletedAt: null },
+      },
+      include: { role: { select: { code: true } } },
+    });
+    const codes = rows.map((r) => r.role.code);
+    return {
+      platform: codes.includes('PLATFORM_ADMIN'),
+      admin: codes.includes('ADMIN'),
+    };
+  }
+
+  private async userIsPlatformAdmin(userId: string): Promise<boolean> {
+    const access = await this.userPortalAccess(userId);
+    return access.platform;
   }
 
   private async fakeDelay() {
@@ -307,6 +344,68 @@ export class AuthService {
 
   async getProfile(userId: string) {
     return this.buildUserResponse(userId);
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const email = dto.email?.toLowerCase().trim();
+    if (email) {
+      const clash = await this.prisma.user.findFirst({
+        where: { email, id: { not: userId }, deletedAt: null },
+      });
+      if (clash) {
+        throw new BadRequestException('Email is already in use');
+      }
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(dto.firstName !== undefined ? { firstName: dto.firstName.trim() } : {}),
+        ...(dto.lastName !== undefined ? { lastName: dto.lastName.trim() } : {}),
+        ...(email ? { email } : {}),
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: userId,
+        entityType: 'User',
+        entityId: userId,
+        action: 'PROFILE_UPDATED',
+        afterValue: { email: email ?? undefined },
+      },
+    });
+
+    return this.buildUserResponse(userId);
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('User not found');
+    }
+    const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!valid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+    });
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: userId,
+        entityType: 'Authentication',
+        entityId: userId,
+        action: 'PASSWORD_CHANGED',
+      },
+    });
+    return { success: true as const };
   }
 
   private async buildUserResponse(userId: string) {

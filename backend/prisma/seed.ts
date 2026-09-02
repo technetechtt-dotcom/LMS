@@ -148,6 +148,17 @@ async function main() {
     },
   });
 
+  const platformAdmin = await prisma.user.upsert({
+    where: { email: 'platform@skillforge.co.za' },
+    update: {},
+    create: {
+      email: 'platform@skillforge.co.za',
+      passwordHash,
+      firstName: 'Platform',
+      lastName: 'Operator',
+    },
+  });
+
   const adminRole = await prisma.role.findUniqueOrThrow({ where: { code: 'ADMIN' } });
   const learnerRole = await prisma.role.findUniqueOrThrow({ where: { code: 'LEARNER' } });
   const assessorRole = await prisma.role.findUniqueOrThrow({ where: { code: 'ASSESSOR' } });
@@ -157,6 +168,9 @@ async function main() {
   const setaRole = await prisma.role.findUniqueOrThrow({ where: { code: 'SETA' } });
   const facilitatorRoleRow = await prisma.role.findUniqueOrThrow({
     where: { code: 'FACILITATOR' },
+  });
+  const platformAdminRole = await prisma.role.findUniqueOrThrow({
+    where: { code: 'PLATFORM_ADMIN' },
   });
 
   await prisma.userOrganisation.createMany({
@@ -173,6 +187,12 @@ async function main() {
       },
       { userId: mentor.id, organisationId: sdio.id, roleId: mentorRole.id, isPrimary: true },
       { userId: qaOfficer.id, organisationId: sdio.id, roleId: qaRole.id, isPrimary: true },
+      {
+        userId: platformAdmin.id,
+        organisationId: sdio.id,
+        roleId: platformAdminRole.id,
+        isPrimary: true,
+      },
       { userId: admin.id, organisationId: seta.id, roleId: setaRole.id, isPrimary: false },
     ],
     skipDuplicates: true,
@@ -359,6 +379,110 @@ async function main() {
         url: 'https://mock-s3/evidence/network-installation-video.mp4',
         uploadedById: learner.id,
       },
+    });
+  }
+
+  const librarySeeded = await prisma.learningMaterial.count({
+    where: {
+      programmeId: programme.id,
+      moduleCode: { startsWith: 'KM-' },
+      deletedAt: null,
+    },
+  });
+
+  if (librarySeeded === 0) {
+    const libBase = {
+      organisationId: sdio.id,
+      programmeId: programme.id,
+      uploadedById: facilitator.id,
+      mediaKind: 'pdf',
+      formatLabel: 'PDF',
+      fileName: 'placeholder.pdf',
+      fileSizeBytes: 120_000,
+      storageKey: 'materials/demo-placeholder.pdf',
+      url: '/materials/demo-placeholder.pdf',
+      isApproved: true,
+    };
+
+    const kmArtifacts = [
+      ['facilitator-guide', 'Facilitator Guide', 'Knowledge'],
+      ['summative-memo', 'Summative Assessment Memo', 'Assessment'],
+      ['learner-guide', 'Learner Guide', 'Knowledge'],
+      ['learner-workbook', 'Learner Workbook', 'Assessment'],
+      ['summative', 'Summative Assessment', 'Assessment'],
+    ] as const;
+
+    const pmArtifacts = [
+      ['practical-guide', 'Practical Module Guide', 'Practical'],
+      ['practical-workbook', 'Practical Workbook / Logbook', 'Practical'],
+      ['practical-assessment', 'Practical Assessment / Checklist', 'Practical'],
+    ] as const;
+
+    const wmArtifacts = [
+      ['workplace-guide', 'Workplace Module Guide', 'Workplace'],
+      ['workplace-logbook', 'Workplace Logbook', 'Workplace'],
+      ['workplace-assessment', 'Workplace Assessment', 'Workplace'],
+    ] as const;
+
+    const seedModuleDocs = async (
+      moduleCode: string,
+      artifacts: ReadonlyArray<readonly [string, string, string]>,
+    ) => {
+      for (const [slug, label, component] of artifacts) {
+        await prisma.learningMaterial.create({
+          data: {
+            ...libBase,
+            title: `${moduleCode}-${label}`,
+            moduleCode,
+            artifactSlug: slug,
+            artifactTypeLabel: label,
+            poeComponent: component,
+            description: `Demo ${label} for ${programme.title}`,
+          },
+        });
+      }
+    };
+
+    await seedModuleDocs('KM-01', kmArtifacts);
+    await seedModuleDocs('KM-02', kmArtifacts);
+    await seedModuleDocs('KM-03', [
+      kmArtifacts[0],
+      kmArtifacts[2],
+      kmArtifacts[3],
+    ]);
+    await seedModuleDocs('PM-01', pmArtifacts);
+    await seedModuleDocs('PM-02', [pmArtifacts[0], pmArtifacts[1]]);
+    await seedModuleDocs('WM-01', wmArtifacts);
+  }
+
+  const poeArtifactCount = await prisma.poeLearningArtifact.count({
+    where: { enrollmentId: enrollment.id, deletedAt: null },
+  });
+  if (poeArtifactCount === 0) {
+    await prisma.poeLearningArtifact.createMany({
+      data: [
+        {
+          enrollmentId: enrollment.id,
+          kind: 'WORKBOOK',
+          title: 'KM-01 Learner Workbook',
+          description: 'Learner submission — awaiting facilitator marking',
+          status: 'LEARNER_SUBMITTED',
+          createdById: facilitator.id,
+        },
+        {
+          enrollmentId: enrollment.id,
+          kind: 'SUMMATIVE',
+          title: 'KM-02 Summative Assessment',
+          description: 'Learner submission — in assessor queue after facilitator mark',
+          status: 'ALLOCATED_TO_ASSESSOR',
+          createdById: facilitator.id,
+          facilitatorMarkedAt: new Date(),
+          facilitatorMarkedById: facilitator.id,
+          facilitatorFeedback: 'Initial marking complete — ready for assessor review.',
+          assessorId: assessor.id,
+          allocatedToAssessorAt: new Date(),
+        },
+      ],
     });
   }
 

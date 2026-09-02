@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   CheckCircle,
   AlertTriangle,
@@ -8,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
+import { poeStageLabel } from '../../utils/poeWorkflow';
 
 export type OfficialSubmissionStatus = 'missing' | 'submitted' | 'verified';
 
@@ -16,6 +18,8 @@ export interface OfficialPoeRequirementRow {
   title: string;
   category: 'admin' | 'workbook' | 'summative';
   submission: OfficialSubmissionStatus;
+  artifactId?: string;
+  workflowStatus?: string;
   facilitatorMarkedSigned?: boolean;
   assessorMarkedSigned?: boolean;
   moderatorMarkedSigned?: boolean | 'na';
@@ -26,6 +30,8 @@ interface OfficialPOEPanelProps {
   canCompile: boolean;
   blockingReasons: string[];
   onCompileDownload: () => void;
+  /** Staff can open the workflow review page for workbook / summative rows. */
+  allowReview?: boolean;
 }
 
 export function OfficialPOEPanel({
@@ -33,7 +39,56 @@ export function OfficialPOEPanel({
   canCompile,
   blockingReasons,
   onCompileDownload,
+  allowReview = false,
 }: OfficialPOEPanelProps) {
+  const navigate = useNavigate();
+
+  const renderWorkflowSignoffs = (row: OfficialPoeRequirementRow) => (
+    <>
+      <span>
+        Submitted:{' '}
+        <Badge
+          variant={row.submission === 'verified' ? 'success' : 'warning'}
+          className="text-[10px]">
+          {row.submission}
+        </Badge>
+      </span>
+      {row.workflowStatus && (
+        <span className="text-slate-500">
+          Stage: {poeStageLabel(row.workflowStatus)}
+        </span>
+      )}
+      <span className="inline-flex items-center gap-1">
+        <PenLine className="h-3.5 w-3.5 text-blue-700" />
+        Facilitator:{' '}
+        {row.facilitatorMarkedSigned ? (
+          <CheckCircle className="h-4 w-4 text-green-600 inline" />
+        ) : (
+          <span className="text-amber-700">Required</span>
+        )}
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <PenLine className="h-3.5 w-3.5 text-red-700" />
+        Assessor:{' '}
+        {row.assessorMarkedSigned ? (
+          <CheckCircle className="h-4 w-4 text-green-600 inline" />
+        ) : (
+          <span className="text-amber-700">Required</span>
+        )}
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <PenLine className="h-3.5 w-3.5 text-emerald-700" />
+        Moderator:{' '}
+        {row.moderatorMarkedSigned === 'na' ? (
+          <span className="text-slate-500">Not assigned</span>
+        ) : row.moderatorMarkedSigned ? (
+          <CheckCircle className="h-4 w-4 text-emerald-600 inline" />
+        ) : (
+          <span className="text-slate-600">Pending</span>
+        )}
+      </span>
+    </>
+  );
   return (
     <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
       <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
@@ -43,11 +98,10 @@ export function OfficialPOEPanel({
           </h3>
           <p className="text-xs text-slate-600 mt-0.5">
             Download bundles a cover sheet plus triplicate marking pages for the
-            learner workbook and summative (facilitator / assessor / moderator) in
-            blue, red, and green “ink” with remarks. Attach the SDP’s instrument
-            PDFs per programme from the learning library. Administrative documents
+            learner workbook and summative — each follows learner submit → facilitator
+            marks → assessor reviews → moderator approves (blue, red, green ink).
             (CV, address, affidavit, Grade 12) are tracked in the LMS separately.
-            Moderator sign-off is optional unless your programme assigns one.
+            Attach the SDP’s instrument PDFs per programme from the learning library.
           </p>
         </div>
         <Button
@@ -100,64 +154,23 @@ export function OfficialPOEPanel({
                       </Badge>
                     </span>
                   )}
-                  {row.category === 'workbook' && (
-                    <>
-                      <span>
-                        Submitted:{' '}
-                        <Badge
-                          variant={
-                            row.submission === 'verified' ? 'success' : 'warning'
-                          }
-                          className="text-[10px]">
-                          {row.submission}
-                        </Badge>
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        <PenLine className="h-3.5 w-3.5" />
-                        Facilitator marked &amp; signed:{' '}
-                        {row.facilitatorMarkedSigned ? (
-                          <CheckCircle className="h-4 w-4 text-green-600 inline" />
-                        ) : (
-                          <span className="text-amber-700">Required</span>
-                        )}
-                      </span>
-                    </>
-                  )}
-                  {row.category === 'summative' && (
-                    <>
-                      <span>
-                        Submitted:{' '}
-                        <Badge
-                          variant={
-                            row.submission === 'verified' ? 'success' : 'warning'
-                          }
-                          className="text-[10px]">
-                          {row.submission}
-                        </Badge>
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        Assessor marked &amp; signed:{' '}
-                        {row.assessorMarkedSigned ? (
-                          <CheckCircle className="h-4 w-4 text-green-600 inline" />
-                        ) : (
-                          <span className="text-amber-700">Required</span>
-                        )}
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        Moderator (optional):{' '}
-                        {row.moderatorMarkedSigned === 'na' ? (
-                          <span className="text-slate-500">Not assigned</span>
-                        ) : row.moderatorMarkedSigned ? (
-                          <CheckCircle className="h-4 w-4 text-emerald-600 inline" />
-                        ) : (
-                          <span className="text-slate-600">Pending</span>
-                        )}
-                      </span>
-                    </>
-                  )}
+                  {row.category === 'workbook' && renderWorkflowSignoffs(row)}
+                  {row.category === 'summative' && renderWorkflowSignoffs(row)}
                 </div>
               </div>
             </div>
+            {allowReview && row.artifactId && row.category !== 'admin' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  navigate(`/poe-artifacts/${row.artifactId}/review`)
+                }>
+                {row.workflowStatus === 'ISSUED_TO_LEARNER'
+                  ? 'Submit'
+                  : 'Review workflow'}
+              </Button>
+            )}
           </li>
         ))}
       </ul>

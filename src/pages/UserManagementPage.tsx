@@ -63,6 +63,7 @@ export function UserManagementPage() {
   const [selectedRoleFilter, setSelectedRoleFilter] = useState('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
   const [selectedProgrammeFilter, setSelectedProgrammeFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [programmeOptions, setProgrammeOptions] = useState<
     { value: string; label: string }[]
@@ -105,7 +106,12 @@ export function UserManagementPage() {
   }, []);
 
   const filteredUsers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return users.filter((u) => {
+      const searchOk =
+        !q ||
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q);
       const wantedCode = ROLE_FILTER_MAP[selectedRoleFilter];
       const roleOk =
         selectedRoleFilter === 'all' ||
@@ -116,9 +122,15 @@ export function UserManagementPage() {
       const programmeOk =
         selectedProgrammeFilter === 'all' ||
         u.programmeId === selectedProgrammeFilter;
-      return roleOk && statusOk && programmeOk;
+      return searchOk && roleOk && statusOk && programmeOk;
     });
-  }, [users, selectedRoleFilter, selectedStatusFilter, selectedProgrammeFilter]);
+  }, [
+    users,
+    searchQuery,
+    selectedRoleFilter,
+    selectedStatusFilter,
+    selectedProgrammeFilter,
+  ]);
 
   const columns = [
     { header: 'Name', accessorKey: 'name' as const },
@@ -246,11 +258,6 @@ export function UserManagementPage() {
     }
   };
 
-  const handleBulkAction = (action: string, ids: string[]) => {
-    toast.success(
-      `${action === 'delete' ? 'Deleted' : 'Approved'} ${ids.length} users in selected learnership scope`,
-    );
-  };
 
   if (loading) {
     return (
@@ -276,7 +283,11 @@ export function UserManagementPage() {
 
       <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col sm:flex-row gap-4 items-end">
         <div className="flex-1 w-full">
-          <Input placeholder="Search users by name or email..." />
+          <Input
+            placeholder="Search users by name or email..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
         </div>
         <div className="w-full sm:w-56">
           <Select
@@ -319,8 +330,6 @@ export function UserManagementPage() {
         data={filteredUsers}
         columns={columns}
         keyField="id"
-        selectable={true}
-        onBulkAction={handleBulkAction}
       />
 
       <Modal

@@ -34,7 +34,10 @@ export class CreateLearningMaterialDto {
   @MaxLength(64)
   moduleCode?: string;
 
-  @ApiPropertyOptional({ description: 'learner-guide | learner-workbook | summative | other | na' })
+  @ApiPropertyOptional({
+    description:
+      'facilitator-guide | summative-memo | learner-guide | learner-workbook | summative | practical-* | workplace-* | other | na',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(32)
@@ -140,7 +143,10 @@ export class ListMaterialsQueryDto {
   @IsString()
   component?: string;
 
-  @ApiPropertyOptional({ description: 'km-only | learner-guide | learner-workbook | summative | other' })
+  @ApiPropertyOptional({
+    description:
+      'km-only | pm-only | wm-only | facilitator-guide | summative-memo | learner-guide | learner-workbook | summative | practical-guide | workplace-guide | other',
+  })
   @IsOptional()
   @IsString()
   artifact?: string;
