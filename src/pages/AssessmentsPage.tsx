@@ -51,8 +51,15 @@ export function AssessmentsPage() {
 
   const pending = useMemo(
     () =>
-      instances.filter(
-        (i) => i.status === 'submitted' || i.status === 'grading',
+      instances.filter((i) =>
+        [
+          'submitted',
+          'grading',
+          'facilitator_grading',
+          'facilitator_graded',
+          'assessor_review',
+          'assessor_verified',
+        ].includes(i.status),
       ),
     [instances],
   );
@@ -90,7 +97,11 @@ export function AssessmentsPage() {
         submittedDate: i.submittedAt
           ? new Date(i.submittedAt).toLocaleDateString()
           : '—',
-        status: i.status === 'grading' ? 'In review' : 'Pending',
+        status: ['grading', 'facilitator_grading', 'assessor_review'].includes(
+          i.status,
+        )
+          ? 'In review'
+          : 'Pending',
       })),
     [pending],
   );

@@ -21,6 +21,7 @@ import {
   userService,
 } from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import { downloadJson } from '../utils/downloadJson';
 type AuditLearnerRecord = {
   id: string;
   name: string;
@@ -449,8 +450,34 @@ export function AuditPage() {
           <Button
             variant="outline"
             leftIcon={<Download className="h-4 w-4" />}
-            disabled
-            title="Batch POE export requires learner selection from the directory">
+            onClick={async () => {
+              if (!selectedProgrammeId) {
+                toast.error('Select a programme first');
+                return;
+              }
+              try {
+                const res = await learnerService.getAll({
+                  programme: selectedProgrammeId,
+                });
+                const learners = res.data ?? [];
+                downloadJson(`poe-batch-${selectedProgrammeId}.json`, {
+                  exportedAt: new Date().toISOString(),
+                  programmeId: selectedProgrammeId,
+                  learnerCount: learners.length,
+                  learners: learners.map((l) => ({
+                    id: l.id,
+                    name: l.name,
+                    status: l.status,
+                    programme: l.programmeName,
+                  })),
+                });
+                toast.success(
+                  `POE batch index exported for ${learners.length} learner(s)`,
+                );
+              } catch {
+                toast.error('Could not export POE batch index');
+              }
+            }}>
             
             Download Batch POE
           </Button>

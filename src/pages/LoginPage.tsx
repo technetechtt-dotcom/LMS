@@ -172,7 +172,15 @@ export function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-gray-500">
-          POPIA-compliant system. See Privacy Policy and Terms of Service.
+          POPIA-compliant system. See{' '}
+          <Link to="/privacy" className="text-brand-blue hover:underline">
+            Privacy Policy
+          </Link>{' '}
+          and{' '}
+          <Link to="/terms" className="text-brand-blue hover:underline">
+            Terms of Service
+          </Link>
+          .
         </p>
       </div>
     </div>

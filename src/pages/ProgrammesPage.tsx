@@ -338,8 +338,9 @@ export function ProgrammesPage() {
         <Button
           variant="secondary"
           leftIcon={<Filter className="h-4 w-4" />}
-          disabled
-          title="Filters apply automatically when you change the dropdown">
+          onClick={() =>
+            toast.info('Filters apply automatically when you change a dropdown')
+          }>
           
           Filter
         </Button>

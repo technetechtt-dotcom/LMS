@@ -1037,8 +1037,10 @@ export function FacilitatorSETACompliancePage() {
             </h3>
             <Button
             leftIcon={<Calendar className="h-4 w-4" />}
-            disabled
-            title="Scheduling is managed outside the LMS">
+            onClick={() => {
+              setActiveTab('submissions');
+              toast.info('Review upcoming SETA submissions below');
+            }}>
             
               Schedule Submission
             </Button>
@@ -1167,8 +1169,10 @@ export function FacilitatorSETACompliancePage() {
             </h3>
             <Button
             leftIcon={<Calendar className="h-4 w-4" />}
-            disabled
-            title="Audit scheduling is managed outside the LMS">
+            onClick={() => {
+              setActiveTab('audits');
+              toast.info('Review audit and verification details below');
+            }}>
             
               Schedule Audit
             </Button>
@@ -1192,8 +1196,10 @@ export function FacilitatorSETACompliancePage() {
                 size="sm"
                 variant="outline"
                 className="mt-3"
-                disabled
-                title="Checklist is maintained offline">
+                onClick={() => {
+                  setActiveTab('documents');
+                  toast.info('Upload and verify required compliance documents');
+                }}>
                 
                   View Preparation Checklist
                 </Button>

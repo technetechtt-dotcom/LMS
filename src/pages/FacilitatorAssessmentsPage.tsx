@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { assessmentService, instrumentService } from '../services/api';
+import { downloadJson } from '../utils/downloadJson';
 import type { Assessment } from '../types';
 
 type InstrumentRow = {
@@ -21,6 +22,9 @@ export function FacilitatorAssessmentsPage() {
   const navigate = useNavigate();
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [instruments, setInstruments] = useState<InstrumentRow[]>([]);
+  const [unitStandards, setUnitStandards] = useState<
+    Array<{ id: string; code: string; title: string }>
+  >([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -28,11 +32,21 @@ export function FacilitatorAssessmentsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await assessmentService.getAll();
+        const [aRes, unitsRes] = await Promise.all([
+          assessmentService.getAll(),
+          instrumentService.listUnitStandards(),
+        ]);
         if (cancelled) return;
-        const list = res.data ?? [];
+        const list = aRes.data ?? [];
         setAssessments(list);
-        const unitIds = [...new Set(list.map((a) => a.moduleId).filter(Boolean))];
+        setUnitStandards(unitsRes.data ?? []);
+
+        const unitIds = [
+          ...new Set([
+            ...(unitsRes.data ?? []).map((u) => u.id),
+            ...list.map((a) => a.moduleId).filter(Boolean),
+          ]),
+        ];
         const allInstruments: InstrumentRow[] = [];
         for (const unitId of unitIds) {
           const inst = await instrumentService.listByUnit(unitId);
@@ -65,7 +79,8 @@ export function FacilitatorAssessmentsPage() {
     };
   }, []);
 
-  const defaultUnitId = assessments[0]?.moduleId ?? '';
+  const defaultUnitId =
+    unitStandards[0]?.id ?? assessments[0]?.moduleId ?? '';
   const filtered = instruments.filter((i) =>
     i.title.toLowerCase().includes(search.toLowerCase()),
   );
@@ -76,6 +91,25 @@ export function FacilitatorAssessmentsPage() {
     { label: 'Published', value: String(instruments.filter((i) => i.status === 'PUBLISHED').length), icon: <TrendingUp className="h-5 w-5 text-gray-500" /> },
     { label: 'Drafts', value: String(instruments.filter((i) => i.status === 'DRAFT').length), icon: <FileCheck className="h-5 w-5 text-gray-500" /> },
   ];
+
+  const handleExport = () => {
+    downloadJson('assessment-instruments.json', {
+      exportedAt: new Date().toISOString(),
+      instruments: filtered,
+      unitStandards,
+    });
+    toast.success('Instruments exported');
+  };
+
+  const handleNewInstrument = () => {
+    if (!defaultUnitId) {
+      toast.error('No unit standards available — create a programme module first');
+      return;
+    }
+    navigate(
+      `/assessment-builder/new?unitStandardId=${encodeURIComponent(defaultUnitId)}`,
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -88,17 +122,13 @@ export function FacilitatorAssessmentsPage() {
           <Button
             variant="outline"
             leftIcon={<Download className="h-4 w-4" />}
-            disabled>
+            onClick={handleExport}
+            disabled={filtered.length === 0}>
             Export
           </Button>
           <Button
             leftIcon={<Plus className="h-4 w-4" />}
-            disabled={!defaultUnitId}
-            onClick={() =>
-              navigate(
-                `/assessment-builder/new?unitStandardId=${encodeURIComponent(defaultUnitId)}`,
-              )
-            }>
+            onClick={handleNewInstrument}>
             New instrument
           </Button>
         </div>
@@ -128,8 +158,14 @@ export function FacilitatorAssessmentsPage() {
         <p className="text-gray-500">Loading…</p>
       ) : filtered.length === 0 ? (
         <Card className="p-8 text-center text-gray-500">
-          No instruments yet. Create one for unit standard{' '}
-          <code className="text-xs">{defaultUnitId || '—'}</code>
+          No instruments yet.{' '}
+          {defaultUnitId ? (
+            <Button variant="ghost" className="p-0 h-auto" onClick={handleNewInstrument}>
+              Create your first instrument
+            </Button>
+          ) : (
+            'Add programme modules to enable instrument creation.'
+          )}
         </Card>
       ) : (
         <div className="space-y-3">
@@ -157,7 +193,7 @@ export function FacilitatorAssessmentsPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => navigate(`/assessment/${assessments[0]?.id}/submissions`)}>
+                  onClick={() => navigate('/assessments')}>
                   Submissions
                 </Button>
               </div>

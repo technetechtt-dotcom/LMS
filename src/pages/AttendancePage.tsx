@@ -24,6 +24,7 @@ import { Input } from '../components/ui/Input';
 import { attendanceService, learnerService } from '../services/api';
 import { programmeService } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { downloadJson } from '../utils/downloadJson';
 
 type AttendanceRow = {
   id: string;
@@ -105,6 +106,8 @@ export function AttendancePage() {
   );
   const [checkInToken, setCheckInToken] = useState('');
   const [checkInSessionId, setCheckInSessionId] = useState('');
+  const [dateRangeFilter, setDateRangeFilter] = useState('week');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   useEffect(() => {
     programmeService
@@ -136,6 +139,47 @@ export function AttendancePage() {
       cancelled = true;
     };
   }, []);
+
+  const filteredAttendance = useMemo(() => {
+    let rows = attendanceData;
+    if (selectedProgrammeId) {
+      const programme = programmes.find((p) => p.id === selectedProgrammeId);
+      if (programme) {
+        rows = rows.filter((row) => row.program === programme.title);
+      }
+    }
+    if (statusFilter === 'absent') {
+      rows = rows.filter((row) => row.status === 'Absent');
+    }
+    const now = new Date();
+    if (dateRangeFilter === 'week') {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 7);
+      rows = rows.filter((row) => new Date(row.sessionDateIso) >= start);
+    } else if (dateRangeFilter === 'month') {
+      const start = new Date(now);
+      start.setMonth(start.getMonth() - 1);
+      rows = rows.filter((row) => new Date(row.sessionDateIso) >= start);
+    }
+    return rows;
+  }, [
+    attendanceData,
+    selectedProgrammeId,
+    programmes,
+    statusFilter,
+    dateRangeFilter,
+  ]);
+
+  const handleExportSeta = () => {
+    downloadJson('attendance-seta-report.json', {
+      exportedAt: new Date().toISOString(),
+      programmeId: selectedProgrammeId || 'all',
+      dateRange: dateRangeFilter,
+      status: statusFilter,
+      records: filteredAttendance,
+    });
+    toast.success('SETA attendance report exported');
+  };
 
   const stats = useMemo(() => {
     const start = new Date();
@@ -341,9 +385,8 @@ export function AttendancePage() {
           <Button
             variant="outline"
             leftIcon={<Download className="h-4 w-4" />}
-            disabled
-            title="SETA export coming soon">
-            
+            onClick={handleExportSeta}
+            disabled={filteredAttendance.length === 0}>
             Export SETA Report
           </Button>
           <Button
@@ -421,6 +464,8 @@ export function AttendancePage() {
         <div className="w-full sm:w-64">
           <Select
             label="Date Range"
+            value={dateRangeFilter}
+            onChange={(e) => setDateRangeFilter(e.target.value)}
             options={[
             {
               value: 'week',
@@ -429,6 +474,10 @@ export function AttendancePage() {
             {
               value: 'month',
               label: 'This Month'
+            },
+            {
+              value: 'all',
+              label: 'All time'
             }]
             } />
           
@@ -436,6 +485,8 @@ export function AttendancePage() {
         <div className="w-full sm:w-64">
           <Select
             label="Attendance Status"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
             options={[
             {
               value: 'all',
@@ -451,8 +502,9 @@ export function AttendancePage() {
         <Button
           variant="secondary"
           leftIcon={<Filter className="h-4 w-4" />}
-          disabled
-          title="Use programme selector above to filter records">
+          onClick={() =>
+            toast.success(`Showing ${filteredAttendance.length} matching records`)
+          }>
           
           Apply Filters
         </Button>
@@ -490,13 +542,13 @@ export function AttendancePage() {
                 Loading attendance…
               </div> :
 
-            <DataTable data={attendanceData} columns={columns} keyField="id" />
+            <DataTable data={filteredAttendance} columns={columns} keyField="id" />
             }
             <div className="p-4 border-t border-gray-100">
               <span className="text-sm text-gray-500">
                 {loading
                   ? '…'
-                  : `${attendanceData.length} record${attendanceData.length === 1 ? '' : 's'}`}
+                  : `${filteredAttendance.length} record${filteredAttendance.length === 1 ? '' : 's'} shown`}
               </span>
             </div>
           </Card>

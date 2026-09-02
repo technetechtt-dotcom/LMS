@@ -97,6 +97,10 @@ export function MaterialsPage() {
   const [componentFilter, setComponentFilter] = useState<string>('all');
   const [programmeFilter, setProgrammeFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [shareEmails, setShareEmails] = useState('');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const [materialsList, setMaterialsList] = useState<TrainingMaterial[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [loading, setLoading] = useState(true);
@@ -270,6 +274,37 @@ export function MaterialsPage() {
       })),
     [filteredMaterials],
   );
+
+  const totalPages = Math.max(1, Math.ceil(tableRows.length / pageSize));
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return tableRows.slice(start, start + pageSize);
+  }, [tableRows, page, pageSize]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, componentFilter, programmeFilter, artifactFilter]);
+
+  const handleShareByEmail = () => {
+    const emails = shareEmails
+      .split(',')
+      .map((e) => e.trim())
+      .filter(Boolean);
+    if (!emails.length) {
+      toast.error('Enter at least one email address');
+      return;
+    }
+    if (!selectedMaterial) return;
+    const link = `${window.location.origin}/materials?highlight=${selectedMaterial.id}`;
+    const subject = encodeURIComponent(`Training material: ${selectedMaterial.title}`);
+    const body = encodeURIComponent(
+      `Please review this training material:\n\n${selectedMaterial.title}\n${link}`,
+    );
+    window.location.href = `mailto:${emails.join(',')}?subject=${subject}&body=${body}`;
+    setShowShareModal(false);
+    setShareEmails('');
+    toast.success('Opening your email client…');
+  };
 
   const columns: Column<MaterialTableRow>[] = [
   {
@@ -734,15 +769,43 @@ export function MaterialsPage() {
             noPadding
             action={
             <div className="flex space-x-2 text-gray-400">
-                <LayoutGrid className="h-5 w-5 cursor-pointer hover:text-gray-600" />
-                <List className="h-5 w-5 cursor-pointer text-gray-600" />
+                <LayoutGrid
+                  className={`h-5 w-5 cursor-pointer hover:text-gray-600 ${viewMode === 'grid' ? 'text-brand-navy' : ''}`}
+                  onClick={() => setViewMode('grid')}
+                />
+                <List
+                  className={`h-5 w-5 cursor-pointer hover:text-gray-600 ${viewMode === 'list' ? 'text-brand-navy' : ''}`}
+                  onClick={() => setViewMode('list')}
+                />
               </div>
             }>
             
             {loading ?
             <p className="p-6 text-sm text-gray-500">Loading materials…</p> :
-            <DataTable data={tableRows} columns={columns} keyField="id" />
-            }
+            viewMode === 'grid' ? (
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {paginatedRows.map((row) => (
+                  <div
+                    key={row.id}
+                    className="border border-gray-200 rounded-lg p-4 hover:border-brand-navy cursor-pointer"
+                    onClick={() => {
+                      setSelectedMaterial(row);
+                      setShowViewerModal(true);
+                    }}>
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-gray-100 rounded-lg">{row.icon}</div>
+                      <div>
+                        <p className="font-medium text-gray-900">{row.title}</p>
+                        <p className="text-xs text-gray-500 mt-1">{row.program}</p>
+                        <p className="text-xs text-gray-400 mt-1">{row.moduleCode}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+            <DataTable data={paginatedRows} columns={columns} keyField="id" />
+            )}
             <div className="p-4 border-t border-gray-100 flex justify-between items-center">
               <span className="text-sm text-gray-500">
                 {filteredMaterials.length} material
@@ -750,19 +813,21 @@ export function MaterialsPage() {
                 {materialsList.length} in library)
               </span>
               <div className="flex space-x-1">
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}>
                   Previous
                 </Button>
                 <Button size="sm" className="bg-brand-navy text-white">
-                  1
+                  {page}
                 </Button>
-                <Button variant="outline" size="sm">
-                  2
-                </Button>
-                <Button variant="outline" size="sm">
-                  3
-                </Button>
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
                   Next
                 </Button>
               </div>
@@ -1073,17 +1138,17 @@ export function MaterialsPage() {
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Share via Email
             </label>
-            <Input placeholder="Enter email addresses separated by commas" />
+            <Input
+              placeholder="Enter email addresses separated by commas"
+              value={shareEmails}
+              onChange={(e) => setShareEmails(e.target.value)} />
           </div>
           <div className="flex justify-end space-x-2 pt-4">
             <Button variant="outline" onClick={() => setShowShareModal(false)}>
               Cancel
             </Button>
-            <Button
-              disabled
-              title="Email invitations are not configured in this release">
-              
-              Send Invitation
+            <Button onClick={handleShareByEmail}>
+              Send via Email
             </Button>
           </div>
         </div>

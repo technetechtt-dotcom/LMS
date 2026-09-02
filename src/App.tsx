@@ -246,7 +246,7 @@ function App() {
             <Route
               path="facilitator-assessments"
               element={
-                <RoleGate allowedRoles={['Facilitator']}>
+                <RoleGate allowedRoles={['Admin', 'Facilitator']}>
                   <FacilitatorAssessmentsPage />
                 </RoleGate>
               }
@@ -404,7 +404,12 @@ function App() {
               path="materials"
               element={
                 <RoleGate
-                  allowedRoles={['Admin', 'Facilitator', 'Learner']}>
+                  allowedRoles={[
+                    'Admin',
+                    'Facilitator',
+                    'Learner',
+                    'Workplace Mentor',
+                  ]}>
                   <MaterialsPage />
                 </RoleGate>
               }

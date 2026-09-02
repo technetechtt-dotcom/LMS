@@ -15,12 +15,14 @@ interface NotificationPanelProps {
   onClose: () => void;
   notifications: Notification[];
   onMarkAllRead: () => void;
+  onNotificationClick?: (notification: Notification) => void;
 }
 export function NotificationPanel({
   isOpen,
   onClose,
   notifications,
-  onMarkAllRead
+  onMarkAllRead,
+  onNotificationClick
 }: NotificationPanelProps) {
   const getIcon = (type: Notification['type']) => {
     switch (type) {
@@ -82,8 +84,11 @@ export function NotificationPanel({
                   {notifications.map((notification) =>
               <li
                 key={notification.id}
-                className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${!notification.read ? 'bg-blue-50/50' : ''}`}>
-                
+                className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${!notification.read ? 'bg-blue-50/50' : ''}`}
+                onClick={() => {
+                  onNotificationClick?.(notification);
+                  onClose();
+                }}>
                       <div className="flex items-start space-x-3">
                         <div className="flex-shrink-0 mt-0.5">
                           {getIcon(notification.type)}

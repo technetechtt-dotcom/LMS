@@ -732,11 +732,14 @@ export function LearnersPage() {
               <Button
                 variant="outline"
                 className="w-full justify-start"
-                disabled
-                title="Remedial study plans are not automated yet">
+                onClick={() => {
+                  setShowRiskModal(false);
+                  navigate('/materials');
+                  toast.info('Browse remedial materials in the library');
+                }}>
                 
                 <BookOpen className="w-4 h-4 mr-2" />
-                Generate Remedial Study Plan
+                Browse Remedial Materials
               </Button>
             </div>
           </div>

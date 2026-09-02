@@ -52,7 +52,7 @@ export function CompliancePage() {
     checked: true
   }]
   );
-  const alerts = [
+  const initialAlerts = [
   {
     id: 1,
     severity: 'high',
@@ -71,6 +71,12 @@ export function CompliancePage() {
     message: 'Facilitator logbook signature missing for 12 May session',
     programme: 'NC: Systems Dev'
   }];
+  const [alerts, setAlerts] = useState(initialAlerts);
+
+  const resolveAlert = (id: number) => {
+    setAlerts((prev) => prev.filter((alert) => alert.id !== id));
+    toast.success('Alert marked as resolved');
+  };
 
   const toggleChecklist = (id: number) => {
     setChecklist(
@@ -178,7 +184,12 @@ export function CompliancePage() {
         {/* Alerts */}
         <Card title="Non-Compliance Alerts">
           <div className="space-y-4">
-            {alerts.map((alert) =>
+            {alerts.length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-6">
+                No open compliance alerts.
+              </p>
+            ) : (
+            alerts.map((alert) =>
             <div
               key={alert.id}
               className={`p-4 rounded-md border-l-4 ${alert.severity === 'high' ? 'bg-red-50 border-red-500' : alert.severity === 'medium' ? 'bg-amber-50 border-amber-500' : 'bg-blue-50 border-blue-500'}`}>
@@ -201,13 +212,13 @@ export function CompliancePage() {
                   size="sm"
                   variant="outline"
                   className="ml-2"
-                  disabled
-                  title="Resolution workflow is managed offline">
+                  onClick={() => resolveAlert(alert.id)}>
                   
                     Resolve
                   </Button>
                 </div>
               </div>
+            )
             )}
           </div>
         </Card>
