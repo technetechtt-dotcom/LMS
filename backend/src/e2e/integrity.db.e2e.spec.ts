@@ -307,6 +307,16 @@ describe('integrity DB E2E', () => {
     expect(row.feedback).toBe('note');
   });
 
+  it('enforces allocated assessor on human grading', async () => {
+    await expect(
+      instances.humanGrade(
+        submissionId,
+        [{ questionId, score: 4 }],
+        asOtherAssessor(),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
   it('rejects human score above question points and ignores client maxScore', async () => {
     await expect(
       instances.humanGrade(
@@ -322,7 +332,6 @@ describe('integrity DB E2E', () => {
       asAssessor(),
     );
     expect(graded.score).toBe(7);
-    await instances.completeGrading(submissionId, asAssessor());
     const stored = await prisma.assessmentSubmission.findUniqueOrThrow({
       where: { id: submissionId },
     });
@@ -331,17 +340,8 @@ describe('integrity DB E2E', () => {
     expect(responses[0].score).toBe(7);
   });
 
-  it('enforces allocated assessor on human grading', async () => {
-    await expect(
-      instances.humanGrade(
-        submissionId,
-        [{ questionId, score: 4 }],
-        asOtherAssessor(),
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
   it('lets allocated assessor finalise C/NYC; moderation does not overwrite it', async () => {
+    await instances.completeGrading(submissionId, asAssessor());
     const finalised = await assessments.finaliseResult(
       assessmentId,
       { result: 'C', feedback: 'competent' },
