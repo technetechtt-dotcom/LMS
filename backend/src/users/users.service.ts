@@ -2,7 +2,9 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Optional,
 } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AddUserMembershipDto, CreateUserDto } from './users.dto';
 import type { AuthUser } from '../common/types/request-with-user';
@@ -11,10 +13,18 @@ import {
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
 import * as bcrypt from 'bcrypt';
+import { MailService } from '../mail/mail.service';
+
+function generateTemporaryPassword(): string {
+  return `${randomBytes(18).toString('base64url')}Aa1!`.slice(0, 20);
+}
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly mail?: MailService,
+  ) {}
 
   list(user?: AuthUser) {
     if (isPlatformAdmin(user)) {
@@ -79,8 +89,10 @@ export class UsersService {
   }
 
   async create(dto: CreateUserDto, _user?: AuthUser) {
-    const passwordHash = await bcrypt.hash(dto.password, 10);
-    return this.prisma.user.create({
+    const temporaryPassword =
+      dto.password?.trim() || generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+    const created = await this.prisma.user.create({
       data: {
         email: dto.email.toLowerCase(),
         firstName: dto.firstName,
@@ -89,6 +101,17 @@ export class UsersService {
         isActive: dto.isActive ?? true,
       },
     });
+    try {
+      await this.mail?.sendWelcome(
+        created.email,
+        created.firstName,
+        temporaryPassword,
+      );
+    } catch {
+      /* welcome mail is best-effort; password is returned once */
+    }
+    const { passwordHash: _omit, ...safe } = created;
+    return { ...safe, temporaryPassword };
   }
 
   async addMembership(dto: AddUserMembershipDto, user?: AuthUser) {

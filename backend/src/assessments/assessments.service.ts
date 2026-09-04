@@ -201,6 +201,7 @@ export class AssessmentsService {
       where: {
         unitStandardId: a.unitStandardId,
         status: 'PUBLISHED',
+        organisationId,
       },
       orderBy: { version: 'desc' },
       select: { id: true },
@@ -271,7 +272,7 @@ export class AssessmentsService {
     if (existingOpen) return existingOpen;
 
     const published = await this.prisma.assessmentInstrument.findFirst({
-      where: { unitStandardId: a.unitStandardId, status: 'PUBLISHED' },
+      where: { unitStandardId: a.unitStandardId, status: 'PUBLISHED', organisationId },
       orderBy: { version: 'desc' },
     });
     if (!published) {
@@ -360,11 +361,31 @@ export class AssessmentsService {
       }
     }
 
+    let moderatorId: string | undefined;
+    if (dto.moderatorId) {
+      const membership = await this.prisma.userOrganisation.findFirst({
+        where: {
+          userId: dto.moderatorId,
+          organisationId,
+          deletedAt: null,
+          user: { deletedAt: null, isActive: true },
+          role: { code: { in: ['MODERATOR', 'QA_OFFICER', 'ADMIN'] }, deletedAt: null },
+        },
+      });
+      if (!membership) {
+        throw new BadRequestException(
+          'moderatorId must be an active MODERATOR/QA_OFFICER/ADMIN in this organisation',
+        );
+      }
+      moderatorId = dto.moderatorId;
+    }
+
     return this.prisma.assessment.create({
       data: {
         enrollmentId: dto.enrollmentId,
         unitStandardId: dto.unitStandardId,
         assessorId,
+        moderatorId,
         result: 'PENDING',
         feedback: dto.feedback,
       },

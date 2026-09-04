@@ -1,4 +1,4 @@
-import { apiFetchJSON, apiFetchFormData, buildQuery } from './httpClient';
+import { apiFetchJSON, apiFetchFormData, apiFetchBlob, buildQuery } from './httpClient';
 import { getAuthPortal } from '../config/authPortal';
 import type {
   User,
@@ -163,6 +163,8 @@ export const authService = {
     firstName?: string;
     lastName?: string;
     email?: string;
+    phone?: string;
+    jobTitle?: string;
   }): Promise<ApiResponse<User>> => {
     const raw = await apiFetchJSON<User | ApiResponse<User>>('/auth/me', {
       method: 'PATCH',
@@ -170,6 +172,16 @@ export const authService = {
     });
     const data = unwrapData(raw);
     return { data, success: true };
+  },
+
+  uploadSignature: async (file: File): Promise<ApiResponse<User>> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const raw = await apiFetchFormData<User | ApiResponse<User>>(
+      '/auth/me/signature',
+      fd,
+    );
+    return { data: unwrapData(raw), success: true };
   },
 
   changePassword: async (
@@ -389,6 +401,23 @@ export const assessmentService = {
       {},
     );
     return raw;
+  },
+
+  uploadAnswerFile: async (
+    submissionId: string,
+    questionId: string,
+    file: File,
+  ): Promise<ApiResponse<{ uploaded?: { storageKey: string; fileName: string } }>> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const raw = await apiFetchFormData<
+      | ApiResponse<{ uploaded?: { storageKey: string; fileName: string } }>
+      | { uploaded?: { storageKey: string; fileName: string } }
+    >(
+      `/assessment-instances/${encodeURIComponent(submissionId)}/files?questionId=${encodeURIComponent(questionId)}`,
+      fd,
+    );
+    return { data: unwrapData(raw), success: true };
   },
 
   completeFacilitatorGrading: async (
@@ -1032,9 +1061,12 @@ export const userService = {
     email: string;
     firstName: string;
     lastName: string;
-    password: string;
-  }): Promise<ApiResponse<unknown>> => {
-    return remotePostJson<unknown>('/users', body);
+    password?: string;
+  }): Promise<ApiResponse<{ id: string; temporaryPassword?: string }>> => {
+    return remotePostJson<{ id: string; temporaryPassword?: string }>(
+      '/users',
+      body,
+    );
   },
 
   addMembership: async (body: {
@@ -1285,6 +1317,13 @@ export const reportsService = {
     const data = unwrapData(raw);
     return { data, success: true };
   },
+
+  downloadSnapshot: async (
+    format: 'csv' | 'pdf',
+  ): Promise<{ blob: Blob; filename: string }> => {
+    const file = await apiFetchBlob(`/reports/seta-snapshot?format=${format}`);
+    return { blob: file.blob, filename: file.filename };
+  },
 };
 
 export const attendanceService = {
@@ -1330,6 +1369,36 @@ export const attendanceService = {
     notes?: string;
   }): Promise<ApiResponse<unknown>> => {
     return remotePostJson<unknown>('/attendance', body);
+  },
+
+  summary: async (): Promise<
+    ApiResponse<{
+      scheduledSessions: number;
+      expectedCount: number;
+      present: number;
+      absent: number;
+      excused: number;
+      rate: number;
+    }>
+  > => {
+    const raw = await apiFetchJSON<
+      ApiResponse<{
+        scheduledSessions: number;
+        expectedCount: number;
+        present: number;
+        absent: number;
+        excused: number;
+        rate: number;
+      }>
+    >('/attendance/summary');
+    return { data: unwrapData(raw), success: true };
+  },
+
+  closeSession: async (sessionId: string): Promise<ApiResponse<unknown>> => {
+    return remotePostJson<unknown>(
+      `/attendance/sessions/${encodeURIComponent(sessionId)}/close`,
+      {},
+    );
   },
 };
 
@@ -1390,6 +1459,54 @@ export type CreateEnrollmentPayload = {
   learnerId: string;
   programmeId: string;
   employerOrganisationId?: string;
+};
+
+export const workplaceLogService = {
+  list: async (enrollmentId?: string): Promise<ApiResponse<WorkplaceLogRow[]>> => {
+    const q = buildQuery(enrollmentId ? { enrollmentId } : {});
+    const raw = await apiFetchJSON<ApiResponse<WorkplaceLogRow[]> | WorkplaceLogRow[]>(
+      `/workplace-logs${q}`,
+    );
+    const list = unwrapData(raw);
+    return { data: Array.isArray(list) ? list : [], success: true };
+  },
+
+  create: async (body: {
+    enrollmentId: string;
+    logDate: string;
+    hoursWorked: number;
+    activity: string;
+    supervisorName: string;
+    supervisorEmail?: string;
+  }): Promise<ApiResponse<WorkplaceLogRow>> => {
+    return remotePostJson<WorkplaceLogRow>('/workplace-logs', body);
+  },
+
+  mentorVerify: async (
+    id: string,
+    decision: 'approve' | 'reject',
+    feedback?: string,
+  ): Promise<ApiResponse<WorkplaceLogRow>> => {
+    return remotePostJson<WorkplaceLogRow>(
+      `/workplace-logs/${encodeURIComponent(id)}/mentor-verify`,
+      { decision, feedback },
+    );
+  },
+};
+
+export type WorkplaceLogRow = {
+  id: string;
+  enrollmentId: string;
+  logDate: string;
+  hoursWorked: number | string;
+  activity: string;
+  supervisorName: string;
+  mentorStatus: string;
+  mentorFeedback?: string | null;
+  enrollment?: {
+    learner?: { firstName: string; lastName: string };
+    programme?: { title: string };
+  };
 };
 
 export const enrollmentService = {

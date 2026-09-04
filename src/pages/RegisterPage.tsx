@@ -12,7 +12,7 @@ export function RegisterPage() {
   const [params] = useSearchParams();
   const inviteToken = params.get('invite') ?? '';
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(!!inviteToken);
   const [inviteMeta, setInviteMeta] = useState<{
     email: string;
@@ -52,6 +52,10 @@ export function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isAuthenticated) {
+      toast.error('Sign out first to switch accounts.');
+      return;
+    }
     if (!inviteToken) {
       toast.error('A valid invitation is required to register');
       return;

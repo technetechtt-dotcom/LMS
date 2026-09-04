@@ -7,8 +7,10 @@ services:
     runtime: node
     rootDir: backend
     plan: starter
+    region: frankfurt
     buildCommand: npm ci --include=dev && npm run build
-    startCommand: npm run start:railway
+    preDeployCommand: npm run prisma:migrate:deploy
+    startCommand: npm run start:prod
     healthCheckPath: /health
     buildFilter:
       paths:
@@ -29,6 +31,11 @@ services:
       - key: FRONTEND_ORIGIN
         fromService:
           name: lms-web
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: OPS_ORIGIN
+        fromService:
+          name: lms-ops
           type: web
           envVarKey: RENDER_EXTERNAL_URL
       - key: FILE_STORAGE
@@ -61,6 +68,10 @@ services:
         value: "false"
       - key: PUBLIC_REGISTRATION
         value: "false"
+      - key: ADMIN_ENDPOINTS_ENABLED
+        value: "false"
+      - key: SETA_GATEWAY_URL
+        sync: false
 
   - type: web
     name: lms-web
@@ -88,3 +99,32 @@ services:
           name: lms-api
           type: web
           envVarKey: RENDER_EXTERNAL_URL
+
+  - type: web
+    name: lms-ops
+    runtime: static
+    buildCommand: npm ci && npm run build:ops
+    staticPublishPath: dist-ops
+    buildFilter:
+      paths:
+        - src/**
+        - ops-portal/**
+        - public/**
+        - vite.ops.config.ts
+        - package.json
+        - package-lock.json
+        - tailwind.config.js
+        - postcss.config.js
+        - tsconfig.json
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          name: lms-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: VITE_AUTH_PORTAL
+        value: ops

@@ -47,6 +47,7 @@ jobs:
       NODE_ENV: test
       FILE_STORAGE: mock
       MAIL_PROVIDER: log
+      FRONTEND_ORIGIN: http://localhost:5173
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

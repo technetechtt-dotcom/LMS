@@ -23,6 +23,23 @@ createRoot(rootEl).render(
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    void navigator.serviceWorker.register('/sw.js');
+    if (import.meta.env.PROD) {
+      void navigator.serviceWorker.register('/sw.js');
+      return;
+    }
+
+    // A production worker must not cache Vite's dev client or source modules.
+    void navigator.serviceWorker.getRegistrations().then((registrations) =>
+      Promise.all(registrations.map((registration) => registration.unregister())),
+    );
+    if ('caches' in window) {
+      void caches.keys().then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith('sf-lms-'))
+            .map((key) => caches.delete(key)),
+        ),
+      );
+    }
   });
 }

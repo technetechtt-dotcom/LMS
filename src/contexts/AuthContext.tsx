@@ -8,12 +8,19 @@ import React, {
   type ReactNode,
 } from 'react';
 import type { LoginCredentials, User } from '../types';
-import { getAuthStorageKey } from '../config/authPortal';
+import {
+  getAuthStorageKey,
+  isRoleAllowedInPortal,
+} from '../config/authPortal';
+import {
+  AUTH_SESSION_INVALIDATED_EVENT,
+  getStoredAccessToken,
+} from '../config/authStorage';
 import { authService, auditService } from '../services/api';
 
 interface PersistedAuth {
   user: User;
-  accessToken?: string;
+  accessToken: string;
   linkedLearnerId: string | null;
 }
 
@@ -39,7 +46,14 @@ function loadPersisted(): PersistedAuth | null {
     const raw = localStorage.getItem(getAuthStorageKey());
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedAuth;
-    if (!parsed?.user?.id || !parsed?.user?.email) return null;
+    if (
+      !parsed?.user?.id ||
+      !parsed?.user?.email ||
+      !parsed.accessToken ||
+      !isRoleAllowedInPortal(parsed.user.role)
+    ) {
+      return null;
+    }
     return {
       user: parsed.user,
       accessToken: parsed.accessToken,
@@ -75,37 +89,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       const persisted = loadPersisted();
       if (!persisted) {
+        persistState(null);
         if (!cancelled) setHydrated(true);
         return;
       }
 
-      setUser(persisted.user);
-      setAccessToken(persisted.accessToken ?? null);
-      setLinkedLearnerId(
-        persisted.linkedLearnerId ?? linkedLearnerFromUser(persisted.user),
-      );
-
-      if (persisted.accessToken) {
-        try {
-          const r = await authService.getCurrentUser(persisted.accessToken);
-          if (r.success && !cancelled) {
-            const fresh = r.data;
-            const learnerId = linkedLearnerFromUser(fresh);
-            setUser(fresh);
-            setLinkedLearnerId(learnerId);
-      persistState({
-              user: fresh,
-              accessToken: persisted.accessToken,
-              linkedLearnerId: learnerId,
-            });
+      try {
+        const r = await authService.getCurrentUser(persisted.accessToken);
+        if (r.success && !cancelled) {
+          const fresh = r.data;
+          if (!isRoleAllowedInPortal(fresh.role)) {
+            throw new Error('Session is not valid for this portal');
           }
-        } catch {
-          if (!cancelled) {
-            setUser(null);
-            setAccessToken(null);
-            setLinkedLearnerId(null);
-            persistState(null);
-          }
+          const learnerId = linkedLearnerFromUser(fresh);
+          setUser(fresh);
+          setAccessToken(persisted.accessToken);
+          setLinkedLearnerId(learnerId);
+          persistState({
+            user: fresh,
+            accessToken: persisted.accessToken,
+            linkedLearnerId: learnerId,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setUser(null);
+          setAccessToken(null);
+          setLinkedLearnerId(null);
+          persistState(null);
         }
       }
       if (!cancelled) setHydrated(true);
@@ -115,19 +126,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    const clearSession = () => {
+      setUser(null);
+      setAccessToken(null);
+      setLinkedLearnerId(null);
+      persistState(null);
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === getAuthStorageKey() && event.newValue === null) {
+        clearSession();
+      }
+    };
+    window.addEventListener(AUTH_SESSION_INVALIDATED_EVENT, clearSession);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener(AUTH_SESSION_INVALIDATED_EVENT, clearSession);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
   const login = useCallback(async (credentials: LoginCredentials) => {
+    if (user || accessToken) {
+      throw new Error(
+        'You are already signed in. Sign out first to switch accounts.',
+      );
+    }
     setIsBusy(true);
     try {
       const res = await authService.login(credentials);
       const nextUser = res.data;
       const token = res.accessToken ?? null;
+      if (!token || !isRoleAllowedInPortal(nextUser.role)) {
+        if (token) await authService.logout(token);
+        throw new Error('This account is not authorised for this portal.');
+      }
       const learnerId = linkedLearnerFromUser(nextUser);
       setUser(nextUser);
       setAccessToken(token);
       setLinkedLearnerId(learnerId);
       persistState({
         user: nextUser,
-        accessToken: token ?? undefined,
+        accessToken: token,
         linkedLearnerId: learnerId,
       });
       await auditService.log('login', 'user', nextUser.id, nextUser.email);
@@ -135,15 +175,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsBusy(false);
     }
-  }, []);
+  }, [user, accessToken]);
 
   const logout = useCallback(async () => {
     setIsBusy(true);
     try {
-      await authService.logout(accessToken);
       if (user) {
-        await auditService.log('logout', 'user', user.id, user.email);
+        try {
+          await auditService.log('logout', 'user', user.id, user.email);
+        } catch {
+          /* logout must proceed even when audit delivery fails */
+        }
       }
+      await authService.logout(accessToken ?? getStoredAccessToken());
     } finally {
       setUser(null);
       setAccessToken(null);
@@ -155,7 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
-      isAuthenticated: Boolean(user),
+      isAuthenticated: Boolean(user && accessToken),
       user,
       accessToken,
       linkedLearnerId,

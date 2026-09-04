@@ -3,11 +3,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   assertAllocatedAssessor,
+  assertAllocatedModerator,
   assertEnrollmentAccess,
   canAssessorReview,
   canFacilitatorMark,
@@ -17,6 +19,9 @@ import {
   isPlatformAdmin,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
+import { isObjectiveQuestionType } from '../assessment-instruments/instrument-options';
+import { FileStorageService } from '../common/file-storage.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   gradeAgainstInstrument,
   type ResponseInput,
@@ -24,7 +29,11 @@ import {
 
 @Injectable()
 export class AssessmentInstancesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly files?: FileStorageService,
+    @Optional() private readonly notifications?: NotificationsService,
+  ) {}
 
   private mapSubmission(row: {
     id: string;
@@ -173,6 +182,7 @@ export class AssessmentInstancesService {
         where: {
           unitStandardId: assessment.unitStandardId,
           status: 'PUBLISHED',
+          organisationId,
         },
         orderBy: { version: 'desc' },
       });
@@ -233,6 +243,22 @@ export class AssessmentInstancesService {
             assessment: { include: { unitStandard: true } },
           },
         });
+    await this.notifications?.notify(
+      assessment.enrollment.learnerId,
+      'assessment',
+      'Assessment submitted',
+      'Your assessment was submitted and is awaiting marking.',
+      { assessmentId, submissionId: row.id },
+    );
+    if (assessment.assessorId) {
+      await this.notifications?.notify(
+        assessment.assessorId,
+        'assessment',
+        'Submission ready for review',
+        'A learner submitted an assessment in your queue.',
+        { assessmentId, submissionId: row.id },
+      );
+    }
     return this.mapSubmission(row);
   }
 
@@ -258,10 +284,13 @@ export class AssessmentInstancesService {
         enrollment: enrollmentOrgWhere(requireOrganisationId(user)),
       },
       include: {
-        assessment: { select: { result: true, id: true } },
+        assessment: { select: { result: true, id: true, moderatorId: true } },
       },
     });
     if (!row) throw new NotFoundException('Submission not found');
+    if (row.assessment.moderatorId) {
+      assertAllocatedModerator(user, row.assessment.moderatorId);
+    }
     if (row.status !== 'assessor_verified') {
       throw new BadRequestException(
         'Moderation requires assessor-verified submissions',
@@ -288,7 +317,14 @@ export class AssessmentInstancesService {
       },
     });
 
-    // Moderation records a quality decision; it does not set competency C/NYC.
+    if (decision === 'reject') {
+      await this.prisma.assessment.update({
+        where: { id: row.assessmentId },
+        data: { result: 'NYC', version: { increment: 1 } },
+      });
+    }
+
+    // Moderation records a quality decision; reject clears competency to NYC.
     await this.prisma.moderation.upsert({
       where: { assessmentId: row.assessmentId },
       create: {
@@ -305,6 +341,22 @@ export class AssessmentInstancesService {
         moderatedAt: new Date(),
       },
     });
+
+    const learnerId = updated.enrollment.learner?.id;
+    if (learnerId) {
+      await this.notifications?.notify(
+        learnerId,
+        'moderation',
+        decision === 'approve'
+          ? 'Assessment moderation approved'
+          : 'Assessment returned by moderator',
+        comments ??
+          (decision === 'approve'
+            ? 'Your assessment has been signed off.'
+            : 'Moderation rejected the competency outcome. The result is Not Yet Competent pending rework.'),
+        { submissionId: id, decision },
+      );
+    }
 
     return this.mapSubmission(updated);
   }
@@ -373,6 +425,7 @@ export class AssessmentInstancesService {
           `Unknown questionId ${g.questionId} for this instrument`,
         );
       }
+      if (isObjectiveQuestionType(q.questionType)) continue;
       if (Number(g.score) > q.points) {
         throw new BadRequestException(
           `Score ${g.score} exceeds question points (${q.points})`,
@@ -394,7 +447,10 @@ export class AssessmentInstancesService {
       const existing = responseByQ.get(q.id) ?? { questionId: q.id };
       const hg = gradeMap.get(q.id);
       const points = q.points;
-      const score = hg ? Number(hg.score) : Number(existing.score ?? 0);
+      const existingScore = Number(existing.score ?? 0);
+      const objective = isObjectiveQuestionType(q.questionType);
+      const score =
+        hg && !objective ? Number(hg.score) : existingScore;
       maxScore += points;
       totalScore += score;
       return {
@@ -402,8 +458,8 @@ export class AssessmentInstancesService {
         questionId: q.id,
         score,
         maxScore: points,
-        humanFeedback: hg?.feedback,
-        humanGraded: Boolean(hg),
+        humanFeedback: objective ? existing.humanFeedback : hg?.feedback,
+        humanGraded: Boolean(hg) && !objective,
       };
     });
     const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
@@ -428,7 +484,98 @@ export class AssessmentInstancesService {
         assessment: { include: { unitStandard: true } },
       },
     });
+    const learnerId = updated.enrollment.learner?.id;
+    if (learnerId) {
+      await this.notifications?.notify(
+        learnerId,
+        'grading',
+        'Assessment graded',
+        'An assessor or facilitator has recorded marks on your submission.',
+        { submissionId: id },
+      );
+    }
     return this.mapSubmission(updated);
+  }
+
+  async uploadAnswerFile(
+    submissionId: string,
+    questionId: string,
+    file: Express.Multer.File | undefined,
+    user?: AuthUser,
+  ) {
+    if (!questionId?.trim()) {
+      throw new BadRequestException('questionId is required');
+    }
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('File is required');
+    }
+    if (!this.files) {
+      throw new BadRequestException('File storage is not configured');
+    }
+    const organisationId = requireOrganisationId(user);
+    const row = await this.prisma.assessmentSubmission.findFirst({
+      where: {
+        id: submissionId,
+        status: 'in_progress',
+        enrollment: enrollmentOrgWhere(organisationId),
+      },
+      include: {
+        enrollment: { select: { learnerId: true } },
+        instrument: {
+          select: {
+            questions: {
+              where: { id: questionId, deletedAt: null },
+              select: { questionType: true },
+            },
+          },
+        },
+      },
+    });
+    if (!row) throw new NotFoundException('Submission not found');
+    if (row.enrollment.learnerId !== user?.userId) {
+      throw new ForbiddenException('You may only upload files for your own attempt');
+    }
+    const question = row.instrument?.questions[0];
+    if (!question || question.questionType !== 'file_upload') {
+      throw new BadRequestException(
+        'questionId must identify a file-upload question in this instrument',
+      );
+    }
+
+    const stored = await this.files.upload(
+      file.originalname,
+      file.buffer,
+      file.mimetype,
+      { prefix: 'assessment-answers', organisationId },
+    );
+    const payload = {
+      storageKey: stored.key,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      url: stored.url,
+    };
+
+    const responses = Array.isArray(row.responses)
+      ? (row.responses as Array<Record<string, unknown>>)
+      : [];
+    const next = [
+      ...responses.filter((r) => String(r.questionId ?? '') !== questionId),
+      {
+        questionId,
+        questionType: 'file_upload',
+        answer: payload,
+      },
+    ];
+
+    const updated = await this.prisma.assessmentSubmission.update({
+      where: { id: submissionId },
+      data: { responses: next as object[] },
+      include: {
+        enrollment: { include: { learner: true } },
+        assessment: { include: { unitStandard: true } },
+      },
+    });
+    return { ...this.mapSubmission(updated), uploaded: payload };
   }
 
   /** Autosave in-progress responses (resume support). */

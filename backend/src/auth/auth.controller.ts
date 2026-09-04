@@ -7,8 +7,12 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
@@ -25,8 +29,9 @@ import {
 } from './auth.dto';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
-  clearRefreshCookie,
+  clearAllRefreshCookies,
   portalFromRequest,
+  readAllRefreshTokensFromRequest,
   readRefreshFromRequest,
   setRefreshCookie,
 } from './auth-cookies';
@@ -68,7 +73,9 @@ export class AuthController {
   private sessionWithoutRefreshToken<T extends { refreshToken: string }>(
     session: T,
   ) {
-    const { refreshToken: _omit, ...rest } = session;
+    const { refreshToken: _omit, sessionId: _sessionId, ...rest } = session as T & {
+      sessionId?: string;
+    };
     return rest;
   }
 
@@ -77,9 +84,15 @@ export class AuthController {
   @Post('register')
   async register(
     @Body() dto: RegisterDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    await this.auth.assertAccountSwitchAllowed(
+      dto.email,
+      readAllRefreshTokensFromRequest(req),
+    );
     const session = await this.auth.register(dto);
+    clearAllRefreshCookies(res, this.nodeEnv());
     this.attachRefreshCookie(res, session.refreshToken, 'lms');
     return this.sessionWithoutRefreshToken(session);
   }
@@ -93,13 +106,18 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const portal = dto.portal ?? portalFromRequest(req);
-    const session = await this.auth.login(dto, {
+    await this.auth.assertAccountSwitchAllowed(
+      dto.email,
+      readAllRefreshTokensFromRequest(req),
+    );
+    const session = await this.auth.login({ ...dto, portal }, {
       ip: req.ip,
       userAgent:
         typeof req.headers['user-agent'] === 'string'
           ? req.headers['user-agent']
           : undefined,
     });
+    clearAllRefreshCookies(res, this.nodeEnv());
     this.attachRefreshCookie(res, session.refreshToken, portal);
     return this.sessionWithoutRefreshToken(session);
   }
@@ -120,7 +138,7 @@ export class AuthController {
     if (!token) {
       throw new UnauthorizedException('Missing refresh token');
     }
-    const session = await this.auth.refresh({ refreshToken: token });
+    const session = await this.auth.refresh({ refreshToken: token }, portal);
     this.attachRefreshCookie(res, session.refreshToken, portal);
     return this.sessionWithoutRefreshToken(session);
   }
@@ -153,8 +171,7 @@ export class AuthController {
   ) {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedException('Invalid session');
-    const portal = portalFromRequest(req);
-    clearRefreshCookie(res, this.nodeEnv(), portal);
+    clearAllRefreshCookies(res, this.nodeEnv());
     return this.auth.logoutEverywhere(userId);
   }
 
@@ -175,6 +192,24 @@ export class AuthController {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedException('Invalid session');
     return this.auth.updateProfile(userId, dto);
+  }
+
+  @ApiBearerAuth()
+  @Post('me/signature')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  uploadSignature(
+    @Req() req: Request & { user?: AuthUser },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Invalid session');
+    return this.auth.uploadSignature(userId, file, req.user?.organisationId);
   }
 
   @ApiBearerAuth()

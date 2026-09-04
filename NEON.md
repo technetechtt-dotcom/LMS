@@ -4,7 +4,7 @@ Neon is serverless PostgreSQL. This app already uses **Prisma + Postgres**; you 
 
 ## 1. Create a Neon project
 
-1. Sign up at [neon.com](https://neon.com/) and create a **project** (pick a region close to your API, e.g. `af-south-1` for South Africa).
+1. Sign up at [neon.com](https://neon.com/) and create a **project** in the same region as the API. The included Render Blueprint uses Frankfurt, so select Neon's AWS Frankfurt region (`eu-central-1`).
 2. Open the project → **Connect**.
 3. Copy two strings:
    - **Pooled connection** → `DATABASE_URL` (hostname includes `-pooler`)
@@ -59,7 +59,7 @@ npm run dev:full
 
 Demo logins are in `backend/prisma/seed.ts` (password: `Password123!`).
 
-## 5. Deploy API with Neon (Railway, Render, Fly, etc.)
+## 5. Deploy API with Neon on Render
 
 Set these **environment variables** on your API host (not in the frontend):
 
@@ -71,7 +71,9 @@ Set these **environment variables** on your API host (not in the frontend):
 | `JWT_SECRET` | ≥ 32 chars |
 | `FRONTEND_ORIGIN` | Your SPA origin(s), comma-separated |
 
-Build/start (same as Railway): `prisma migrate deploy` then `node dist/main.js` — see `backend/package.json` script `start:railway`.
+The repository's `render.yaml` deploys the API and both Vite frontends. It runs `npm run prisma:migrate:deploy` as Render's pre-deploy command, then starts the API with `npm run start:prod` (`node dist/src/main.js`). The API and Neon project should both use Frankfurt to minimize application-to-database latency.
+
+During the initial Blueprint setup, provide the Neon strings as the API service's `DATABASE_URL` and `DIRECT_URL` secrets. Render preserves `sync: false` secrets on later Blueprint syncs.
 
 Point the SPA build at your API:
 

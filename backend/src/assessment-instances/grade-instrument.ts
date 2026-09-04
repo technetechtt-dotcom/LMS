@@ -1,3 +1,9 @@
+import {
+  choicesFromOptions,
+  correctIndexFromOptions,
+  trueFalseCorrect,
+} from '../assessment-instruments/instrument-options';
+
 export type ResponseInput = {
   questionId: string;
   questionType?: string;
@@ -24,22 +30,31 @@ function scoreOne(q: BankQuestion | undefined, answer: unknown): {
   if (!q) return { score: 0, isCorrect: false };
   const max = q.points ?? 1;
   const opts = (q.options as Record<string, unknown> | null) ?? {};
-  if (typeof opts.correctIndex === 'number') {
+  const choices = choicesFromOptions(q.options);
+  if (typeof opts.correctIndex === 'number' || choices.length > 0) {
+    const correctIndex = correctIndexFromOptions(q.options);
     const answerIdx =
       typeof answer === 'number'
         ? answer
         : typeof answer === 'string' && /^\d+$/.test(answer)
           ? Number(answer)
-          : Array.isArray(opts.choices)
-            ? (opts.choices as string[]).indexOf(String(answer))
-            : -1;
-    const isCorrect = answerIdx === opts.correctIndex;
+          : choices.indexOf(String(answer));
+    const isCorrect = answerIdx === correctIndex;
     return { score: isCorrect ? max : 0, isCorrect };
   }
-  if (opts.correctAnswer != null) {
-    const isCorrect =
-      String(answer).trim().toLowerCase() ===
-      String(opts.correctAnswer).trim().toLowerCase();
+  if (opts.correctAnswer != null || opts.correct != null) {
+    const expected = trueFalseCorrect(q.options);
+    const normalized =
+      typeof answer === 'string' ? answer.trim().toLowerCase() : undefined;
+    const given =
+      typeof answer === 'boolean'
+        ? answer
+        : normalized === 'true'
+          ? true
+          : normalized === 'false'
+            ? false
+            : undefined;
+    const isCorrect = given !== undefined && given === expected;
     return { score: isCorrect ? max : 0, isCorrect };
   }
   return { score: 0, isCorrect: false };

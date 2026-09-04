@@ -82,6 +82,9 @@ model User {
   passwordHash String
   firstName    String
   lastName     String
+  phone        String?
+  jobTitle     String?
+  signatureStorageKey String?
   isActive     Boolean            @default(true)
   /// SDP-assigned facilitator job capacity (optional).
   facilitatorRole FacilitatorRole?
@@ -144,6 +147,8 @@ model Organisation {
   invitations   Invitation[]
   dataSubjectRequests DataSubjectRequest[]
   attendanceSessions AttendanceSession[]
+  assessmentInstruments AssessmentInstrument[]
+  setaGatewaySubmissions SetaGatewaySubmission[]
 }
 
 model UserOrganisation {
@@ -375,6 +380,7 @@ model Assessment {
   enrollmentId    String           @db.Uuid
   unitStandardId  String           @db.Uuid
   assessorId      String           @db.Uuid
+  moderatorId     String?          @db.Uuid
   result          CompetencyResult @default(PENDING)
   feedback        String?
   evidenceLinks   Json?
@@ -390,6 +396,7 @@ model Assessment {
 
   @@index([enrollmentId, assessedAt])
   @@index([unitStandardId, result])
+  @@index([moderatorId])
 }
 
 model AssessmentSubmission {
@@ -604,6 +611,7 @@ enum AssessmentInstrumentStatus {
 
 model AssessmentInstrument {
   id             String                      @id @default(uuid()) @db.Uuid
+  organisationId String                      @db.Uuid
   unitStandardId String                      @db.Uuid
   version        Int
   title          String?
@@ -615,14 +623,16 @@ model AssessmentInstrument {
   passMark       Int                         @default(50)
   /// Optional time limit in minutes for learner attempts.
   timeLimitMinutes Int?
+  organisation    Organisation                 @relation(fields: [organisationId], references: [id])
   unitStandard   UnitStandard                @relation(fields: [unitStandardId], references: [id])
   questions      AssessmentQuestion[]
   submissions    AssessmentSubmission[]
   createdAt      DateTime                    @default(now())
   updatedAt      DateTime                    @updatedAt
 
-  @@unique([unitStandardId, version])
+  @@unique([organisationId, unitStandardId, version])
   @@index([unitStandardId, status])
+  @@index([organisationId, status])
 }
 
 /// Per–unit-standard question bank; prefer linking via instrumentId for versioning.
@@ -815,11 +825,31 @@ model AttendanceSession {
   tokenHash      String    @unique
   expiresAt      DateTime
   closedAt       DateTime?
+  title          String?
+  scheduledAt    DateTime  @default(now())
+  expectedCount  Int       @default(0)
   createdAt      DateTime  @default(now())
   organisation   Organisation @relation(fields: [organisationId], references: [id])
   programme      Programme    @relation(fields: [programmeId], references: [id])
   checkIns       Attendance[]
 
   @@index([organisationId, programmeId])
+}
+
+/// Regulator gateway submission receipt (SETA/NLRD HTTP integration).
+model SetaGatewaySubmission {
+  id                 String       @id @default(uuid()) @db.Uuid
+  organisationId     String       @db.Uuid
+  batchId            String
+  adapter            String
+  status             String
+  gatewayUrl         String?
+  externalReference  String?
+  responseBody       String?
+  submittedAt        DateTime?
+  createdAt          DateTime     @default(now())
+  organisation       Organisation @relation(fields: [organisationId], references: [id])
+
+  @@index([organisationId, batchId])
 }
 

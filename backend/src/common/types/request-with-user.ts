@@ -3,6 +3,8 @@ export type AuthUser = {
   email: string;
   organisationId?: string;
   roleCodes: string[];
+  sessionId?: string;
+  portal?: 'lms' | 'ops';
 };
 
 export type RequestWithUser = Request & {

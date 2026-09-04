@@ -1,6 +1,7 @@
 import { API_BASE_URL } from '../config/env';
-import { getAuthPortal } from '../config/authPortal';
+import { getAuthPortal, getAuthStorageKey } from '../config/authPortal';
 import {
+  AUTH_SESSION_INVALIDATED_EVENT,
   getStoredAccessToken,
   getStoredOrganisationId,
   applyRefreshedTokens,
@@ -55,9 +56,13 @@ function withTenantHeaders(headers: Headers) {
 
 async function trySilentRefresh(): Promise<string | undefined> {
   const url = `${API_BASE_URL}/auth/refresh`;
+  const portal = getAuthPortal();
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(portal === 'ops' ? { 'X-Auth-Portal': 'ops' } : {}),
+    },
     credentials: 'include',
     body: JSON.stringify({}),
   });
@@ -75,6 +80,23 @@ async function trySilentRefresh(): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+function invalidateLocalSession(path: string, status: number) {
+  const authPath = path.split('?')[0] ?? '';
+  if (
+    status !== 401 ||
+    authPath.startsWith('/auth/login') ||
+    authPath.startsWith('/auth/refresh')
+  ) {
+    return;
+  }
+  try {
+    localStorage.removeItem(getAuthStorageKey());
+  } catch {
+    /* private mode */
+  }
+  window.dispatchEvent(new Event(AUTH_SESSION_INVALIDATED_EVENT));
 }
 
 function shouldRetryWithRefresh(path: string, status: number): boolean {
@@ -145,6 +167,7 @@ export async function apiFetchJSON<T>(
     }
 
     if (!res.ok) {
+      invalidateLocalSession(path, res.status);
       throw new ApiNetworkError(
         text || `Request failed (${res.status})`,
         res.status,
@@ -159,6 +182,44 @@ export async function apiFetchJSON<T>(
     }
   }
 
+  throw new ApiNetworkError('Request failed after refresh', 401, '');
+}
+
+export async function apiFetchBlob(
+  path: string,
+  options?: RequestInit & { accessToken?: string | null },
+): Promise<{ blob: Blob; filename: string; contentType: string }> {
+  if (!API_BASE_URL) {
+    throw new Error('apiFetchBlob requires VITE_API_URL or default API_BASE_URL');
+  }
+  const url = `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  let bearer = resolveAuthHeader(options);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const headers = new Headers(options?.headers);
+    if (bearer) headers.set('Authorization', `Bearer ${bearer}`);
+    withTenantHeaders(headers);
+    const res = await fetch(url, { ...options, headers, credentials: 'include' });
+    if (!res.ok && attempt === 0 && shouldRetryWithRefresh(path, res.status)) {
+      const next = await trySilentRefresh();
+      if (next) {
+        bearer = next;
+        continue;
+      }
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      invalidateLocalSession(path, res.status);
+      throw new ApiNetworkError(text || `Request failed (${res.status})`, res.status, text);
+    }
+    const blob = await res.blob();
+    const disp = res.headers.get('content-disposition') ?? '';
+    const match = /filename="?([^"]+)"?/i.exec(disp);
+    return {
+      blob,
+      filename: match?.[1] ?? 'download',
+      contentType: res.headers.get('content-type') ?? blob.type,
+    };
+  }
   throw new ApiNetworkError('Request failed after refresh', 401, '');
 }
 
@@ -200,6 +261,7 @@ export async function apiFetchFormData<T>(
     }
 
     if (!res.ok) {
+      invalidateLocalSession(path, res.status);
       throw new ApiNetworkError(
         text || `Upload failed (${res.status})`,
         res.status,

@@ -189,6 +189,7 @@ describe('integrity DB E2E', () => {
     unitStandardId = unit.id;
     const instrument = await prisma.assessmentInstrument.create({
       data: {
+        organisationId: orgA,
         unitStandardId: unit.id,
         version: 1,
         title: 'Inst',

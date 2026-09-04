@@ -143,4 +143,86 @@ export class AttendanceService {
       throw err;
     }
   }
+
+  async summary(user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const sessions = await this.prisma.attendanceSession.findMany({
+      where: { organisationId },
+      include: {
+        checkIns: { where: { deletedAt: null } },
+      },
+    });
+    const expectedCount = sessions.reduce(
+      (sum, s) => sum + (s.expectedCount || 0),
+      0,
+    );
+    const present = sessions.reduce(
+      (sum, s) =>
+        sum +
+        s.checkIns.filter((c) => c.status === 'PRESENT' || c.status === 'LATE')
+          .length,
+      0,
+    );
+    const absent = sessions.reduce(
+      (sum, s) =>
+        sum + s.checkIns.filter((c) => c.status === 'ABSENT').length,
+      0,
+    );
+    const excused = sessions.reduce(
+      (sum, s) =>
+        sum + s.checkIns.filter((c) => c.status === 'EXCUSED').length,
+      0,
+    );
+    const denominator = expectedCount > 0 ? expectedCount : present + absent + excused;
+    return {
+      scheduledSessions: sessions.length,
+      expectedCount,
+      present,
+      absent,
+      excused,
+      rate: denominator > 0 ? Math.round((present / denominator) * 1000) / 10 : 0,
+    };
+  }
+
+  async closeSession(sessionId: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const session = await this.prisma.attendanceSession.findFirst({
+      where: { id: sessionId, organisationId },
+    });
+    if (!session) throw new NotFoundException('Attendance session not found');
+    if (session.closedAt) {
+      throw new BadRequestException('Session already closed');
+    }
+
+    const enrollments = await this.prisma.enrollment.findMany({
+      where: {
+        deletedAt: null,
+        programmeId: session.programmeId,
+        ...enrollmentOrgWhere(organisationId),
+      },
+      select: { id: true },
+    });
+    const existing = await this.prisma.attendance.findMany({
+      where: { sessionId: session.id, deletedAt: null },
+      select: { enrollmentId: true },
+    });
+    const marked = new Set(existing.map((r) => r.enrollmentId));
+    const missing = enrollments.filter((e) => !marked.has(e.id));
+    if (missing.length) {
+      await this.prisma.attendance.createMany({
+        data: missing.map((e) => ({
+          enrollmentId: e.id,
+          sessionId: session.id,
+          sessionDate: session.scheduledAt ?? new Date(),
+          status: 'ABSENT' as const,
+        })),
+        skipDuplicates: true,
+      });
+    }
+    await this.prisma.attendanceSession.update({
+      where: { id: session.id },
+      data: { closedAt: new Date() },
+    });
+    return this.summary(user);
+  }
 }

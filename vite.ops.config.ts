@@ -16,6 +16,9 @@ export default defineConfig({
   server: {
     port: 5177,
     strictPort: true,
+    hmr: {
+      clientPort: 5177,
+    },
     fs: {
       allow: [path.resolve(__dirname)],
     },

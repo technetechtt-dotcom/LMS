@@ -1,26 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, Server } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useAuth } from '../contexts/AuthContext';
 import { parseApiErrorMessage } from '../services/httpClient';
+import { OPS_ROLES } from '../config/authPortal';
 import { toast } from 'sonner';
-
-const OPS_ROLES = ['Platform Admin', 'Admin'] as const;
 
 export function OpsLoginPage() {
   const navigate = useNavigate();
-  const { login, isLoading, isAuthenticated, user } = useAuth();
+  const { login, logout, isLoading, isAuthenticated, user } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({ email: '', password: '' });
-
-  useEffect(() => {
-    if (isAuthenticated && user && OPS_ROLES.includes(user.role as (typeof OPS_ROLES)[number])) {
-      navigate('/', { replace: true });
-    }
-  }, [isAuthenticated, user, navigate]);
 
   const validate = () => {
     let isValid = true;
@@ -39,11 +32,16 @@ export function OpsLoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isAuthenticated) {
+      toast.error('Sign out first to switch accounts.');
+      return;
+    }
     if (!validate()) return;
     try {
       const profile = await login({ email, password });
       if (!OPS_ROLES.includes(profile.role as (typeof OPS_ROLES)[number])) {
         toast.error('Use the LMS login for learners and staff (port 5176).');
+        await logout();
         return;
       }
       toast.success('Signed in to Ops Console');
@@ -69,6 +67,31 @@ export function OpsLoginPage() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-slate-900 py-8 px-4 shadow-xl sm:rounded-lg sm:px-10 border border-slate-700">
+          {isAuthenticated && user ? (
+            <div className="space-y-4 text-center">
+              <p className="text-sm text-slate-200">
+                Signed in as {user.name} ({user.role}).
+              </p>
+              <p className="text-sm text-slate-400">
+                Sign out first to switch accounts.
+              </p>
+              {OPS_ROLES.includes(user.role as (typeof OPS_ROLES)[number]) && (
+                <Button className="w-full" onClick={() => navigate('/', { replace: true })}>
+                  Continue to console
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={async () => {
+                  await logout();
+                  toast.success('Signed out. You can now sign in as another operator.');
+                }}>
+                Sign out
+              </Button>
+            </div>
+          ) : (
           <form className="space-y-6" onSubmit={handleLogin}>
             <Input
               label="Operator email"
@@ -94,9 +117,9 @@ export function OpsLoginPage() {
               Sign in to Ops Console
             </Button>
           </form>
+          )}
           <p className="mt-6 text-center text-xs text-slate-500">
-            Demo: <code className="text-slate-400">platform@skillforge.co.za</code> or{' '}
-            <code className="text-slate-400">admin@skillforge.co.za</code>
+            Demo: <code className="text-slate-400">platform@skillforge.co.za</code>
             {' '}— password <code className="text-slate-400">Password123!</code>
           </p>
         </div>

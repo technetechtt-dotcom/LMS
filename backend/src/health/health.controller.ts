@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../common/decorators/public.decorator';
@@ -13,17 +13,20 @@ export class HealthController {
   @Public()
   @Get('health')
   async health() {
-    let db = 'ok';
     try {
       await this.prisma.$queryRaw`SELECT 1`;
+      return {
+        ok: true,
+        db: 'ok',
+        ts: new Date().toISOString(),
+      };
     } catch {
-      db = 'error';
+      throw new ServiceUnavailableException({
+        ok: false,
+        db: 'error',
+        ts: new Date().toISOString(),
+      });
     }
-    return {
-      ok: db === 'ok',
-      db,
-      ts: new Date().toISOString(),
-    };
   }
 
   @Public()

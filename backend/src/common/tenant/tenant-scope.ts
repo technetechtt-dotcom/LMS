@@ -114,6 +114,28 @@ export function assertAllocatedAssessor(
   }
 }
 
+export function assertAllocatedModerator(
+  user: AuthUser | undefined,
+  moderatorId: string | null | undefined,
+): void {
+  if (!user?.userId) {
+    throw new ForbiddenException('Authentication required');
+  }
+  if (isPlatformAdmin(user) || user.roleCodes.includes('ADMIN')) {
+    return;
+  }
+  if (!moderatorId) {
+    throw new ForbiddenException(
+      'No moderator is allocated to this assessment',
+    );
+  }
+  if (user.userId !== moderatorId) {
+    throw new ForbiddenException(
+      'Only the allocated moderator may sign off this assessment',
+    );
+  }
+}
+
 export function canFacilitatorMark(user?: AuthUser | null): boolean {
   return Boolean(
     user &&

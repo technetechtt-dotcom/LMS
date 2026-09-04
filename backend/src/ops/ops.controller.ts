@@ -11,13 +11,13 @@ import { OpsService } from './ops.service';
 export class OpsController {
   constructor(private readonly ops: OpsService) {}
 
-  @Roles('ADMIN', 'PLATFORM_ADMIN')
+  @Roles('PLATFORM_ADMIN')
   @Get('overview')
   overview(@Req() req: Request & { user?: AuthUser }) {
     return this.ops.overview(req.user);
   }
 
-  @Roles('ADMIN', 'PLATFORM_ADMIN')
+  @Roles('PLATFORM_ADMIN')
   @Get('invitations')
   listInvitations(@Req() req: Request & { user?: AuthUser }) {
     return this.ops.listInvitations(req.user);

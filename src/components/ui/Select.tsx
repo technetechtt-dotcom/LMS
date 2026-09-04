@@ -13,16 +13,20 @@ export function Select({
   options,
   error,
   className = '',
+  id,
   ...props
 }: SelectProps) {
+  const autoId = React.useId();
+  const selectId = id ?? autoId;
   return (
     <div className="w-full">
       {label &&
-      <label className="block text-sm font-medium text-gray-700 mb-1">
+      <label htmlFor={selectId} className="block text-sm font-medium text-gray-700 mb-1">
           {label}
         </label>
       }
       <select
+        id={selectId}
         className={`
           block w-full rounded-md border-gray-300 shadow-sm 
           focus:border-brand-navy focus:ring-brand-navy sm:text-sm

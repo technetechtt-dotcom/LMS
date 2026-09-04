@@ -1,5 +1,7 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
@@ -57,6 +59,30 @@ export class AssessmentInstancesController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     const data = await this.instances.humanGrade(id, body.grades, req.user);
+    return { success: true, data };
+  }
+
+  @Roles('LEARNER')
+  @Post(':id/files')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
+  async uploadFile(
+    @Param('id') id: string,
+    @Query('questionId') questionId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.instances.uploadAnswerFile(
+      id,
+      questionId,
+      file,
+      req.user,
+    );
     return { success: true, data };
   }
 

@@ -423,14 +423,50 @@ export function AssessmentTakingPage() {
                 multiple={false}
                 onUpload={(files) => {
                   const f = files[0];
-                  if (f) handleAnswer(f.name);
+                  if (!f) return;
+                  void (async () => {
+                    if (!submissionId) {
+                      toast.error('Start the attempt before uploading a file');
+                      return;
+                    }
+                    try {
+                      const res = await assessmentService.uploadAnswerFile(
+                        submissionId,
+                        currentQuestion.id,
+                        f,
+                      );
+                      const uploaded = res.data?.uploaded;
+                      handleAnswer(
+                        uploaded ?? { fileName: f.name },
+                      );
+                      toast.success('File uploaded');
+                    } catch (err) {
+                      toast.error(
+                        err instanceof Error ? err.message : 'Upload failed',
+                      );
+                    }
+                  })();
                 }}
                 accept=".pdf,.doc,.docx,.zip" />
               
-                {Boolean(responseText(responses[currentQuestion.id])) &&
+                {Boolean(
+                  typeof responses[currentQuestion.id] === 'object' &&
+                    responses[currentQuestion.id] &&
+                    'fileName' in (responses[currentQuestion.id] as object)
+                    ? (responses[currentQuestion.id] as { fileName?: string }).fileName
+                    : responseText(responses[currentQuestion.id]),
+                ) &&
               <div className="flex items-center text-sm text-green-600 bg-green-50 p-2 rounded">
                     <CheckCircle className="h-4 w-4 mr-2" />
-                    File selected: {responseText(responses[currentQuestion.id])}
+                    File uploaded:{' '}
+                    {typeof responses[currentQuestion.id] === 'object' &&
+                    responses[currentQuestion.id] &&
+                    'fileName' in (responses[currentQuestion.id] as object)
+                      ? String(
+                          (responses[currentQuestion.id] as { fileName?: string })
+                            .fileName,
+                        )
+                      : responseText(responses[currentQuestion.id])}
                   </div>
               }
               </div>

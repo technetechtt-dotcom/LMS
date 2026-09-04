@@ -106,11 +106,27 @@ export class LearnersService {
     };
   }
 
-  async list(filters: LearnerListQuery = {}, organisationId?: string) {
+  async list(
+    filters: LearnerListQuery = {},
+    organisationId?: string,
+    user?: AuthUser,
+  ) {
     const where: Prisma.EnrollmentWhereInput = { deletedAt: null };
 
     if (organisationId) {
       Object.assign(where, this.orgScope(organisationId));
+    }
+
+    if (
+      user?.roleCodes?.includes('MENTOR') &&
+      !user.roleCodes.some((c) =>
+        ['ADMIN', 'PLATFORM_ADMIN', 'FACILITATOR', 'QA_OFFICER'].includes(c),
+      )
+    ) {
+      where.metadata = {
+        path: ['workplaceMentorId'],
+        equals: user.userId,
+      };
     }
 
     const programmeId = filters.programme?.trim();
@@ -203,10 +219,16 @@ export class LearnersService {
         ['ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER', 'SETA'].includes(
           c,
         ),
-      ) &&
-      row.learnerId !== user.userId
+      )
     ) {
-      throw new NotFoundException('Learner enrolment not found');
+      if (user.roleCodes?.includes('MENTOR')) {
+        const meta = (row.metadata as { workplaceMentorId?: string } | null) ?? {};
+        if (meta.workplaceMentorId !== user.userId) {
+          throw new NotFoundException('Learner enrolment not found');
+        }
+      } else if (row.learnerId !== user.userId) {
+        throw new NotFoundException('Learner enrolment not found');
+      }
     }
 
     const stats = await this.assessmentStatsForEnrollmentIds([row.id]);

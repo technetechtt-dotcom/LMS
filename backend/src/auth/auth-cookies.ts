@@ -57,6 +57,11 @@ export function clearRefreshCookie(
   });
 }
 
+export function clearAllRefreshCookies(res: Response, nodeEnv: string) {
+  clearRefreshCookie(res, nodeEnv, 'lms');
+  clearRefreshCookie(res, nodeEnv, 'ops');
+}
+
 export function readRefreshFromRequest(
   req: Request,
   bodyToken?: string,
@@ -74,4 +79,14 @@ export function readRefreshFromRequest(
   return typeof fromCookie === 'string' && fromCookie.trim()
     ? fromCookie.trim()
     : undefined;
+}
+
+export function readAllRefreshTokensFromRequest(req: Request): string[] {
+  const cookies = (
+    req as Request & { cookies?: Record<string, string> }
+  ).cookies;
+  return [cookies?.[LMS_REFRESH_COOKIE], cookies?.[OPS_REFRESH_COOKIE]]
+    .filter((token): token is string => typeof token === 'string' && Boolean(token.trim()))
+    .map((token) => token.trim())
+    .filter((token, index, tokens) => tokens.indexOf(token) === index);
 }

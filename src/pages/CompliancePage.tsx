@@ -11,30 +11,22 @@ import { Button } from '../components/ui/Button';
 import { ComplianceGauge } from '../components/dashboard/ComplianceGauge';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { complianceService, reportsService } from '../services/api';
-import { downloadJson } from '../utils/downloadJson';
+import { downloadJson, triggerDownload } from '../utils/downloadJson';
 import { openFileUrl } from '../utils/exportData';
 
 export function CompliancePage() {
   const [docCount, setDocCount] = useState(0);
   const [exporting, setExporting] = useState(false);
-
-  useEffect(() => {
-    complianceService
-      .getDocuments()
-      .then((res) => setDocCount((res.data ?? []).length))
-      .catch(() => toast.error('Could not load compliance documents'));
-  }, []);
-
   const [checklist, setChecklist] = useState([
   {
     id: 1,
     label: 'Learner Registration Data (NLRD Format)',
-    checked: true
+    checked: false
   },
   {
     id: 2,
     label: 'Assessment Guides & Instruments Approved',
-    checked: true
+    checked: false
   },
   {
     id: 3,
@@ -49,31 +41,58 @@ export function CompliancePage() {
   {
     id: 5,
     label: 'Health & Safety Compliance Certificate',
-    checked: true
+    checked: false
   }]
   );
-  const initialAlerts = [
-  {
-    id: 1,
-    severity: 'high',
-    message: '3 Learners in Cohort 2023-A missing certified ID copies',
-    programme: 'NC: Systems Dev'
-  },
-  {
-    id: 2,
-    severity: 'medium',
-    message: 'Moderation report overdue for Batch B assessments',
-    programme: 'FETC: Project Mgmt'
-  },
-  {
-    id: 3,
-    severity: 'low',
-    message: 'Facilitator logbook signature missing for 12 May session',
-    programme: 'NC: Systems Dev'
-  }];
-  const [alerts, setAlerts] = useState(initialAlerts);
+  const [alerts, setAlerts] = useState<
+    Array<{ id: string; severity: string; message: string; programme: string }>
+  >([]);
 
-  const resolveAlert = (id: number) => {
+  useEffect(() => {
+    Promise.all([
+      complianceService.getDocuments(),
+      complianceService.getSubmissions(),
+    ])
+      .then(([docs, subs]) => {
+        const documents = docs.data ?? [];
+        const submissions = subs.data ?? [];
+        setDocCount(documents.length);
+        setChecklist((prev) =>
+          prev.map((item) => {
+            if (item.id === 1) return { ...item, checked: submissions.length > 0 };
+            if (item.id === 2)
+              return { ...item, checked: documents.some((d) => /instrument|guide/i.test(d.category + d.name)) };
+            if (item.id === 3)
+              return { ...item, checked: documents.some((d) => /moderat/i.test(d.name + d.category)) };
+            if (item.id === 5)
+              return { ...item, checked: documents.some((d) => /health|safety/i.test(d.name + d.category)) };
+            return item;
+          }),
+        );
+        const nextAlerts = [
+          ...documents
+            .filter((d) => /pending|expired|missing/i.test(d.status))
+            .map((d) => ({
+              id: d.id,
+              severity: /expired|missing/i.test(d.status) ? 'high' : 'medium',
+              message: `${d.name} is ${d.status.replace(/_/g, ' ')}`,
+              programme: d.category,
+            })),
+          ...submissions
+            .filter((s) => /pending|rejected|overdue/i.test(s.status))
+            .map((s) => ({
+              id: s.id,
+              severity: /rejected|overdue/i.test(s.status) ? 'high' : 'medium',
+              message: `${s.type} ${s.reference} is ${s.status}`,
+              programme: 'SETA submission',
+            })),
+        ];
+        setAlerts(nextAlerts);
+      })
+      .catch(() => toast.error('Could not load compliance documents'));
+  }, []);
+
+  const resolveAlert = (id: string) => {
     setAlerts((prev) => prev.filter((alert) => alert.id !== id));
     toast.success('Alert marked as resolved');
   };
@@ -113,10 +132,12 @@ export function CompliancePage() {
           leftIcon={<Download className="h-4 w-4" />}
           onClick={async () => {
             try {
-              const [docs, snap] = await Promise.all([
+              const [docs, snap, file] = await Promise.all([
                 complianceService.getDocuments(),
                 reportsService.getSetaSnapshot(),
+                reportsService.downloadSnapshot('pdf'),
               ]);
+              triggerDownload(file.blob, file.filename || 'compliance-report.pdf');
               downloadJson('compliance-report.json', {
                 checklist,
                 documents: docs.data ?? [],

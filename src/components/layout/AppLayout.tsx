@@ -10,10 +10,7 @@ import { resolveLearnerProfilePath } from '../../utils/learnerNav';
 
 export function AppLayout() {
   const { user, linkedLearnerId } = useAuth();
-  const [demoRole, setDemoRole] = useState<string | null>(null);
-  const showRoleSwitcher = import.meta.env.DEV;
-  const userRole =
-  showRoleSwitcher && demoRole ? demoRole : user?.role ?? 'Learner';
+  const userRole = user?.role ?? 'Learner';
   const learnerProfilePath = user
     ? resolveLearnerProfilePath(user, linkedLearnerId)
     : undefined;
@@ -27,11 +24,7 @@ export function AppLayout() {
       {/* Desktop Sidebar */}
       <Sidebar
         userRole={userRole}
-        onRoleChange={(r) => {
-          if (showRoleSwitcher) setDemoRole(r);
-        }}
         learnerProfilePath={learnerProfilePath}
-        showRoleSwitcher={showRoleSwitcher}
         isCollapsed={isSidebarCollapsed}
         toggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
       
@@ -39,11 +32,7 @@ export function AppLayout() {
       {/* Mobile Sidebar Overlay */}
       <Sidebar
         userRole={userRole}
-        onRoleChange={(r) => {
-          if (showRoleSwitcher) setDemoRole(r);
-        }}
         learnerProfilePath={learnerProfilePath}
-        showRoleSwitcher={showRoleSwitcher}
         isCollapsed={false}
         toggleCollapse={() => undefined}
         isMobile={true}

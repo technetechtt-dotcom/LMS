@@ -126,7 +126,17 @@ export class FileStorageService {
   assertValidStorageKey(
     storageKey: string,
     organisationId: string,
-    allowedPrefixes = ['uploads', 'poe', 'certificates', 'compliance', 'materials'],
+    allowedPrefixes = [
+      'uploads',
+      'poe',
+      'certificates',
+      'compliance',
+      'materials',
+      'assessment-answers',
+      'messages',
+      'signatures',
+      'exports',
+    ],
   ): string {
     let key = storageKey.trim();
     if (key.startsWith('storage://')) {

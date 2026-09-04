@@ -8,6 +8,8 @@ type StoredAuth = {
 
 /** @deprecated Use getAuthStorageKey() — kept for imports that expect a constant. */
 export const AUTH_STORAGE_KEY = 'skillforge_auth_v1';
+export const AUTH_SESSION_INVALIDATED_EVENT =
+  'skillforge:auth-session-invalidated';
 
 function storageKey() {
   return getAuthStorageKey();

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomUUID } from 'crypto';
@@ -10,8 +11,9 @@ import * as QRCode from 'qrcode';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../common/file-storage.service';
 import type { AuthUser } from '../common/types/request-with-user';
-import { requireOrganisationId } from '../common/tenant/tenant-scope';
+import { requireOrganisationId, isLearnerOnly } from '../common/tenant/tenant-scope';
 import { PoeWorkflowService } from '../poe/poe-workflow.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class CertificatesService {
@@ -20,6 +22,7 @@ export class CertificatesService {
     private readonly files: FileStorageService,
     private readonly poeWorkflow: PoeWorkflowService,
     private readonly config: ConfigService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   private mapCredential(row: {
@@ -59,6 +62,9 @@ export class CertificatesService {
       where: {
         organisationId,
         ...(enrollmentId ? { enrollmentId } : {}),
+        ...(isLearnerOnly(user)
+          ? { enrollment: { learnerId: user!.userId } }
+          : {}),
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -204,6 +210,14 @@ export class CertificatesService {
       },
     });
 
+    await this.notifications?.notify(
+      enrollment.learnerId,
+      'credential',
+      'Certificate issued',
+      `A certificate of competence has been issued for ${programmeName}.`,
+      { credentialId: credential.id, verificationCode },
+    );
+
     return this.mapCredential(credential);
   }
 
@@ -237,7 +251,7 @@ export class CertificatesService {
     }).then((c) => this.mapCredential(c));
   }
 
-  /** Reissue: mark prior ISSUED credential SUPERSEDED and issue a replacement. */
+  /** Reissue: issue a replacement first, then mark the prior credential SUPERSEDED. */
   async reissue(id: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const prior = await this.prisma.credential.findFirst({
@@ -248,33 +262,42 @@ export class CertificatesService {
       throw new BadRequestException('Cannot reissue a revoked credential');
     }
 
-    await this.prisma.credential.update({
-      where: { id },
-      data: {
-        status: 'SUPERSEDED',
-        metadata: {
-          ...((prior.metadata as object) ?? {}),
-          supersededAt: new Date().toISOString(),
-          supersededByActor: user?.userId,
-        },
-      },
-    });
-
     const replacement = await this.issue(
       { enrollmentId: prior.enrollmentId },
       user,
     );
-    await this.prisma.credential.update({
-      where: { id: replacement.id },
-      data: { supersedesId: prior.id },
-    });
+
+    await this.prisma.$transaction([
+      this.prisma.credential.update({
+        where: { id: prior.id },
+        data: {
+          status: 'SUPERSEDED',
+          metadata: {
+            ...((prior.metadata as object) ?? {}),
+            supersededAt: new Date().toISOString(),
+            supersededByActor: user?.userId,
+            replacementId: replacement.id,
+          },
+        },
+      }),
+      this.prisma.credential.update({
+        where: { id: replacement.id },
+        data: { supersedesId: prior.id },
+      }),
+    ]);
     return { priorId: prior.id, replacement };
   }
 
   async download(id: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const row = await this.prisma.credential.findFirst({
-      where: { id, organisationId },
+      where: {
+        id,
+        organisationId,
+        ...(isLearnerOnly(user)
+          ? { enrollment: { learnerId: user!.userId } }
+          : {}),
+      },
     });
     if (!row) throw new NotFoundException('Credential not found');
     const downloadUrl = await this.files.getSignedDownloadUrl(

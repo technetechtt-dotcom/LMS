@@ -13,7 +13,7 @@ import { Select } from '../components/ui/Select';
 import { DataTable } from '../components/ui/DataTable';
 import { Badge } from '../components/ui/Badge';
 import { toast } from 'sonner';
-import { api, auditService, authService } from '../services/api';
+import { api, auditService, authService, complianceService } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
 type AuditLogRow = {
@@ -26,7 +26,7 @@ type AuditLogRow = {
 };
 
 type NlrdRecordRow = {
-  id: number;
+  id: string;
   name: string;
   idNo: string;
   type: string;
@@ -40,6 +40,12 @@ export function SettingsPage() {
   const [logs, setLogs] = useState<AuditLogRow[]>([]);
   const [profileName, setProfileName] = useState(user?.name ?? '');
   const [profileEmail, setProfileEmail] = useState(user?.email ?? '');
+  const [profilePhone, setProfilePhone] = useState(user?.phone ?? '');
+  const [profileJobTitle, setProfileJobTitle] = useState(user?.jobTitle ?? '');
+  const [hasSignature, setHasSignature] = useState(Boolean(user?.hasSignature));
+  const signatureInputRef = React.useRef<HTMLInputElement>(null);
+  const drawCanvasRef = React.useRef<HTMLCanvasElement>(null);
+  const [drawing, setDrawing] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -49,7 +55,10 @@ export function SettingsPage() {
   useEffect(() => {
     if (user?.name) setProfileName(user.name);
     if (user?.email) setProfileEmail(user.email);
-  }, [user?.name, user?.email]);
+    if (user?.phone) setProfilePhone(user.phone);
+    if (user?.jobTitle) setProfileJobTitle(user.jobTitle);
+    if (user?.hasSignature) setHasSignature(true);
+  }, [user?.name, user?.email, user?.phone, user?.jobTitle, user?.hasSignature]);
 
   useEffect(() => {
     auditService.list(100).then((rows) => {
@@ -64,6 +73,17 @@ export function SettingsPage() {
         })),
       );
     });
+    complianceService.getSubmissions().then((res) => {
+      setNlrdRecords(
+        (res.data ?? []).map((s) => ({
+          id: s.id,
+          name: s.reference,
+          idNo: s.reference,
+          type: s.type,
+          status: s.status,
+        })),
+      );
+    }).catch(() => undefined);
   }, []);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -81,6 +101,8 @@ export function SettingsPage() {
         firstName,
         lastName,
         email: profileEmail.trim(),
+        phone: profilePhone.trim(),
+        jobTitle: profileJobTitle.trim(),
       });
       await auditService.log(
         'PROFILE_UPDATE',
@@ -122,8 +144,22 @@ export function SettingsPage() {
   const handleNLRDSubmit = async () => {
     setNlrdLoading(true);
     try {
-      await api.nlrd.submit({});
-      toast.success('NLRD Batch Submitted Successfully');
+      const res = await api.nlrd.submit({});
+      const subs = await complianceService.getSubmissions();
+      setNlrdRecords(
+        (subs.data ?? []).map((s) => ({
+          id: s.id,
+          name: s.reference,
+          idNo: s.reference,
+          type: s.type,
+          status: s.status,
+        })),
+      );
+      toast.success(
+        res.success
+          ? `NLRD batch ${res.batchId ?? ''} submitted`
+          : 'NLRD export generated',
+      );
     } catch (e) {
       toast.error('Submission Failed');
     } finally {
@@ -165,28 +201,7 @@ export function SettingsPage() {
 
   }];
 
-  const nlrdRecords = [
-  {
-    id: 1,
-    name: 'Thabo Mbeki',
-    idNo: '9501015890089',
-    type: 'Registration',
-    status: 'Ready'
-  },
-  {
-    id: 2,
-    name: 'Lerato Kganyago',
-    idNo: '9605120000000',
-    type: 'Registration',
-    status: 'Ready'
-  },
-  {
-    id: 3,
-    name: 'Sipho Nkosi',
-    idNo: '9402025000000',
-    type: 'Achievement',
-    status: 'Validation Error'
-  }];
+  const [nlrdRecords, setNlrdRecords] = useState<NlrdRecordRow[]>([]);
 
   const nlrdColumns = [
   {
@@ -259,9 +274,30 @@ export function SettingsPage() {
                 <div className="h-24 w-24 rounded-full bg-brand-navy flex items-center justify-center text-3xl font-bold text-white">
                   {(profileName || 'U').slice(0, 2).toUpperCase()}
                 </div>
-                <Button variant="outline" size="sm">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => signatureInputRef.current?.click()}>
                   Change Avatar
                 </Button>
+                <input
+                  ref={signatureInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    void authService
+                      .uploadSignature(file)
+                      .then(() => {
+                        setHasSignature(true);
+                        toast.success('Signature uploaded');
+                      })
+                      .catch(() => toast.error('Could not upload signature'));
+                  }}
+                />
               </div>
 
               {/* Digital Signature Section */}
@@ -269,28 +305,70 @@ export function SettingsPage() {
                 <h4 className="font-medium text-gray-900 mb-3">
                   Digital Signature
                 </h4>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg w-[200px] h-[100px] flex items-center justify-center bg-gray-50 mb-3">
-                  <span className="text-sm text-gray-400 italic">
-                    No signature uploaded
-                  </span>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg w-[200px] h-[100px] flex items-center justify-center bg-gray-50 mb-3 overflow-hidden">
+                  {hasSignature ? (
+                    <span className="text-sm text-green-700">Signature on file</span>
+                  ) : (
+                    <canvas
+                      ref={drawCanvasRef}
+                      width={200}
+                      height={100}
+                      className="cursor-crosshair"
+                      onMouseDown={(e) => {
+                        setDrawing(true);
+                        const ctx = drawCanvasRef.current?.getContext('2d');
+                        if (!ctx) return;
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        ctx.beginPath();
+                        ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+                      }}
+                      onMouseMove={(e) => {
+                        if (!drawing) return;
+                        const ctx = drawCanvasRef.current?.getContext('2d');
+                        if (!ctx) return;
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+                        ctx.stroke();
+                      }}
+                      onMouseUp={() => setDrawing(false)}
+                      onMouseLeave={() => setDrawing(false)}
+                    />
+                  )}
                 </div>
                 <div className="flex space-x-3 mb-2">
                   <Button
+                  type="button"
                   variant="outline"
                   size="sm"
                   leftIcon={<Upload className="h-4 w-4" />}
-                  disabled
-                  title="Signature upload is not configured in this release">
-                  
+                  onClick={() => signatureInputRef.current?.click()}>
                     Upload Signature
                   </Button>
                   <Button
+                  type="button"
                   variant="outline"
                   size="sm"
                   leftIcon={<PenTool className="h-4 w-4" />}
-                  disabled
-                  title="Signature pad is not configured in this release">
-                  
+                  onClick={() => {
+                    const canvas = drawCanvasRef.current;
+                    if (!canvas) {
+                      toast.error('Draw a signature first');
+                      return;
+                    }
+                    canvas.toBlob((blob) => {
+                      if (!blob) return;
+                      const file = new File([blob], 'signature.png', {
+                        type: 'image/png',
+                      });
+                      void authService
+                        .uploadSignature(file)
+                        .then(() => {
+                          setHasSignature(true);
+                          toast.success('Signature saved');
+                        })
+                        .catch(() => toast.error('Could not save signature'));
+                    }, 'image/png');
+                  }}>
                     Draw Signature
                   </Button>
                 </div>
@@ -312,10 +390,20 @@ export function SettingsPage() {
                   value={profileEmail}
                   onChange={(e) => setProfileEmail(e.target.value)}
                 />
-                <Input label="Phone Number" placeholder="Optional" disabled />
+                <Input
+                  label="Phone Number"
+                  placeholder="Optional"
+                  value={profilePhone}
+                  onChange={(e) => setProfilePhone(e.target.value)}
+                />
               </div>
 
-              <Input label="Job Title" placeholder="Optional" disabled />
+              <Input
+                label="Job Title"
+                placeholder="Optional"
+                value={profileJobTitle}
+                onChange={(e) => setProfileJobTitle(e.target.value)}
+              />
               <Input
                 label="Organisation"
                 value={user?.organisation ?? ''}

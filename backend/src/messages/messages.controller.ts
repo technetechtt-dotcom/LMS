@@ -37,10 +37,11 @@ export class MessagesController {
   async send(
     @Req() req: Request & { user?: AuthUser },
     @Body() body: { toId?: string; content?: string },
+    @UploadedFiles() files?: Express.Multer.File[],
   ) {
     const toId = body.toId ?? (req.body as { toId?: string }).toId ?? '';
     const content = body.content ?? (req.body as { content?: string }).content ?? '';
-    const data = await this.messages.send(req.user, toId, content);
+    const data = await this.messages.send(req.user, toId, content, files);
     return { success: true, data };
   }
 }

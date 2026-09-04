@@ -236,9 +236,8 @@ export function UserManagementPage() {
         email,
         firstName,
         lastName,
-        password: 'ChangeMe123!',
       });
-      const userId = (created.data as { id: string }).id;
+      const userId = created.data.id;
       await userService.addMembership({
         userId,
         roleId: role.id,
@@ -250,7 +249,12 @@ export function UserManagementPage() {
         });
       }
       setIsModalOpen(false);
-      toast.success('User created — temporary password ChangeMe123!');
+      const temp = created.data.temporaryPassword;
+      toast.success(
+        temp
+          ? `User created. Temporary password: ${temp}`
+          : 'User created',
+      );
       const userRes = await userService.getAll();
       setUsers((userRes.data ?? []).map(mapDirectoryUser));
     } catch (err) {

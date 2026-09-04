@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -10,6 +12,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import type { LoginDto, RegisterDto, UpdateProfileDto, ChangePasswordDto } from './auth.dto';
 import { mapUserToApiProfile, type UserWithMemberships } from './user-mapper';
+import { FileStorageService } from '../common/file-storage.service';
 import { MailService } from '../mail/mail.service';
 import { InvitationsService } from '../invitations/invitations.service';
 import { redactAuditValue } from '../audit/audit-redact';
@@ -17,6 +20,7 @@ import {
   generateOpaqueRefreshToken,
   hashOpaqueToken,
 } from '../common/crypto/token-crypto';
+import type { AuthPortal } from './auth-cookies';
 
 @Injectable()
 export class AuthService {
@@ -28,6 +32,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly mail: MailService,
     private readonly invitations: InvitationsService,
+    @Optional() private readonly files?: FileStorageService,
   ) {}
 
   private refreshExpiryDate(): Date {
@@ -69,7 +74,7 @@ export class AuthService {
         firstName: dto.firstName,
         lastName: dto.lastName,
       });
-      return this.issueSession(user.id, user.email);
+      return this.issueSession(user.id, user.email, 'lms');
     }
 
     const user = await this.prisma.user.create({
@@ -80,7 +85,29 @@ export class AuthService {
         lastName: dto.lastName,
       },
     });
-    return this.issueSession(user.id, user.email);
+    return this.issueSession(user.id, user.email, 'lms');
+  }
+
+  async assertAccountSwitchAllowed(emailRaw: string, refreshTokens: string[]) {
+    if (refreshTokens.length === 0) return;
+    const tokenHashes = refreshTokens.map(hashOpaqueToken);
+    const activeSession = await this.prisma.refreshToken.findFirst({
+      where: {
+        tokenHash: { in: tokenHashes },
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+        user: { deletedAt: null, isActive: true },
+      },
+      include: { user: { select: { email: true } } },
+    });
+    if (
+      activeSession &&
+      activeSession.user.email.toLowerCase() !== emailRaw.toLowerCase().trim()
+    ) {
+      throw new ConflictException(
+        'Another account is already signed in. Sign out before switching accounts.',
+      );
+    }
   }
 
   async login(
@@ -105,16 +132,9 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
-
-    await this.logLoginAttempt(user.id, email, 'LOGIN_SUCCESS', meta, {});
-
     const portal = dto.portal ?? 'lms';
     const access = await this.userPortalAccess(user.id);
-    if (portal === 'ops' && !access.platform && !access.admin) {
+    if (portal === 'ops' && !access.platform) {
       throw new UnauthorizedException(
         'This account is not authorised for the ops console',
       );
@@ -125,12 +145,18 @@ export class AuthService {
       );
     }
 
-    return this.issueSession(user.id, user.email);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    await this.logLoginAttempt(user.id, email, 'LOGIN_SUCCESS', meta, { portal });
+
+    return this.issueSession(user.id, user.email, portal);
   }
 
   private async userPortalAccess(userId: string): Promise<{
     platform: boolean;
-    admin: boolean;
   }> {
     const rows = await this.prisma.userOrganisation.findMany({
       where: {
@@ -143,7 +169,6 @@ export class AuthService {
     const codes = rows.map((r) => r.role.code);
     return {
       platform: codes.includes('PLATFORM_ADMIN'),
-      admin: codes.includes('ADMIN'),
     };
   }
 
@@ -156,30 +181,45 @@ export class AuthService {
     await new Promise((r) => setTimeout(r, 140 + Math.floor(Math.random() * 120)));
   }
 
-  private async issueSession(userId: string, email: string) {
+  private async issueSession(
+    userId: string,
+    email: string,
+    portal: AuthPortal,
+  ) {
     const apiUser = await this.buildUserResponse(userId);
-    const { accessToken } = await this.signToken(userId, email);
 
     const refreshRaw = generateOpaqueRefreshToken();
     const tokenHash = hashOpaqueToken(refreshRaw);
 
-    await this.prisma.refreshToken.create({
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    const refreshSession = await this.prisma.refreshToken.create({
       data: {
         userId,
         tokenHash,
         expiresAt: this.refreshExpiryDate(),
       },
     });
+    const { accessToken } = await this.signToken(
+      userId,
+      email,
+      refreshSession.id,
+      portal,
+    );
 
     return {
       accessToken,
       refreshToken: refreshRaw,
+      sessionId: refreshSession.id,
       tokenType: 'Bearer' as const,
       user: apiUser,
     };
   }
 
-  async refresh(body: { refreshToken: string }) {
+  async refresh(body: { refreshToken: string }, portal: AuthPortal = 'lms') {
     const hash = hashOpaqueToken(body.refreshToken.trim());
     const row = await this.prisma.refreshToken.findFirst({
       where: {
@@ -193,17 +233,28 @@ export class AuthService {
     if (!row?.user?.email || row.user.deletedAt || !row.user.isActive) {
       throw new UnauthorizedException('Invalid refresh token');
     }
+    const access = await this.userPortalAccess(row.userId);
+    if (portal === 'ops' && !access.platform) {
+      throw new UnauthorizedException(
+        'This account is not authorised for the ops console',
+      );
+    }
+    if (portal === 'lms' && access.platform) {
+      throw new UnauthorizedException(
+        'Platform operators must sign in at http://localhost:5177',
+      );
+    }
 
     const newRaw = generateOpaqueRefreshToken();
     const newHash = hashOpaqueToken(newRaw);
     const expiresAt = this.refreshExpiryDate();
 
-    await this.prisma.$transaction(async (tx) => {
+    const refreshSession = await this.prisma.$transaction(async (tx) => {
       await tx.refreshToken.update({
         where: { id: row.id },
         data: { revokedAt: new Date() },
       });
-      await tx.refreshToken.create({
+      return tx.refreshToken.create({
         data: {
           userId: row.userId,
           tokenHash: newHash,
@@ -212,12 +263,18 @@ export class AuthService {
       });
     });
 
-    const { accessToken } = await this.signToken(row.userId, row.user.email);
+    const { accessToken } = await this.signToken(
+      row.userId,
+      row.user.email,
+      refreshSession.id,
+      portal,
+    );
     const apiUser = await this.buildUserResponse(row.userId);
 
     return {
       accessToken,
       refreshToken: newRaw,
+      sessionId: refreshSession.id,
       tokenType: 'Bearer' as const,
       user: apiUser,
     };
@@ -363,6 +420,8 @@ export class AuthService {
         ...(dto.firstName !== undefined ? { firstName: dto.firstName.trim() } : {}),
         ...(dto.lastName !== undefined ? { lastName: dto.lastName.trim() } : {}),
         ...(email ? { email } : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone.trim() || null } : {}),
+        ...(dto.jobTitle !== undefined ? { jobTitle: dto.jobTitle.trim() || null } : {}),
       },
     });
 
@@ -376,6 +435,30 @@ export class AuthService {
       },
     });
 
+    return this.buildUserResponse(userId);
+  }
+
+  async uploadSignature(
+    userId: string,
+    file: Express.Multer.File | undefined,
+    organisationId?: string,
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Signature file is required');
+    }
+    if (!this.files) {
+      throw new BadRequestException('File storage is not configured');
+    }
+    const stored = await this.files.upload(
+      file.originalname || 'signature.png',
+      file.buffer,
+      file.mimetype || 'image/png',
+      { prefix: 'signatures', organisationId: organisationId ?? 'platform' },
+    );
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { signatureStorageKey: stored.key },
+    });
     return this.buildUserResponse(userId);
   }
 
@@ -457,7 +540,12 @@ export class AuthService {
     });
   }
 
-  private async signToken(userId: string, email: string) {
+  private async signToken(
+    userId: string,
+    email: string,
+    sessionId: string,
+    portal: AuthPortal,
+  ) {
     const memberships = await this.prisma.userOrganisation.findMany({
       where: { userId, deletedAt: null },
       include: { role: true },
@@ -467,6 +555,8 @@ export class AuthService {
     const payload = {
       userId,
       email,
+      sessionId,
+      portal,
       organisationId: primary?.organisationId,
       roleCodes: memberships.map((m) => m.role.code),
     };

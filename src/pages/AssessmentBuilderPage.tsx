@@ -39,14 +39,72 @@ type BuilderQuestion = {
   wordLimit?: number;
 };
 
+function parseBuilderOptions(
+  options: unknown,
+  correctIndex?: number,
+): BuilderMcOption[] {
+  if (Array.isArray(options)) {
+    return options.map((item, oi) => {
+      if (typeof item === 'string') {
+        return {
+          id: `o${oi}`,
+          text: item,
+          isCorrect: oi === (correctIndex ?? 0),
+        };
+      }
+      const rec = (item ?? {}) as { text?: string; isCorrect?: boolean };
+      return {
+        id: `o${oi}`,
+        text: String(rec.text ?? ''),
+        isCorrect:
+          typeof rec.isCorrect === 'boolean'
+            ? rec.isCorrect
+            : oi === (correctIndex ?? 0),
+      };
+    });
+  }
+  if (options && typeof options === 'object') {
+    const rec = options as { choices?: unknown; correctIndex?: number };
+    const choices = Array.isArray(rec.choices) ? rec.choices : [];
+    const idx =
+      typeof rec.correctIndex === 'number' ? rec.correctIndex : (correctIndex ?? 0);
+    return choices.map((text, oi) => ({
+      id: `o${oi}`,
+      text: String(text),
+      isCorrect: oi === idx,
+    }));
+  }
+  return [];
+}
+
+function parseTrueFalseCorrect(q: {
+  correctAnswer?: unknown;
+  options?: unknown;
+}): boolean {
+  if (typeof q.correctAnswer === 'boolean') return q.correctAnswer;
+  if (q.options && typeof q.options === 'object' && !Array.isArray(q.options)) {
+    const rec = q.options as { correct?: unknown; correctAnswer?: unknown };
+    if (typeof rec.correctAnswer === 'boolean') return rec.correctAnswer;
+    if (typeof rec.correct === 'boolean') return rec.correct;
+    if (rec.correctAnswer != null) {
+      return String(rec.correctAnswer).trim().toLowerCase() === 'true';
+    }
+    if (rec.correct != null) {
+      return String(rec.correct).trim().toLowerCase() === 'true';
+    }
+  }
+  return true;
+}
+
 export function AssessmentBuilderPage() {
   const navigate = useNavigate();
-  const { id } = useParams();
+  const { id: routeId } = useParams();
   const [searchParams] = useSearchParams();
   const unitStandardId = searchParams.get('unitStandardId') ?? '';
-  const [instrumentId, setInstrumentId] = useState(id ?? '');
-  const isEditMode = !!instrumentId;
-  const [loading, setLoading] = useState(isEditMode);
+  const isNew = !routeId || routeId === 'new';
+  const [instrumentId, setInstrumentId] = useState(isNew ? '' : (routeId ?? ''));
+  const isEditMode = !isNew;
+  const [loading, setLoading] = useState(!isNew);
   const [settings, setSettings] = useState({
     title: '',
     programme: '',
@@ -103,7 +161,7 @@ export function AssessmentBuilderPage() {
             prompt?: string;
             points?: number;
             orderIndex?: number;
-            options?: string[];
+            options?: unknown;
             correctIndex?: number;
             correctAnswer?: boolean;
           }>;
@@ -137,14 +195,10 @@ export function AssessmentBuilderPage() {
             points: Number(q.points ?? 10),
             options:
               type === 'multiple_choice'
-                ? (q.options ?? []).map((text, oi) => ({
-                    id: `o${oi}`,
-                    text,
-                    isCorrect: oi === (q.correctIndex ?? 0),
-                  }))
+                ? parseBuilderOptions(q.options, q.correctIndex)
                 : undefined,
             correctAnswer:
-              type === 'true_false' ? Boolean(q.correctAnswer) : undefined,
+              type === 'true_false' ? parseTrueFalseCorrect(q) : undefined,
           };
         });
         setQuestions(mapped);
@@ -658,6 +712,36 @@ export function AssessmentBuilderPage() {
                         }} />
                       
                         </div>
+                      </div>
+                  }
+
+                    {q.type === 'true_false' &&
+                  <div className="flex items-center gap-6 pl-4 border-l-2 border-gray-100">
+                        <span className="text-sm text-gray-500">Correct answer:</span>
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                          <input
+                            type="radio"
+                            name={`tf-correct-${q.id}`}
+                            checked={q.correctAnswer === true}
+                            onChange={() => {
+                              const next = [...questions];
+                              next[index].correctAnswer = true;
+                              setQuestions(next);
+                            }} />
+                          True
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                          <input
+                            type="radio"
+                            name={`tf-correct-${q.id}`}
+                            checked={q.correctAnswer === false}
+                            onChange={() => {
+                              const next = [...questions];
+                              next[index].correctAnswer = false;
+                              setQuestions(next);
+                            }} />
+                          False
+                        </label>
                       </div>
                   }
 
