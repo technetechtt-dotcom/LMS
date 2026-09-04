@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "commonjs",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "dev": "npx vite",
     "dev:ops": "cross-env VITE_API_URL=http://localhost:8787 VITE_AUTH_PORTAL=ops npx vite --config vite.ops.config.ts",
