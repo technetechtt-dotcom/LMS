@@ -52,7 +52,9 @@ test.describe('learner assessment flow', () => {
   test('learner can open assessments list', async ({ page }) => {
     await login(page, 'learner@skillforge.co.za');
     await page.goto('/learner-assessments');
-    await expect(page.getByRole('heading', { name: /assessment/i })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'My assessments', exact: true }),
+    ).toBeVisible();
   });
 });
 
@@ -60,7 +62,7 @@ test.describe('static pages', () => {
   test('404 page for unknown routes', async ({ page }) => {
     await login(page, 'learner@skillforge.co.za');
     await page.goto('/this-route-does-not-exist');
-    await expect(page.getByText(/page not found|not found/i)).toBeVisible();
+    await expect(page.getByText(/could not be found/i)).toBeVisible();
   });
 
   test('notifications centre loads', async ({ page }) => {
@@ -84,7 +86,9 @@ test.describe('assessor workflow', () => {
   test('assessor can open submissions review', async ({ page }) => {
     await login(page, 'assessor@skillforge.co.za');
     await page.goto('/assessor-dashboard');
-    await expect(page.getByText(/assessor/i).first()).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Assessor Dashboard', exact: true }),
+    ).toBeVisible();
   });
 });
 
@@ -92,7 +96,9 @@ test.describe('moderator workflow', () => {
   test('moderator dashboard loads queue UI', async ({ page }) => {
     await login(page, 'moderator@skillforge.co.za');
     await page.goto('/moderator-dashboard');
-    await expect(page.getByText(/moderation queue/i)).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Moderator Dashboard', exact: true }),
+    ).toBeVisible();
   });
 });
 
@@ -100,7 +106,9 @@ test.describe('admin credentials', () => {
   test('admin credentials page loads', async ({ page }) => {
     await login(page, 'admin@skillforge.co.za');
     await page.goto('/certificates');
-    await expect(page.getByRole('heading', { name: /credentials/i })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Credentials', exact: true }),
+    ).toBeVisible();
   });
 });
 
