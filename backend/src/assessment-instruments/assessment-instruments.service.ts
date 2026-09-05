@@ -12,6 +12,14 @@ import {
   ReplaceInstrumentQuestionsDto,
   UpdateInstrumentDto,
 } from './assessment-instruments.dto';
+import {
+  choicesFromOptions,
+  correctIndexFromOptions,
+  mapQuestionForBuilder,
+  storeMcqOptions,
+  storeTrueFalseOptions,
+  trueFalseCorrect,
+} from './instrument-options';
 
 @Injectable()
 export class AssessmentInstrumentsService {
@@ -33,9 +41,9 @@ export class AssessmentInstrumentsService {
   }
 
   async listByUnitStandard(unitStandardId: string, user?: AuthUser) {
-    requireOrganisationId(user);
+    const organisationId = requireOrganisationId(user);
     return this.prisma.assessmentInstrument.findMany({
-      where: { unitStandardId },
+      where: { unitStandardId, organisationId },
       orderBy: { version: 'desc' },
       include: {
         _count: { select: { questions: true, submissions: true } },
@@ -44,9 +52,9 @@ export class AssessmentInstrumentsService {
   }
 
   async byId(id: string, user?: AuthUser) {
-    requireOrganisationId(user);
+    const organisationId = requireOrganisationId(user);
     const row = await this.prisma.assessmentInstrument.findFirst({
-      where: { id },
+      where: { id, organisationId },
       include: {
         questions: {
           where: { deletedAt: null },
@@ -55,24 +63,28 @@ export class AssessmentInstrumentsService {
       },
     });
     if (!row) throw new NotFoundException('Instrument not found');
-    return row;
+    return {
+      ...row,
+      questions: row.questions.map((q) => mapQuestionForBuilder(q)),
+    };
   }
 
   async createDraft(dto: CreateInstrumentDto, user?: AuthUser) {
-    requireOrganisationId(user);
+    const organisationId = requireOrganisationId(user);
     const unit = await this.prisma.unitStandard.findFirst({
       where: { id: dto.unitStandardId, deletedAt: null },
     });
     if (!unit) throw new NotFoundException('Unit standard not found');
 
     const latest = await this.prisma.assessmentInstrument.findFirst({
-      where: { unitStandardId: dto.unitStandardId },
+      where: { unitStandardId: dto.unitStandardId, organisationId },
       orderBy: { version: 'desc' },
     });
     const version = (latest?.version ?? 0) + 1;
 
     return this.prisma.assessmentInstrument.create({
       data: {
+        organisationId,
         unitStandardId: dto.unitStandardId,
         version,
         title: dto.title ?? `Instrument v${version}`,
@@ -123,14 +135,14 @@ export class AssessmentInstrumentsService {
               ? 'file_upload'
               : 'long_answer';
       const optionsArr = Array.isArray(q.options) ? q.options : [];
-      const choices = optionsArr.map((o) =>
-        typeof o === 'string'
-          ? o
-          : String((o as { text?: string }).text ?? ''),
+      const choices = choicesFromOptions(
+        optionsArr.length ? optionsArr : q.options,
       );
       const correctOptionId = q.correctOptionId;
       let correctIndex =
-        typeof q.correctIndex === 'number' ? q.correctIndex : undefined;
+        typeof q.correctIndex === 'number'
+          ? q.correctIndex
+          : correctIndexFromOptions(q.options);
       if (correctIndex == null && correctOptionId != null) {
         const idx = Number(correctOptionId);
         correctIndex = Number.isFinite(idx) ? idx : 0;
@@ -146,9 +158,9 @@ export class AssessmentInstrumentsService {
           points: typeof q.points === 'number' ? q.points : 1,
           options:
             questionType === 'mcq_single'
-              ? { choices, correctIndex: correctIndex ?? 0 }
+              ? storeMcqOptions(choices, correctIndex ?? 0)
               : questionType === 'true_false'
-                ? { correct: q.correctAnswer ?? true }
+                ? storeTrueFalseOptions(trueFalseCorrect(q.options, q.correctAnswer))
                 : undefined,
         },
       });
@@ -171,6 +183,7 @@ export class AssessmentInstrumentsService {
       await tx.assessmentInstrument.updateMany({
         where: {
           unitStandardId: row.unitStandardId,
+          organisationId: row.organisationId,
           status: 'PUBLISHED',
         },
         data: { status: 'RETIRED' },
@@ -200,9 +213,9 @@ export class AssessmentInstrumentsService {
   }
 
   private async assertDraft(id: string, user?: AuthUser) {
-    requireOrganisationId(user);
+    const organisationId = requireOrganisationId(user);
     const row = await this.prisma.assessmentInstrument.findFirst({
-      where: { id },
+      where: { id, organisationId },
     });
     if (!row) throw new NotFoundException('Instrument not found');
     if (row.status !== 'DRAFT') {

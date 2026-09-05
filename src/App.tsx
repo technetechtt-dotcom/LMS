@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { getDefaultRouteForRole } from './utils/routing';
+import { LMS_ROLES } from './config/authPortal';
 import { AppLayout } from './components/layout/AppLayout';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
 import { RoleGate } from './components/layout/RoleGate';
@@ -85,7 +86,7 @@ function App() {
           <Route
             path="/"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={[...LMS_ROLES]}>
                 <AppLayout />
               </ProtectedRoute>
             }>
@@ -94,7 +95,7 @@ function App() {
             <Route
               path="dashboard"
               element={
-                <RoleGate allowedRoles={['Admin', 'QA Officer']}>
+                <RoleGate allowedRoles={['Admin']}>
                   <DashboardPage />
                 </RoleGate>
               }
@@ -295,7 +296,7 @@ function App() {
             <Route
               path="qa-dashboard"
               element={
-                <RoleGate allowedRoles={['Admin', 'QA Officer']}>
+                <RoleGate allowedRoles={['QA Officer']}>
                   <QaOfficerDashboardPage />
                 </RoleGate>
               }

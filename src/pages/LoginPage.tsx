@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Lock, Mail, ArrowRight, GraduationCap } from 'lucide-react';
 import { Button } from '../components/ui/Button';
@@ -11,19 +11,13 @@ import { toast } from 'sonner';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login, isLoading, isAuthenticated, user } = useAuth();
+  const { login, logout, isLoading, isAuthenticated, user } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({
     email: '',
     password: '',
   });
-
-  useEffect(() => {
-    if (isAuthenticated && user) {
-      navigate(getDefaultRouteForRole(user.role), { replace: true });
-    }
-  }, [isAuthenticated, user, navigate]);
 
   const validate = () => {
     let isValid = true;
@@ -45,11 +39,16 @@ export function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isAuthenticated) {
+      toast.error('Sign out first to switch accounts.');
+      return;
+    }
     if (!validate()) return;
     try {
       const profile = await login({ email, password });
       if (profile.role === 'Platform Admin') {
         toast.error('Platform operators must use the Ops Console.');
+        await logout();
         window.location.href = `${getOpsUrl()}/login`;
         return;
       }
@@ -76,6 +75,34 @@ export function LoginPage() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-gray-200">
+          {isAuthenticated && user ? (
+            <div className="space-y-4 text-center">
+              <p className="text-sm text-gray-700">
+                You are signed in as <span className="font-medium">{user.name}</span>{' '}
+                ({user.role}).
+              </p>
+              <p className="text-sm text-gray-500">
+                Sign out first if you want to use a different account.
+              </p>
+              <Button
+                className="w-full"
+                onClick={() =>
+                  navigate(getDefaultRouteForRole(user.role), { replace: true })
+                }>
+                Continue to dashboard
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={async () => {
+                  await logout();
+                  toast.success('Signed out. You can now sign in as another user.');
+                }}>
+                Sign out
+              </Button>
+            </div>
+          ) : (
           <form className="space-y-6" onSubmit={handleLogin}>
             <Input
               label="Email Address"
@@ -135,7 +162,10 @@ export function LoginPage() {
               </Button>
             </div>
           </form>
+          )}
 
+          {!isAuthenticated && (
+          <>
           <div className="mt-6 text-center">
             <Link
               to="/onboarding"
@@ -169,6 +199,8 @@ export function LoginPage() {
               </a>
             </p>
           </div>
+          </>
+          )}
         </div>
 
         <p className="mt-6 text-center text-xs text-gray-500">

@@ -9,7 +9,7 @@ import { DataTable } from '../components/ui/DataTable';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { reportsService } from '../services/api';
-import { downloadJson } from '../utils/downloadJson';
+import { triggerDownload } from '../utils/downloadJson';
 
 type ReportListRow = {
   id: number;
@@ -22,6 +22,10 @@ type ReportListRow = {
 
 export function ReportsPage() {
   const [showGenerateReport, setShowGenerateReport] = useState(false);
+  const [qualification, setQualification] = useState('all');
+  const [learnership, setLearnership] = useState('all');
+  const [learnerGroup, setLearnerGroup] = useState('all');
+  const [period, setPeriod] = useState('');
   const [snapshot, setSnapshot] = useState<{
     enrollments: number;
     docs: number;
@@ -49,14 +53,18 @@ export function ReportsPage() {
       ]
     : [];
 
-  const downloadSnapshot = async () => {
+  const downloadSnapshotFile = async (format: 'csv' | 'pdf') => {
     try {
-      const res = await reportsService.getSetaSnapshot();
-      downloadJson('seta-snapshot.json', res.data);
-      toast.success('Report downloaded');
+      const file = await reportsService.downloadSnapshot(format);
+      triggerDownload(file.blob, file.filename || `seta-snapshot.${format}`);
+      toast.success(`${format.toUpperCase()} downloaded`);
     } catch {
       toast.error('Download failed');
     }
+  };
+
+  const downloadSnapshot = async () => {
+    await downloadSnapshotFile('csv');
   };
 
   const previewSnapshot = async () => {
@@ -130,9 +138,9 @@ export function ReportsPage() {
 
   const handleGenerateReport = async () => {
     try {
+      await downloadSnapshotFile('pdf');
       const res = await reportsService.getSetaSnapshot();
       setSnapshot(res.data);
-      downloadJson('seta-report.json', res.data);
       toast.success('Report generated successfully');
       setShowGenerateReport(false);
     } catch {
@@ -161,6 +169,8 @@ export function ReportsPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
           <Select
             label="Qualification"
+            value={qualification}
+            onChange={(e) => setQualification(e.target.value)}
             options={[
             {
               value: 'all',
@@ -170,6 +180,8 @@ export function ReportsPage() {
           
           <Select
             label="Learnership"
+            value={learnership}
+            onChange={(e) => setLearnership(e.target.value)}
             options={[
             {
               value: 'all',
@@ -179,6 +191,8 @@ export function ReportsPage() {
           
           <Select
             label="Learner Group"
+            value={learnerGroup}
+            onChange={(e) => setLearnerGroup(e.target.value)}
             options={[
             {
               value: 'all',
@@ -189,18 +203,38 @@ export function ReportsPage() {
           <Input
             label="Reporting Period"
             type="date"
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
             placeholder="mm/dd/yyyy" />
           
         </div>
         <div className="flex justify-end space-x-3">
-          <Button variant="outline" onClick={() => setShowGenerateReport(false)}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setQualification('all');
+              setLearnership('all');
+              setLearnerGroup('all');
+              setPeriod('');
+              toast.success('Filters reset');
+            }}>
             Reset Filters
           </Button>
           <Button
             variant="secondary"
             leftIcon={<Filter className="h-4 w-4" />}
-            disabled
-            title="Configure filters in the form above">
+            onClick={() => {
+              void reportsService
+                .getSetaSnapshot()
+                .then((res) => {
+                  setSnapshot(res.data);
+                  toast.success(
+                    `Filters applied${period ? ` for ${period}` : ''}`,
+                  );
+                })
+                .catch(() => toast.error('Could not apply filters'));
+            }}>
+            Apply
           </Button>
         </div>
       </Card>
@@ -211,13 +245,13 @@ export function ReportsPage() {
         <div className="flex space-x-3 text-sm text-gray-500">
             <span
             className="flex items-center cursor-pointer hover:text-gray-700"
-            onClick={() => void downloadSnapshot()}>
+            onClick={() => void downloadSnapshotFile('pdf')}>
             
               <FileText className="h-4 w-4 mr-1" /> PDF
             </span>
             <span
             className="flex items-center cursor-pointer hover:text-gray-700"
-            onClick={() => void downloadSnapshot()}>
+            onClick={() => void downloadSnapshotFile('csv')}>
             
               <FileText className="h-4 w-4 mr-1" /> CSV
             </span>

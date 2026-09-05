@@ -142,9 +142,8 @@ export function OpsUsersPage() {
         email,
         firstName,
         lastName,
-        password: 'ChangeMe123!',
       });
-      const userId = (created.data as { id: string }).id;
+      const userId = created.data.id;
       await userService.addMembership({
         userId,
         roleId: role.id,
@@ -156,7 +155,12 @@ export function OpsUsersPage() {
           programmeId,
         });
       }
-      toast.success('User created');
+      const temp = created.data.temporaryPassword;
+      toast.success(
+        temp
+          ? `User created. Temporary password: ${temp}`
+          : 'User created',
+      );
       setShowModal(false);
       await load();
     } catch {
@@ -228,7 +232,7 @@ export function OpsUsersPage() {
             ]}
           />
           <p className="text-xs text-gray-500">
-            Temporary password: ChangeMe123!
+            A unique temporary password is emailed to the user and shown once.
           </p>
           <div className="flex justify-end gap-2">
             <Button

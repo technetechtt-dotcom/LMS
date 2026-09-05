@@ -25,7 +25,46 @@ describe('gradeAgainstInstrument', () => {
     expect(result.totalScore).toBe(2);
   });
 
-  it('ignores answers for unknown question ids', () => {
+  it('grades true/false using either correctAnswer or correct', () => {
+    const withCorrect = gradeAgainstInstrument(
+      [{ id: 'q2', points: 3, options: { correct: false } }],
+      [{ questionId: 'q2', answer: false }],
+    );
+    expect(withCorrect.percentage).toBe(100);
+    const mismatch = gradeAgainstInstrument(
+      [{ id: 'q2', points: 3, options: { correctAnswer: true } }],
+      [{ questionId: 'q2', answer: false }],
+    );
+    expect(mismatch.percentage).toBe(0);
+  });
+
+  it('does not coerce invalid answers to false', () => {
+    const result = gradeAgainstInstrument(
+      [{ id: 'q2', points: 3, options: { correctAnswer: false } }],
+      [{ questionId: 'q2', answer: 'not-a-boolean' }],
+    );
+    expect(result.totalScore).toBe(0);
+    expect(result.graded[0].isCorrect).toBe(false);
+  });
+
+  it('honours isCorrect flags in legacy option arrays', () => {
+    const result = gradeAgainstInstrument(
+      [
+        {
+          id: 'q1',
+          points: 2,
+          options: [
+            { text: 'Wrong' },
+            { text: 'Right', isCorrect: true },
+          ],
+        },
+      ],
+      [{ questionId: 'q1', answer: 1 }],
+    );
+    expect(result.percentage).toBe(100);
+  });
+
+  it('ignores unknown question ids', () => {
     const result = gradeAgainstInstrument(questions, [
       { questionId: 'evil', answer: 0 },
       { questionId: 'q1', answer: 0 },

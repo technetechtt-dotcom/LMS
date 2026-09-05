@@ -189,6 +189,7 @@ describe('integrity DB E2E', () => {
     unitStandardId = unit.id;
     const instrument = await prisma.assessmentInstrument.create({
       data: {
+        organisationId: orgA,
         unitStandardId: unit.id,
         version: 1,
         title: 'Inst',
@@ -378,7 +379,7 @@ describe('integrity DB E2E', () => {
     expect(responses[0].score).toBe(7);
   });
 
-  it('follows facilitator → assessor → moderator workflow; moderation does not overwrite C/NYC', async () => {
+  it('follows facilitator → assessor → moderator workflow; rejection clears competency to NYC', async () => {
     const row = await prisma.assessmentSubmission.findUniqueOrThrow({
       where: { id: submissionId },
     });
@@ -401,7 +402,7 @@ describe('integrity DB E2E', () => {
     const after = await prisma.assessment.findUniqueOrThrow({
       where: { id: assessmentId },
     });
-    expect(after.result).toBe('C');
+    expect(after.result).toBe('NYC');
     expect(after.assessorId).toBe(assessorId);
     const mod = await prisma.moderation.findUnique({
       where: { assessmentId },

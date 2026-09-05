@@ -47,6 +47,7 @@ jobs:
       NODE_ENV: test
       FILE_STORAGE: mock
       MAIL_PROVIDER: log
+      FRONTEND_ORIGIN: http://localhost:5173
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -123,7 +124,17 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Backend dependency audit
         working-directory: backend
-        run: npm ci && npm audit --omit=dev --audit-level=high
+        env:
+          NPM_CONFIG_FETCH_RETRIES: '2'
+          NPM_CONFIG_FETCH_TIMEOUT: '60000'
+        run: |
+          npm ci
+          for attempt in 1 2 3; do
+            npm audit --omit=dev --audit-level=high && exit 0
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "npm audit failed; retrying ($attempt/3)"
+            sleep 10
+          done
       - name: Generate SBOM (frontend)
         run: npx --yes @cyclonedx/cyclonedx-npm --ignore-npm-errors --output-file sbom-frontend.json
       - name: Generate SBOM (backend)

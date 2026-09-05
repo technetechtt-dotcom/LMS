@@ -11,12 +11,15 @@ export function Input({
   helperText,
   icon,
   className = '',
+  id,
   ...props
 }: InputProps) {
+  const autoId = React.useId();
+  const inputId = id ?? autoId;
   return (
     <div className="w-full">
       {label &&
-      <label className="block text-sm font-medium text-gray-700 mb-1">
+      <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1">
           {label}
         </label>
       }
@@ -27,6 +30,7 @@ export function Input({
           </div>
         }
         <input
+          id={inputId}
           className={`
             block w-full rounded-md border-gray-300 shadow-sm 
             focus:border-brand-navy focus:ring-brand-navy sm:text-sm

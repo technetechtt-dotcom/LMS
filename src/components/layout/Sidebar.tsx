@@ -23,10 +23,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 interface SidebarProps {
   userRole: string;
-  onRoleChange: (role: string) => void;
   learnerProfilePath?: string;
-  /** Dev-only role switcher for UI preview (real access is still enforced by routes). */
-  showRoleSwitcher?: boolean;
   isCollapsed: boolean;
   toggleCollapse: () => void;
   isMobile?: boolean;
@@ -35,9 +32,7 @@ interface SidebarProps {
 }
 export function Sidebar({
   userRole,
-  onRoleChange,
   learnerProfilePath,
-  showRoleSwitcher = false,
   isCollapsed,
   toggleCollapse,
   isMobile = false,
@@ -45,15 +40,6 @@ export function Sidebar({
   onClose
 }: SidebarProps) {
   void toggleCollapse;
-  const roles = [
-  'Admin',
-  'Facilitator',
-  'Learner',
-  'Assessor',
-  'Moderator',
-  'QA Officer',
-  'SETA Official',
-  'Workplace Mentor'];
 
   const getNavItems = (role: string, profilePath: string) => {
     // Admin Navigation Structure matching screenshots
@@ -112,11 +98,6 @@ export function Sidebar({
       {
         section: 'COMPLIANCE',
         items: [
-        {
-          name: 'QA Workspace',
-          icon: <ShieldCheck size={20} />,
-          path: '/qa-dashboard'
-        },
         {
           name: 'Compliance',
           icon: <ShieldCheck size={20} />,
@@ -473,24 +454,6 @@ export function Sidebar({
           </button>
       }
       </div>
-
-      {/* Role switcher: local UI preview only; route RBAC stays authoritative */}
-      {showRoleSwitcher &&
-    (!isCollapsed || isMobile) &&
-    <div className="px-4 py-4 border-b border-gray-100">
-          <select
-        value={userRole}
-        onChange={(e) => onRoleChange(e.target.value)}
-        className="block w-full bg-gray-50 border-gray-200 text-gray-700 text-sm rounded-md focus:ring-brand-navy focus:border-brand-navy p-2">
-        
-            {roles.map((r) =>
-        <option key={r} value={r}>
-                {r}
-              </option>
-        )}
-          </select>
-        </div>
-    }
 
       {/* Navigation */}
       <nav className="flex-1 px-4 py-4 space-y-6 overflow-y-auto">

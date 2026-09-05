@@ -22,7 +22,15 @@ import { LearnersService } from './learners.service';
 export class LearnersController {
   constructor(private readonly learners: LearnersService) {}
 
-  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER', 'SETA')
+  @Roles(
+    'ADMIN',
+    'FACILITATOR',
+    'ASSESSOR',
+    'MODERATOR',
+    'QA_OFFICER',
+    'SETA',
+    'MENTOR',
+  )
   @Get()
   list(
     @Req() req: Request & { user?: AuthUser },
@@ -36,6 +44,7 @@ export class LearnersController {
     return this.learners.list(
       { search, status, programme, dateFrom, dateTo },
       organisationId,
+      req.user,
     );
   }
 
@@ -47,6 +56,7 @@ export class LearnersController {
     'QA_OFFICER',
     'SETA',
     'LEARNER',
+    'MENTOR',
   )
   @Get(':id')
   byId(

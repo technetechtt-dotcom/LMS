@@ -34,6 +34,7 @@ import {
   Legend,
 } from 'recharts';
 import { complianceService, reportsService } from '../services/api';
+import { triggerDownload } from '../utils/downloadJson';
 import type {
   ComplianceDocument,
   DocumentStatus,
@@ -368,102 +369,42 @@ export function FacilitatorSETACompliancePage() {
     return [...fromSubs, ...fromGaps].slice(0, 6);
   }, [documents, submissions]);
 
-  const audits = [
-  {
-    type: 'SETA Verification Visit',
-    ref: 'SVV-2023-05',
-    date: '15 May 2023',
-    status: 'Completed',
-    conductor: 'MICT SETA',
-    outcome: 'Compliant',
-    outcomeVariant: 'success' as const
-  },
-  {
-    type: 'Internal Compliance Audit',
-    ref: 'ICA-2023-04',
-    date: '10 Apr 2023',
-    status: 'Completed',
-    conductor: 'Internal QA Team',
-    outcome: 'Partially Compliant',
-    outcomeVariant: 'warning' as const
-  },
-  {
-    type: 'QCTO Site Visit',
-    ref: 'QSV-2023-02',
-    date: '22 Feb 2023',
-    status: 'Completed',
-    conductor: 'QCTO',
-    outcome: 'Compliant',
-    outcomeVariant: 'success' as const
-  },
-  {
-    type: 'External Moderation',
-    ref: 'EXM-2023-03',
-    date: '15 Mar 2023',
-    status: 'Completed',
-    conductor: 'John Nkosi (External Moderator)',
-    outcome: 'Compliant',
-    outcomeVariant: 'success' as const
-  },
-  {
-    type: 'SETA Verification Visit',
-    ref: 'SVV-2023-08',
-    date: '15 Aug 2023',
-    status: 'Scheduled',
-    conductor: 'MICT SETA',
-    outcome: '-',
-    outcomeVariant: 'neutral' as const
-  }];
+  const audits = submissions.map((s) => ({
+    type: s.type,
+    ref: s.ref,
+    date: s.due,
+    status: s.status,
+    conductor: s.submittedBy,
+    outcome: s.response === '-' ? s.status : s.response,
+    outcomeVariant: s.statusVariant,
+    fileUrl: s.fileUrl,
+  }));
 
   const verificationReqs = [
-  {
-    label: 'Learner Registration Forms',
-    status: 'Complete'
-  },
-  {
-    label: 'Facilitator Qualifications',
-    status: 'Complete'
-  },
-  {
-    label: 'Assessment Tools & Instruments',
-    status: 'Complete'
-  },
-  {
-    label: 'Moderation Reports',
-    status: 'Complete'
-  },
-  {
-    label: 'Learner Attendance Records',
-    status: 'Partial'
-  },
-  {
-    label: 'Workplace Logbooks',
-    status: 'Partial'
-  },
-  {
-    label: 'QCTO Curriculum Alignment',
-    status: 'Complete'
-  }];
+    {
+      label: 'Compliance documents on file',
+      status: documents.length > 0 ? 'Complete' : 'Partial',
+    },
+    {
+      label: 'SETA / NLRD submissions',
+      status: submissions.length > 0 ? 'Complete' : 'Partial',
+    },
+    {
+      label: 'Verified documents',
+      status: verifiedDocs > 0 ? 'Complete' : 'Partial',
+    },
+    {
+      label: 'Pending document reviews',
+      status: pendingDocs === 0 && documents.length > 0 ? 'Complete' : 'Partial',
+    },
+  ];
 
-  const recentFindings = [
-  {
-    title: 'SETA Verification - May 2023',
-    badge: 'Compliant',
-    badgeVariant: 'success' as const,
-    desc: 'All requirements met with minor recommendations for improvement in workplace assessment documentation.'
-  },
-  {
-    title: 'Internal Audit - April 2023',
-    badge: 'Action Items',
-    badgeVariant: 'warning' as const,
-    desc: 'Identified 3 areas for improvement: attendance tracking, POE organization, and assessment feedback documentation.'
-  },
-  {
-    title: 'QCTO Site Visit - February 2023',
-    badge: 'Compliant',
-    badgeVariant: 'success' as const,
-    desc: 'Full compliance with occupational qualification requirements. Commendation for practical training facilities.'
-  }];
+  const recentFindings = submissions.slice(0, 6).map((s) => ({
+    title: `${s.type} — ${s.ref}`,
+    badge: s.status,
+    badgeVariant: s.statusVariant,
+    desc: s.response !== '-' ? s.response : `Due ${s.due}. Submitted by ${s.submittedBy}.`,
+  }));
 
   const handleExport = async () => {
     setExporting(true);
@@ -1257,9 +1198,21 @@ export function FacilitatorSETACompliancePage() {
                       <td className="px-6 py-4">
                         <button
                       className="text-sm text-brand-blue hover:underline"
-                      disabled
-                      title="Audit reports are filed offline">
-                      
+                      onClick={() => {
+                        if (audit.fileUrl) {
+                          window.open(audit.fileUrl, '_blank', 'noopener');
+                          return;
+                        }
+                        void reportsService
+                          .downloadSnapshot('pdf')
+                          .then((file) =>
+                            triggerDownload(
+                              file.blob,
+                              file.filename || 'seta-report.pdf',
+                            ),
+                          )
+                          .catch(() => toast.error('Could not open report'));
+                      }}>
                           View Report
                         </button>
                       </td>

@@ -68,4 +68,53 @@ export class MailService {
     });
     this.logger.log(`Password reset email sent to ${to}`);
   }
+
+  async sendWelcome(
+    to: string,
+    firstName: string,
+    temporaryPassword: string,
+  ): Promise<void> {
+    const subject = 'Your SkillForge LMS account';
+    const text = `Hi ${firstName},\n\nAn account was created for you on SkillForge LMS.\n\nTemporary password: ${temporaryPassword}\n\nSign in and change this password immediately.\n`;
+    const html = `<p>Hi ${firstName},</p><p>An account was created for you on SkillForge LMS.</p><p>Temporary password: <strong>${temporaryPassword}</strong></p><p>Sign in and change this password immediately.</p>`;
+    await this.dispatch(to, subject, text, html, `Welcome email for ${to}`);
+  }
+
+  private async dispatch(
+    to: string,
+    subject: string,
+    text: string,
+    html: string,
+    logLabel: string,
+  ): Promise<void> {
+    const provider = this.provider();
+    if (provider === 'log') {
+      this.logger.warn(`[mail:log] ${logLabel}`);
+      return;
+    }
+    if (provider !== 'smtp') {
+      throw new BadRequestException(`Unsupported MAIL_PROVIDER: ${provider}`);
+    }
+    const host = this.config.get<string>('SMTP_HOST')?.trim();
+    const from = this.config.get<string>('SMTP_FROM')?.trim();
+    if (!host || !from) {
+      throw new ServiceUnavailableException(
+        'SMTP_HOST and SMTP_FROM must be configured for outbound email',
+      );
+    }
+    const port = Number(this.config.get<string>('SMTP_PORT') ?? '587');
+    const user = this.config.get<string>('SMTP_USER')?.trim();
+    const pass = this.config.get<string>('SMTP_PASS')?.trim();
+    const secure =
+      (this.config.get<string>('SMTP_SECURE') ?? '').toLowerCase() === 'true' ||
+      port === 465;
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: user && pass ? { user, pass } : undefined,
+    });
+    await transporter.sendMail({ from, to, subject, text, html });
+    this.logger.log(logLabel);
+  }
 }

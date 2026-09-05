@@ -2,7 +2,9 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWorkplaceLogDto } from './workplace-logs.dto';
 import type { AuthUser } from '../common/types/request-with-user';
@@ -12,10 +14,34 @@ import {
   isLearnerOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
+import { NotificationsService } from '../notifications/notifications.service';
+
+function isMentorScoped(user?: AuthUser): boolean {
+  if (!user?.roleCodes?.includes('MENTOR')) return false;
+  return !user.roleCodes.some((c) =>
+    ['ADMIN', 'PLATFORM_ADMIN', 'FACILITATOR', 'QA_OFFICER', 'ASSESSOR'].includes(
+      c,
+    ),
+  );
+}
+
+function mentorEnrollmentWhere(user?: AuthUser): Prisma.EnrollmentWhereInput {
+  return isMentorScoped(user)
+    ? {
+        metadata: {
+          path: ['workplaceMentorId'],
+          equals: user!.userId,
+        },
+      }
+    : {};
+}
 
 @Injectable()
 export class WorkplaceLogsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly notifications?: NotificationsService,
+  ) {}
 
   async list(user?: AuthUser, enrollmentId?: string) {
     const organisationId = requireOrganisationId(user);
@@ -38,6 +64,12 @@ export class WorkplaceLogsService {
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
           ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
+          ...mentorEnrollmentWhere(user),
+        },
+      },
+      include: {
+        enrollment: {
+          include: { learner: true, programme: true },
         },
       },
       orderBy: { logDate: 'desc' },
@@ -52,12 +84,12 @@ export class WorkplaceLogsService {
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
       },
-      select: { id: true, learnerId: true },
+      select: { id: true, learnerId: true, metadata: true },
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
     assertEnrollmentAccess(user, enrollment, 'Workplace log');
 
-    return this.prisma.workplaceLog.create({
+    const log = await this.prisma.workplaceLog.create({
       data: {
         enrollmentId: dto.enrollmentId,
         logDate: new Date(dto.logDate),
@@ -68,6 +100,18 @@ export class WorkplaceLogsService {
         mentorStatus: 'PENDING',
       },
     });
+
+    const meta = (enrollment.metadata as { workplaceMentorId?: string } | null) ?? {};
+    if (meta.workplaceMentorId) {
+      await this.notifications?.notify(
+        meta.workplaceMentorId,
+        'workplace',
+        'Workplace log awaiting verification',
+        'A learner submitted a workplace logbook entry for your review.',
+        { logId: log.id, enrollmentId: enrollment.id },
+      );
+    }
+    return log;
   }
 
   async mentorVerify(
@@ -85,8 +129,12 @@ export class WorkplaceLogsService {
       where: {
         id,
         deletedAt: null,
-        enrollment: enrollmentOrgWhere(organisationId),
+        enrollment: {
+          ...enrollmentOrgWhere(organisationId),
+          ...mentorEnrollmentWhere(user),
+        },
       },
+      include: { enrollment: { select: { learnerId: true } } },
     });
     if (!row) throw new NotFoundException('Workplace log not found');
     if (row.mentorStatus === 'VERIFIED') {
@@ -94,7 +142,7 @@ export class WorkplaceLogsService {
     }
 
     const verified = body.decision === 'approve';
-    return this.prisma.workplaceLog.update({
+    const updated = await this.prisma.workplaceLog.update({
       where: { id },
       data: {
         mentorStatus: verified ? 'VERIFIED' : 'REJECTED',
@@ -104,6 +152,17 @@ export class WorkplaceLogsService {
         supervisorSignedAt: verified ? new Date() : row.supervisorSignedAt,
       },
     });
+    await this.notifications?.notify(
+      row.enrollment.learnerId,
+      'workplace',
+      verified ? 'Workplace log verified' : 'Workplace log returned',
+      body.feedback ??
+        (verified
+          ? 'Your workplace mentor verified this log.'
+          : 'Your workplace mentor requested changes to this log.'),
+      { logId: id, decision: body.decision },
+    );
+    return updated;
   }
 
   /** Hours that count toward completion — mentor-verified only. */

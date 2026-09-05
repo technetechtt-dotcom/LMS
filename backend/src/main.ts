@@ -17,7 +17,12 @@ async function bootstrap() {
   expressApp.set('trust proxy', 1);
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-  const rawOrigins = config.get<string>('FRONTEND_ORIGIN');
+  const rawOrigins = [
+    config.get<string>('FRONTEND_ORIGIN'),
+    config.get<string>('OPS_ORIGIN'),
+  ]
+    .filter(Boolean)
+    .join(',');
   const origins = (rawOrigins ?? '')
     .split(',')
     .map((o) => o.trim())
@@ -65,7 +70,7 @@ async function bootstrap() {
   }
 
   const port = config.get<number>('PORT', 8787);
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 }
 
 bootstrap().catch((err) => {

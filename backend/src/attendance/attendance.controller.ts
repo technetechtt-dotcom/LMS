@@ -51,7 +51,7 @@ export class AttendanceController {
   @Roles('ADMIN', 'FACILITATOR')
   @Post('sessions')
   async openSession(
-    @Body() body: { programmeId: string; ttlMinutes?: number },
+    @Body() body: { programmeId: string; ttlMinutes?: number; title?: string },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const organisationId = requireOrganisationId(req.user);
@@ -65,6 +65,19 @@ export class AttendanceController {
     if (!programme) throw new BadRequestException('Programme not found');
     const raw = generateOpaqueRefreshToken();
     const ttl = Math.min(Math.max(body.ttlMinutes ?? 30, 5), 180);
+    const expectedCount = await this.prisma.enrollment.count({
+      where: {
+        deletedAt: null,
+        programmeId: body.programmeId,
+        ...{
+          OR: [
+            { sdioOrganisationId: organisationId },
+            { employerOrganisationId: organisationId },
+            { programme: { organisationId } },
+          ],
+        },
+      },
+    });
     const session = await this.prisma.attendanceSession.create({
       data: {
         organisationId,
@@ -72,13 +85,33 @@ export class AttendanceController {
         openedById: req.user!.userId,
         tokenHash: hashOpaqueToken(raw),
         expiresAt: new Date(Date.now() + ttl * 60_000),
+        scheduledAt: new Date(),
+        expectedCount,
+        title: body.title ?? programme.title,
       },
     });
     return {
       sessionId: session.id,
       expiresAt: session.expiresAt.toISOString(),
       qrToken: raw,
+      expectedCount: session.expectedCount,
+      title: session.title,
     };
+  }
+
+  @Roles('ADMIN', 'FACILITATOR', 'QA_OFFICER')
+  @Get('summary')
+  summary(@Req() req: Request & { user?: AuthUser }) {
+    return this.attendance.summary(req.user);
+  }
+
+  @Roles('ADMIN', 'FACILITATOR')
+  @Post('sessions/:id/close')
+  closeSession(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.attendance.closeSession(id, req.user);
   }
 
   /** Learner checks in with QR token (one check-in per session+enrollment). */

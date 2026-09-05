@@ -43,7 +43,14 @@ import { HealthController } from './health/health.controller';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 200 }]),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000,
+        limit: 200,
+        // Keep E2E retries independent; production and development remain rate-limited.
+        skipIf: () => process.env.NODE_ENV === 'test',
+      },
+    ]),
     PrismaModule,
     FileStorageModule,
     AuthModule,

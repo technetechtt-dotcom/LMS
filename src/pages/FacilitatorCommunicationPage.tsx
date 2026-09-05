@@ -180,9 +180,8 @@ export function FacilitatorCommunicationPage() {
             key={tab.label}
             variant="outline"
             size="sm"
-            disabled
-            title="Use Messages or full inbox for learner communication"
-            leftIcon={<tab.icon className="h-4 w-4" />}>
+            leftIcon={<tab.icon className="h-4 w-4" />}
+            onClick={() => navigate('/messages')}>
             {tab.label}
           </Button>
         ))}

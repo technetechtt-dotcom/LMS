@@ -2,7 +2,11 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import type { UserRole } from '../../types';
-import { ErrorState } from '../ui/ErrorState';
+import { getDefaultRouteForRole } from '../../utils/routing';
+import {
+  getAuthPortal,
+  isRoleAllowedInPortal,
+} from '../../config/authPortal';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   allowedRoles?: UserRole[];
@@ -35,17 +39,18 @@ export function ProtectedRoute({
 
 
   }
-  // Role check
+  if (user && !isRoleAllowedInPortal(user.role)) {
+    return <Navigate to="/login" replace />;
+  }
   if (allowedRoles && user && !allowedRoles.includes(user.role as UserRole)) {
-    return (
-      <div className="flex items-center justify-center h-screen p-8">
-        <ErrorState
-          type="permission"
-          title="Access Restricted"
-          message={`This page is only available to ${allowedRoles.join(', ')} users. Your current role is ${user.role}.`} />
-        
-      </div>);
-
+    if (getAuthPortal() === 'ops') {
+      return <Navigate to="/login" replace />;
+    }
+    const home = getDefaultRouteForRole(user.role);
+    if (home === location.pathname) {
+      return <Navigate to="/login" replace />;
+    }
+    return <Navigate to={home} replace />;
   }
   return <>{children}</>;
 }

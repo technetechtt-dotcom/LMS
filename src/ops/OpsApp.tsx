@@ -9,6 +9,7 @@ import { OpsOrganisationsPage } from '../pages/ops/OpsOrganisationsPage';
 import { OpsProgrammesPage } from '../pages/ops/OpsProgrammesPage';
 import { OpsMaterialsPage } from '../pages/ops/OpsMaterialsPage';
 import { OpsInvitationsPage } from '../pages/ops/OpsInvitationsPage';
+import { OPS_ROLES } from '../config/authPortal';
 
 function OpsHomeRedirect() {
   return <OpsDashboardPage />;
@@ -22,7 +23,7 @@ export function OpsApp() {
         <Route
           path="/"
           element={
-            <ProtectedRoute allowedRoles={['Platform Admin', 'Admin']}>
+            <ProtectedRoute allowedRoles={[...OPS_ROLES]}>
               <OpsLayout />
             </ProtectedRoute>
           }>

@@ -106,6 +106,13 @@ export function AttendancePage() {
   );
   const [checkInToken, setCheckInToken] = useState('');
   const [checkInSessionId, setCheckInSessionId] = useState('');
+  const [attendanceSummary, setAttendanceSummary] = useState<{
+    expectedCount: number;
+    present: number;
+    absent: number;
+    rate: number;
+    scheduledSessions: number;
+  } | null>(null);
   const [dateRangeFilter, setDateRangeFilter] = useState('week');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -135,6 +142,9 @@ export function AttendancePage() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    attendanceService.summary().then((res) => {
+      if (!cancelled) setAttendanceSummary(res.data);
+    }).catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -194,8 +204,15 @@ export function AttendancePage() {
       if (row.status === 'Present') present++;
       if (row.status === 'Absent') absent++;
     }
-    const denom = present + absent;
-    const pct = denom ? Math.round((present / denom) * 100) : 0;
+    const scheduledDenom = attendanceSummary?.expectedCount ?? 0;
+    const denom =
+      scheduledDenom > 0 ? scheduledDenom : present + absent;
+    const pct =
+      scheduledDenom > 0
+        ? Math.round(attendanceSummary?.rate ?? 0)
+        : denom
+          ? Math.round((present / denom) * 100)
+          : 0;
     return [
       {
         title: "Today's attendance",
@@ -228,7 +245,7 @@ export function AttendancePage() {
         },
       },
     ];
-  }, [attendanceData]);
+  }, [attendanceData, attendanceSummary]);
 
   const columns = [
   {
@@ -557,9 +574,11 @@ export function AttendancePage() {
         <div className="space-y-6">
           <Card title="Attendance summary">
             <p className="text-sm text-gray-600">
-              {attendanceData.length === 0
-                ? 'No attendance records yet for the selected programme.'
-                : `${attendanceData.filter((r) => r.status === 'Present').length} present of ${attendanceData.length} register entries loaded.`}
+              {attendanceSummary
+                ? `${attendanceSummary.present} present of ${attendanceSummary.expectedCount || attendanceSummary.present + attendanceSummary.absent} scheduled seats (${attendanceSummary.rate}% of scheduled sessions).`
+                : attendanceData.length === 0
+                  ? 'No attendance records yet for the selected programme.'
+                  : `${attendanceData.filter((r) => r.status === 'Present').length} present of ${attendanceData.length} register entries loaded.`}
             </p>
           </Card>
 
@@ -644,6 +663,26 @@ export function AttendancePage() {
               {qrPayload.qrToken}
             </div>
             <p className="text-xs text-gray-500">Session ID: {qrPayload.sessionId}</p>
+            <Button
+              onClick={() => {
+                void attendanceService
+                  .closeSession(qrPayload.sessionId)
+                  .then(() => {
+                    toast.success('Session closed; unmarked learners marked absent');
+                    setShowQrModal(false);
+                    return attendanceService.summary();
+                  })
+                  .then((res) => {
+                    if (res?.data) setAttendanceSummary(res.data);
+                  })
+                  .catch((err) =>
+                    toast.error(
+                      err instanceof Error ? err.message : 'Could not close session',
+                    ),
+                  );
+              }}>
+              Close session & mark absentees
+            </Button>
           </div>
         )}
       </Modal>

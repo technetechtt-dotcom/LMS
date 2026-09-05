@@ -127,6 +127,9 @@ export interface User extends BaseEntity {
   /** Active SDP organisation UUID for tenant-scoped API calls. */
   organisationId?: string;
   avatarUrl?: string;
+  phone?: string;
+  jobTitle?: string;
+  hasSignature?: boolean;
   isActive: boolean;
   lastLoginAt?: string;
   /** Facilitator job capacity assigned by the SDP (optional). */

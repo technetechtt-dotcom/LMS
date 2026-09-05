@@ -71,6 +71,14 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  jobTitle?: string;
 }
 
 export class ChangePasswordDto {

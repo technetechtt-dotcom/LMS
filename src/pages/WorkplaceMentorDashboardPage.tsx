@@ -14,8 +14,9 @@ import { Badge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
 import { Avatar } from '../components/ui/Avatar';
 import { StatCard } from '../components/dashboard/StatCard';
-import { learnerService, poeService } from '../services/api';
-import type { Learner, POEDocument } from '../types';
+import { learnerService, workplaceLogService } from '../services/api';
+import type { WorkplaceLogRow } from '../services/api';
+import type { Learner } from '../types';
 
 type LogbookRow = {
   id: string;
@@ -24,6 +25,7 @@ type LogbookRow = {
   task: string;
   submitted: string;
   status: string;
+  rawStatus: string;
 };
 
 export function WorkplaceMentorDashboardPage() {
@@ -32,26 +34,20 @@ export function WorkplaceMentorDashboardPage() {
   const [logbooks, setLogbooks] = useState<LogbookRow[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const load = async () => {
+    const [learnerRes, logRes] = await Promise.all([
+      learnerService.getAll(),
+      workplaceLogService.list(),
+    ]);
+    setLearners(learnerRes.data ?? []);
+    setLogbooks((logRes.data ?? []).map(mapLog));
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await learnerService.getAll();
-        const list = res.data ?? [];
-        if (cancelled) return;
-        setLearners(list);
-        const rows: LogbookRow[] = [];
-        for (const l of list.slice(0, 12)) {
-          try {
-            const poe = await poeService.getByLearner(l.id);
-            for (const doc of (poe.data ?? []).slice(0, 2)) {
-              rows.push(mapPoeToLogbook(l, doc));
-            }
-          } catch {
-            /* skip learner */
-          }
-        }
-        if (!cancelled) setLogbooks(rows);
+        await load();
       } catch {
         if (!cancelled) toast.error('Could not load mentor dashboard');
       } finally {
@@ -63,8 +59,8 @@ export function WorkplaceMentorDashboardPage() {
     };
   }, []);
 
-  const pending = logbooks.filter((r) => r.status === 'Pending Review').length;
-  const verified = logbooks.filter((r) => r.status === 'Verified').length;
+  const pending = logbooks.filter((r) => r.rawStatus === 'PENDING').length;
+  const verified = logbooks.filter((r) => r.rawStatus === 'VERIFIED').length;
 
   const stats = useMemo(
     () => [
@@ -81,10 +77,10 @@ export function WorkplaceMentorDashboardPage() {
         trend: { value: 0, label: 'awaiting sign-off', direction: 'neutral' as const },
       },
       {
-        title: 'Verified documents',
+        title: 'Verified logs',
         value: String(verified),
         icon: <CheckCircle className="h-6 w-6" />,
-        trend: { value: 0, label: 'PoE items', direction: 'neutral' as const },
+        trend: { value: 0, label: 'mentor signed', direction: 'neutral' as const },
       },
       {
         title: 'At-risk learners',
@@ -93,8 +89,18 @@ export function WorkplaceMentorDashboardPage() {
         trend: { value: 0, label: 'need support', direction: 'neutral' as const },
       },
     ],
-    [learners.length, pending, verified],
+    [learners, pending, verified],
   );
+
+  const verify = async (id: string, decision: 'approve' | 'reject') => {
+    try {
+      await workplaceLogService.mentorVerify(id, decision);
+      toast.success(decision === 'approve' ? 'Log verified' : 'Log returned');
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not update log');
+    }
+  };
 
   const columns = [
     {
@@ -107,27 +113,42 @@ export function WorkplaceMentorDashboardPage() {
         </div>
       ),
     },
-    { header: 'Document', accessorKey: 'task' as const },
+    { header: 'Activity', accessorKey: 'task' as const },
     { header: 'Submitted', accessorKey: 'submitted' as const },
     {
       header: 'Status',
       accessorKey: 'status' as const,
       cell: (row: LogbookRow) => (
-        <Badge variant={row.status === 'Verified' ? 'success' : 'warning'}>
+        <Badge variant={row.rawStatus === 'VERIFIED' ? 'success' : row.rawStatus === 'REJECTED' ? 'danger' : 'warning'}>
           {row.status}
         </Badge>
       ),
     },
     {
       header: 'Actions',
-      accessorKey: 'learnerId' as const,
+      accessorKey: 'id' as const,
       cell: (row: LogbookRow) => (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => navigate(`/learner/${row.learnerId}`)}>
-          Review
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate(`/learner/${row.learnerId}`)}>
+            Profile
+          </Button>
+          {row.rawStatus === 'PENDING' && (
+            <>
+              <Button size="sm" onClick={() => void verify(row.id, 'approve')}>
+                Verify
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void verify(row.id, 'reject')}>
+                Return
+              </Button>
+            </>
+          )}
+        </div>
       ),
     },
   ];
@@ -145,7 +166,7 @@ export function WorkplaceMentorDashboardPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Workplace Mentor Dashboard</h1>
         <p className="text-sm text-gray-500">
-          Review learner logbooks and workplace evidence
+          Verify workplace logbook hours for learners allocated to you
         </p>
       </div>
 
@@ -156,7 +177,7 @@ export function WorkplaceMentorDashboardPage() {
       </div>
 
       <Card
-        title="Logbook & PoE queue"
+        title="Workplace logbook queue"
         action={
           <Button
             size="sm"
@@ -167,7 +188,9 @@ export function WorkplaceMentorDashboardPage() {
         }
         noPadding>
         {logbooks.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">No PoE documents submitted yet.</p>
+          <p className="p-6 text-sm text-gray-500">
+            No workplace logs submitted yet.
+          </p>
         ) : (
           <DataTable data={logbooks} columns={columns} keyField="id" />
         )}
@@ -176,16 +199,23 @@ export function WorkplaceMentorDashboardPage() {
   );
 }
 
-function mapPoeToLogbook(learner: Learner, doc: POEDocument): LogbookRow {
+function mapLog(row: WorkplaceLogRow): LogbookRow {
+  const learner = row.enrollment?.learner;
+  const name = learner
+    ? `${learner.firstName} ${learner.lastName}`.trim()
+    : 'Learner';
   return {
-    id: doc.id,
-    learner: learner.name,
-    learnerId: learner.id,
-    task: doc.fileName || doc.type || 'PoE document',
-    submitted: doc.createdAt
-      ? new Date(doc.createdAt).toLocaleDateString()
-      : '—',
+    id: row.id,
+    learner: name,
+    learnerId: row.enrollmentId,
+    task: row.activity,
+    submitted: row.logDate ? new Date(row.logDate).toLocaleDateString() : '—',
     status:
-      doc.status === 'verified' || doc.verifiedAt ? 'Verified' : 'Pending Review',
+      row.mentorStatus === 'VERIFIED'
+        ? 'Verified'
+        : row.mentorStatus === 'REJECTED'
+          ? 'Returned'
+          : 'Pending Review',
+    rawStatus: row.mentorStatus,
   };
 }

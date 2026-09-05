@@ -3,10 +3,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
 import { requireOrganisationId } from '../common/tenant/tenant-scope';
+import { FileStorageService } from '../common/file-storage.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 function roleFromMemberships(
   memberships: Array<{ role: { code: string; name: string } }>,
@@ -23,13 +26,18 @@ function roleFromMemberships(
     MODERATOR: 'Moderator',
     SETA: 'SETA Official',
     QA_OFFICER: 'QA Officer',
+    MENTOR: 'Workplace Mentor',
   };
   return map[code] ?? m.role.name;
 }
 
 @Injectable()
 export class MessagesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly files?: FileStorageService,
+    @Optional() private readonly notifications?: NotificationsService,
+  ) {}
 
   private async mapMessage(row: {
     id: string;
@@ -39,6 +47,7 @@ export class MessagesService {
     isRead: boolean;
     createdAt: Date;
     updatedAt: Date;
+    metadata: unknown;
     from: {
       firstName: string;
       lastName: string;
@@ -46,6 +55,7 @@ export class MessagesService {
     };
     to: { firstName: string; lastName: string };
   }) {
+    const meta = (row.metadata as { attachments?: unknown } | null) ?? {};
     return {
       id: row.id,
       fromId: row.fromId,
@@ -55,6 +65,7 @@ export class MessagesService {
       toName: `${row.to.firstName} ${row.to.lastName}`.trim(),
       content: row.content,
       isRead: row.isRead,
+      attachments: Array.isArray(meta.attachments) ? meta.attachments : [],
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
@@ -86,7 +97,12 @@ export class MessagesService {
     return Promise.all(rows.map((r) => this.mapMessage(r)));
   }
 
-  async send(actor: AuthUser | undefined, toId: string, content: string) {
+  async send(
+    actor: AuthUser | undefined,
+    toId: string,
+    content: string,
+    files?: Express.Multer.File[],
+  ) {
     const fromId = actor?.userId;
     if (!fromId) throw new BadRequestException('Authentication required');
     if (!toId?.trim() || !content?.trim()) {
@@ -113,12 +129,37 @@ export class MessagesService {
     });
     if (!toUser) throw new NotFoundException('Recipient not found');
 
+    const attachments: Array<{
+      storageKey: string;
+      fileName: string;
+      mimeType: string;
+      url: string;
+    }> = [];
+    if (files?.length && this.files) {
+      for (const file of files) {
+        if (!file?.buffer?.length) continue;
+        const stored = await this.files.upload(
+          file.originalname,
+          file.buffer,
+          file.mimetype,
+          { prefix: 'messages', organisationId },
+        );
+        attachments.push({
+          storageKey: stored.key,
+          fileName: file.originalname,
+          mimeType: file.mimetype,
+          url: stored.url,
+        });
+      }
+    }
+
     const row = await this.prisma.message.create({
       data: {
         organisationId,
         fromId,
         toId,
         content: content.trim(),
+        metadata: attachments.length ? { attachments } : undefined,
       },
       include: {
         from: {
@@ -132,6 +173,15 @@ export class MessagesService {
         to: true,
       },
     });
+
+    await this.notifications?.notify(
+      toId,
+      'message',
+      'New message',
+      content.trim().slice(0, 180),
+      { messageId: row.id, fromId },
+    );
+
     return this.mapMessage(row);
   }
 }

@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import type { Document } from '@prisma/client';
 import { FileStorageService } from '../common/file-storage.service';
@@ -13,6 +14,7 @@ export class ComplianceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly files: FileStorageService,
+    private readonly config: ConfigService,
   ) {}
 
   private mapComplianceDoc(doc: Document): Record<string, unknown> {
@@ -66,15 +68,36 @@ export class ComplianceService {
 
   async listSetaSubmissions(user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
-    const docs = await this.prisma.document.findMany({
-      where: {
-        deletedAt: null,
-        organisationId,
-        category: 'seta-submission',
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    return docs.map((d) => this.mapSetaSubmission(d));
+    const [docs, gateway] = await Promise.all([
+      this.prisma.document.findMany({
+        where: {
+          deletedAt: null,
+          organisationId,
+          category: 'seta-submission',
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.setaGatewaySubmission.findMany({
+        where: { organisationId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+    ]);
+    const fromDocs = docs.map((d) => this.mapSetaSubmission(d));
+    const fromGateway = gateway.map((g) => ({
+      id: g.id,
+      type: 'gateway',
+      reference: g.batchId,
+      dueDate: (g.submittedAt ?? g.createdAt).toISOString().slice(0, 10),
+      status: g.status,
+      submittedBy: g.adapter,
+      submittedAt: g.submittedAt?.toISOString(),
+      setaResponse: g.responseBody ?? g.externalReference ?? undefined,
+      fileUrl: undefined,
+      createdAt: g.createdAt.toISOString(),
+      updatedAt: g.createdAt.toISOString(),
+    }));
+    return [...fromGateway, ...fromDocs];
   }
 
   async uploadDocument(
@@ -157,21 +180,25 @@ export class ComplianceService {
     }
 
     const batchId = `NLRD-${Date.now()}`;
-    const xml = [
-      '<?xml version="1.0" encoding="UTF-8"?>',
-      `<NLRDExport xmlns="urn:saqa:nlrd:internal-export:v1" schemaVersion="${NLRD_SCHEMA_VERSION}" certification="${NLRD_CERTIFICATION}" batchId="${batchId}" organisationId="${organisationId}" generatedAt="${new Date().toISOString()}">`,
-      `<Validation valid="${errors.length === 0}" errorCount="${errors.length}"/>`,
-      ...errors.map((err) => `<Error>${this.xmlEscape(err)}</Error>`),
-      '<Learners>',
-      ...rowsXml,
-      '</Learners>',
-      '</NLRDExport>',
-    ].join('');
+    const generatedAt = new Date().toISOString();
+    const renderXml = () =>
+      [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        `<NLRDExport xmlns="urn:saqa:nlrd:internal-export:v1" schemaVersion="${NLRD_SCHEMA_VERSION}" certification="${NLRD_CERTIFICATION}" batchId="${batchId}" organisationId="${organisationId}" generatedAt="${generatedAt}">`,
+        `<Validation valid="${errors.length === 0}" errorCount="${errors.length}"/>`,
+        ...errors.map((err) => `<Error>${this.xmlEscape(err)}</Error>`),
+        '<Learners>',
+        ...rowsXml,
+        '</Learners>',
+        '</NLRDExport>',
+      ].join('');
+    let xml = renderXml();
 
     const adapter = resolveSetaAdapter();
     const schemaCheck = adapter.validateXml(xml);
     if (!schemaCheck.valid) {
       errors.push(...schemaCheck.errors.map((e) => `Schema: ${e}`));
+      xml = renderXml();
     }
 
     const stored = await this.files.upload(
@@ -211,6 +238,21 @@ export class ComplianceService {
       errors,
       recordCount: enrollments.length,
       storageKey: stored.key,
+      gateway:
+        errors.length === 0
+          ? await this.submitToGateway(
+              organisationId,
+              batchId,
+              adapter.id,
+              xml,
+              'application/xml',
+            )
+          : {
+              status: 'validation_failed',
+              gatewayUrl: null as string | null,
+              message:
+                'Export validation failed; the file was stored locally and was not submitted.',
+            },
       receipt: adapter.reconcile(batchId, 'generated'),
     };
   }
@@ -290,8 +332,85 @@ export class ComplianceService {
       contentType: packaged.contentType,
       body: packaged.body,
       url: `/exports/seta/${batchId}.${format === 'json' ? 'json' : 'xml'}`,
+      gateway: await this.submitToGateway(
+        organisationId,
+        batchId,
+        adapter.id,
+        packaged.body,
+        packaged.contentType,
+      ),
       receipt: adapter.reconcile(batchId, 'generated'),
     };
+  }
+
+  private async submitToGateway(
+    organisationId: string,
+    batchId: string,
+    adapter: string,
+    body: string,
+    contentType: string,
+  ) {
+    const gatewayUrl = this.config.get<string>('SETA_GATEWAY_URL')?.trim();
+    const row = await this.prisma.setaGatewaySubmission.create({
+      data: {
+        organisationId,
+        batchId,
+        adapter,
+        status: gatewayUrl ? 'submitting' : 'generated_not_submitted',
+        gatewayUrl: gatewayUrl || null,
+      },
+    });
+    if (!gatewayUrl) {
+      return {
+        id: row.id,
+        status: 'generated_not_submitted',
+        gatewayUrl: null as string | null,
+        message:
+          'SETA_GATEWAY_URL is not configured; export stored locally pending regulator submission',
+      };
+    }
+    try {
+      const res = await fetch(gatewayUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': contentType,
+          'X-Organisation-Id': organisationId,
+          'X-Batch-Id': batchId,
+        },
+        body,
+      });
+      const responseBody = (await res.text()).slice(0, 8000);
+      const status = res.ok ? 'submitted' : 'rejected';
+      const updated = await this.prisma.setaGatewaySubmission.update({
+        where: { id: row.id },
+        data: {
+          status,
+          responseBody,
+          submittedAt: new Date(),
+          externalReference: res.headers.get('x-reference') ?? undefined,
+        },
+      });
+      return {
+        id: updated.id,
+        status: updated.status,
+        gatewayUrl,
+        externalReference: updated.externalReference,
+      };
+    } catch (err) {
+      await this.prisma.setaGatewaySubmission.update({
+        where: { id: row.id },
+        data: {
+          status: 'failed',
+          responseBody: String(err instanceof Error ? err.message : err).slice(
+            0,
+            8000,
+          ),
+        },
+      });
+      throw new ServiceUnavailableException(
+        'SETA/NLRD gateway is unreachable. The export was stored; retry once the regulator endpoint is available.',
+      );
+    }
   }
 
   private xmlEscape(value: string) {

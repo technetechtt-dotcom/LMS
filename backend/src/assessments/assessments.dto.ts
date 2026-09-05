@@ -26,6 +26,10 @@ export class CreateAssessmentDto {
   assessorId?: string;
 
   @IsOptional()
+  @IsUUID()
+  moderatorId?: string;
+
+  @IsOptional()
   @IsString()
   feedback?: string;
 }

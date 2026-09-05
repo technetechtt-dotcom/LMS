@@ -37,4 +37,23 @@ export class NotificationsService {
     });
     return { success: true as const, data: null };
   }
+
+  async notify(
+    userId: string,
+    type: string,
+    title: string,
+    body: string,
+    metadata?: Record<string, unknown>,
+  ) {
+    if (!userId) return;
+    await this.prisma.inAppNotification.create({
+      data: {
+        userId,
+        type,
+        title,
+        body,
+        metadata: (metadata ?? undefined) as object | undefined,
+      },
+    });
+  }
 }

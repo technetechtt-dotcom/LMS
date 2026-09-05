@@ -1,7 +1,15 @@
 import { Injectable } from '@nestjs/common';
+import PDFDocument = require('pdfkit');
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
 import { requireOrganisationId } from '../common/tenant/tenant-scope';
+
+export type SetaSnapshot = {
+  enrollments: number;
+  docs: number;
+  assessments: number;
+  generatedAt: string;
+};
 
 @Injectable()
 export class ReportsService {
@@ -44,7 +52,7 @@ export class ReportsService {
     });
   }
 
-  async setaSnapshot(user?: AuthUser) {
+  async setaSnapshot(user?: AuthUser): Promise<SetaSnapshot> {
     const organisationId = requireOrganisationId(user);
     const [enrollments, docs, assessments] = await Promise.all([
       this.prisma.enrollment.count({
@@ -66,5 +74,41 @@ export class ReportsService {
       assessments,
       generatedAt: new Date().toISOString(),
     };
+  }
+
+  snapshotToCsv(snapshot: SetaSnapshot): string {
+    const lines = [
+      'metric,value',
+      `enrollments,${snapshot.enrollments}`,
+      `documents,${snapshot.docs}`,
+      `assessments,${snapshot.assessments}`,
+      `generatedAt,${snapshot.generatedAt}`,
+    ];
+    return lines.join('\n');
+  }
+
+  progressToCsv(
+    rows: Array<{ status: string; _count: { status: number } }>,
+  ): string {
+    const lines = ['status,count', ...rows.map((r) => `${r.status},${r._count.status}`)];
+    return lines.join('\n');
+  }
+
+  async snapshotToPdf(snapshot: SetaSnapshot): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const chunks: Buffer[] = [];
+      doc.on('data', (c) => chunks.push(c as Buffer));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+      doc.fontSize(18).text('SETA operational snapshot', { align: 'center' });
+      doc.moveDown();
+      doc.fontSize(11).text(`Generated: ${snapshot.generatedAt}`);
+      doc.moveDown();
+      doc.text(`Enrollments: ${snapshot.enrollments}`);
+      doc.text(`Documents: ${snapshot.docs}`);
+      doc.text(`Assessments: ${snapshot.assessments}`);
+      doc.end();
+    });
   }
 }
