@@ -30,12 +30,8 @@ export function validateEnv(
 
     if (!str('DATABASE_URL')) {
       errs.push('DATABASE_URL is required in production');
-    }
-
-    if (!str('DIRECT_URL')) {
-      errs.push(
-        'DIRECT_URL is required in production (Neon direct URL for migrations; may match DATABASE_URL for non-pooled hosts)',
-      );
+    } else if (!str('DIRECT_URL')) {
+      cfg.DIRECT_URL = str('DATABASE_URL');
     }
 
     if ((str('PUBLIC_REGISTRATION') || '').toLowerCase() === 'true') {

@@ -12,7 +12,7 @@ services:
     branch: main
     autoDeployTrigger: commit
     buildCommand: npm ci --include=dev && npm run build
-    startCommand: npx prisma migrate deploy && npm run start:prod
+    startCommand: export DIRECT_URL="${DIRECT_URL:-$DATABASE_URL}"; npx prisma migrate deploy && npm run start:prod
     healthCheckPath: /health
     disk:
       name: lms-uploads
