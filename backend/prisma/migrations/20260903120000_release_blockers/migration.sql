@@ -10,6 +10,8 @@ CREATE INDEX IF NOT EXISTS "Assessment_moderatorId_idx" ON "Assessment"("moderat
 -- AlterTable AssessmentInstrument tenant ownership
 ALTER TABLE "AssessmentInstrument" ADD COLUMN IF NOT EXISTS "organisationId" UUID;
 
+-- Created as a UNIQUE INDEX (not a table constraint) in earlier migrations.
+DROP INDEX IF EXISTS "AssessmentInstrument_unitStandardId_version_key";
 ALTER TABLE "AssessmentInstrument" DROP CONSTRAINT IF EXISTS "AssessmentInstrument_unitStandardId_version_key";
 
 -- Instruments were global before this migration. Preserve that availability by
