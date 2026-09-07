@@ -9,7 +9,8 @@ services:
     plan: starter
     # Neon LMS project is aws-us-east-1; Ohio (us-east-2) keeps API latency low.
     region: ohio
-    autoDeployTrigger: checksPass
+    branch: main
+    autoDeployTrigger: commit
     buildCommand: npm ci --include=dev && npm run build
     preDeployCommand: npm run prisma:migrate:deploy
     startCommand: npm run start:prod
@@ -27,6 +28,7 @@ services:
         value: production
       - key: NODE_VERSION
         value: "22"
+      # Paste from Neon Console → project LMS → Connect
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
@@ -61,7 +63,8 @@ services:
   - type: web
     name: lms-web
     runtime: static
-    autoDeployTrigger: checksPass
+    branch: main
+    autoDeployTrigger: commit
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     buildFilter:
@@ -118,7 +121,8 @@ services:
   - type: web
     name: lms-ops
     runtime: static
-    autoDeployTrigger: checksPass
+    branch: main
+    autoDeployTrigger: commit
     buildCommand: npm ci && npm run build:ops
     staticPublishPath: dist-ops
     buildFilter:
