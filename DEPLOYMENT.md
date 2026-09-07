@@ -60,7 +60,7 @@ The root [`render.yaml`](./render.yaml) creates three services:
 - `lms-web`: learner/staff Vite static site
 - `lms-ops`: operations Vite static site
 
-Use the Neon **LMS** project (`aws-us-east-1`) and set its pooled URL as `DATABASE_URL` and direct URL as `DIRECT_URL` when Render prompts for the Blueprint's `sync: false` secrets. The API service deploys in **Ohio**. Migrations run in `preDeployCommand`, before a release receives traffic. The API health check returns `503` until its Neon connection is healthy.
+Click **Apply** on the YAML preview. Then open **lms-api → Environment** and add Neon **LMS** `DATABASE_URL` (pooled) and `DIRECT_URL` (direct), then **Manual Deploy**. Migrations run on API start. Health returns `503` until Neon is connected.
 
 The Blueprint uses **Neon** for Postgres and a **Render persistent disk** (`/var/data`) for uploads. There is no AWS, SMTP, or antivirus dependency.
 

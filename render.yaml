@@ -12,8 +12,7 @@ services:
     branch: main
     autoDeployTrigger: commit
     buildCommand: npm ci --include=dev && npm run build
-    preDeployCommand: npm run prisma:migrate:deploy
-    startCommand: npm run start:prod
+    startCommand: npx prisma migrate deploy && npm run start:prod
     healthCheckPath: /health
     maxShutdownDelaySeconds: 30
     disk:
@@ -28,11 +27,6 @@ services:
         value: production
       - key: NODE_VERSION
         value: "22"
-      # Paste from Neon Console → project LMS → Connect
-      - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
-        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
