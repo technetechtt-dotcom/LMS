@@ -14,7 +14,6 @@ services:
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npx prisma migrate deploy && npm run start:prod
     healthCheckPath: /health
-    maxShutdownDelaySeconds: 30
     disk:
       name: lms-uploads
       mountPath: /var/data
