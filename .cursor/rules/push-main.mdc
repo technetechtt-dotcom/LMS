@@ -1,0 +1,13 @@
+---
+description: After every change, commit and push directly to GitHub main (no PRs)
+alwaysApply: true
+---
+
+# Push to GitHub main
+
+The owner has given standing permission: after every completed change, commit and push to `origin/main`. Do not open a pull request.
+
+- Work on `main`. Commit with a concise message that explains why.
+- `git push origin main` (no force push, no `--no-verify`).
+- Do not commit secrets (`.env`, credentials) or unrelated local artifacts (e.g. `.audit/` screenshots) unless asked.
+- If there is nothing to commit, do not create an empty commit. Still push if `main` is ahead of origin.
