@@ -60,7 +60,7 @@ The root [`render.yaml`](./render.yaml) creates three services:
 - `lms-web`: learner/staff Vite static site
 - `lms-ops`: operations Vite static site
 
-Create the Neon project in AWS Frankfurt (`eu-central-1`) and set its pooled URL as `DATABASE_URL` and direct URL as `DIRECT_URL` when Render prompts for the Blueprint's `sync: false` secrets. Migrations run in `preDeployCommand`, before a release receives traffic. The API health check returns `503` until its Neon connection is healthy.
+Use the Neon **LMS** project (`aws-us-east-1`) and set its pooled URL as `DATABASE_URL` and direct URL as `DIRECT_URL` when Render prompts for the Blueprint's `sync: false` secrets. The API service deploys in **Ohio**. Migrations run in `preDeployCommand`, before a release receives traffic. The API health check returns `503` until its Neon connection is healthy.
 
 The Blueprint also requires production credentials for S3-compatible storage, SMTP, and the HTTP antivirus scanner. The API intentionally refuses to start with mock values in production.
 

@@ -7,7 +7,8 @@ services:
     runtime: node
     rootDir: backend
     plan: starter
-    region: frankfurt
+    # Neon LMS project is aws-us-east-1; Ohio (us-east-2) keeps API latency low.
+    region: ohio
     autoDeployTrigger: checksPass
     buildCommand: npm ci --include=dev && npm run build
     preDeployCommand: npm run prisma:migrate:deploy
