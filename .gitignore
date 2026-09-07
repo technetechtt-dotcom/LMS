@@ -8,6 +8,8 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+uploads
+backend/uploads
 dist
 dist-ops
 dist-ssr

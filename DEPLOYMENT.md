@@ -4,7 +4,8 @@
 
 - **SPA**: Vite + React (`npm run build` → static assets).
 - **API**: NestJS in `backend/` (`npm run build` in backend → `node dist/src/main.js`).
-- **Database**: PostgreSQL via Prisma ([Neon](https://neon.com/) recommended; see **[NEON.md](./NEON.md)**).
+- **Database**: PostgreSQL via Prisma ([Neon](https://neon.com/); see **[NEON.md](./NEON.md)**).
+- **Files**: local disk on the API host (Render persistent disk in production).
 
 ## Environment
 
@@ -23,10 +24,9 @@
 | `REFRESH_TOKEN_TTL_DAYS` | No | Default `7`. |
 | `PASSWORD_RESET_TTL_MINUTES` | No | Default `60`. |
 | `ADMIN_ENDPOINTS_ENABLED` | No | Defaults to `false` in production. Set `true` only for a controlled maintenance window. |
-| `LOG_PASSWORD_RESET_LINK` | No | Set `true` only in non-prod to log reset URLs to server logs when email is not wired. |
-| `AWS_REGION` | For real uploads | e.g. `af-south-1`. |
-| `AWS_S3_BUCKET` | For real uploads | Target bucket for `FileStorageService`. |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | For real uploads | Use IAM role / OIDC where possible instead of static keys. If set to `mock` or missing, uploads stay in **mock URL** mode. |
+| `UPLOAD_DIR` | No | Local folder for uploads. Render disk is `/var/data/uploads`. Defaults to `uploads`. |
+| `UPLOAD_MAX_MB` | No | Max upload size in megabytes (default `25`). |
+| `API_PUBLIC_URL` | No | Public API origin used in download links. On Render this is `RENDER_EXTERNAL_URL`. |
 
 ### Frontend (`VITE_API_URL`)
 
@@ -56,13 +56,13 @@ npm run seed
 
 The root [`render.yaml`](./render.yaml) creates three services:
 
-- `lms-api`: paid Render web service in Frankfurt
+- `lms-api`: paid Render web service in Ohio with a persistent disk for uploads
 - `lms-web`: learner/staff Vite static site
 - `lms-ops`: operations Vite static site
 
 Use the Neon **LMS** project (`aws-us-east-1`) and set its pooled URL as `DATABASE_URL` and direct URL as `DIRECT_URL` when Render prompts for the Blueprint's `sync: false` secrets. The API service deploys in **Ohio**. Migrations run in `preDeployCommand`, before a release receives traffic. The API health check returns `503` until its Neon connection is healthy.
 
-The Blueprint also requires production credentials for S3-compatible storage, SMTP, and the HTTP antivirus scanner. The API intentionally refuses to start with mock values in production.
+The Blueprint uses **Neon** for Postgres and a **Render persistent disk** (`/var/data`) for uploads. There is no AWS, SMTP, or antivirus dependency.
 
 ## Railway (managed Postgres + API)
 
@@ -71,7 +71,7 @@ See **[RAILWAY.md](./RAILWAY.md)** for step-by-step: Postgres plugin, `DATABASE_
 ## Operational checklist
 
 1. Rotate `JWT_SECRET` and refresh tokens periodically.
-2. Enable real object storage (`AWS_*` credentials or equivalent) before accepting learner evidence in production.
-3. Wire transactional email for password resets (remove reliance on `LOG_PASSWORD_RESET_LINK`).
+2. Confirm the Render disk is mounted at `/var/data` before accepting learner evidence.
+3. Read password-reset and invite links from Render API logs (no SMTP).
 4. Run `npm test` in `backend/` in CI.
 5. Terminate TLS at your edge (load balancer / reverse proxy); do not expose Postgres to the public internet.

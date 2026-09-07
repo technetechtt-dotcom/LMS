@@ -45,8 +45,6 @@ jobs:
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/lms_e2e
       JWT_SECRET: ci-jwt-secret-change-me-not-production-32
       NODE_ENV: test
-      FILE_STORAGE: mock
-      MAIL_PROVIDER: log
       FRONTEND_ORIGIN: http://localhost:5173
     steps:
       - uses: actions/checkout@v4
@@ -91,8 +89,6 @@ jobs:
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/lms_test
       JWT_SECRET: ci-jwt-secret-change-me-not-production-32
       NODE_ENV: test
-      FILE_STORAGE: mock
-      MAIL_PROVIDER: log
       RUN_DB_E2E: '1'
     steps:
       - uses: actions/checkout@v4

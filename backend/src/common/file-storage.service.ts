@@ -1,127 +1,76 @@
-import {
-  GetObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createHmac, timingSafeEqual } from 'crypto';
+import { createReadStream } from 'fs';
+import { access, mkdir, readFile, writeFile } from 'fs/promises';
+import { dirname, resolve, sep } from 'path';
 import {
   Injectable,
   Logger,
-  ServiceUnavailableException,
   BadRequestException,
+  NotFoundException,
+  PayloadTooLargeException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AntivirusService } from './antivirus.service';
 
-function isMockCredential(value: string | undefined): boolean {
-  if (!value || !value.trim()) return true;
-  const v = value.trim().toLowerCase();
-  return v === 'mock' || v === 'test' || v === 'local';
-}
+type StoredFile = {
+  key: string;
+  bucket: 'local';
+  mimeType: string;
+  size: number;
+  url: string;
+  provider: 'local';
+};
+
+type FileMeta = {
+  mimeType: string;
+  fileName: string;
+  size: number;
+};
 
 @Injectable()
 export class FileStorageService {
   private readonly logger = new Logger(FileStorageService.name);
 
-  constructor(
-    private readonly config: ConfigService,
-    private readonly antivirus: AntivirusService,
-  ) {}
+  constructor(private readonly config: ConfigService) {}
 
-  private s3Config() {
-    const nodeEnv = this.config.get<string>('NODE_ENV') ?? 'development';
-    const fileMode = (this.config.get<string>('FILE_STORAGE') ?? 's3')
-      .trim()
-      .toLowerCase();
-    const bucket =
-      this.config.get<string>('AWS_S3_BUCKET', 'mock-bucket') ?? 'mock-bucket';
-    const region = this.config.get<string>('AWS_REGION', 'af-south-1');
-    const accessKeyId =
-      this.config.get<string>('AWS_ACCESS_KEY_ID', '') ?? '';
-    const secretAccessKey =
-      this.config.get<string>('AWS_SECRET_ACCESS_KEY', '') ?? '';
-    const useS3 =
-      fileMode !== 'mock' &&
-      !isMockCredential(accessKeyId) &&
-      !isMockCredential(secretAccessKey) &&
-      bucket !== 'mock-bucket';
-    return { nodeEnv, fileMode, bucket, region, accessKeyId, secretAccessKey, useS3 };
+  private uploadRoot(): string {
+    const configured = this.config.get<string>('UPLOAD_DIR')?.trim();
+    return resolve(configured && configured.length ? configured : 'uploads');
   }
 
-  private client(cfg: ReturnType<FileStorageService['s3Config']>) {
-    return new S3Client({
-      region: cfg.region,
-      credentials: {
-        accessKeyId: cfg.accessKeyId.trim(),
-        secretAccessKey: cfg.secretAccessKey.trim(),
-      },
-    });
+  private publicApiBase(): string {
+    const configured =
+      this.config.get<string>('API_PUBLIC_URL')?.trim() ||
+      this.config.get<string>('RENDER_EXTERNAL_URL')?.trim();
+    return (configured || 'http://localhost:8787').replace(/\/$/, '');
   }
 
-  async upload(
-    fileName: string,
-    bytes: Buffer,
-    mimeType: string,
-    opts?: { prefix?: string; organisationId?: string },
-  ) {
-    await this.antivirus.scanOrThrow(fileName, bytes);
+  private signingSecret(): string {
+    return this.config.get<string>('JWT_SECRET')?.trim() || 'local-file-secret';
+  }
 
-    const cfg = this.s3Config();
-    const prefix = opts?.prefix ?? 'uploads';
-    const orgPart = opts?.organisationId ? `${opts.organisationId}/` : '';
-    const key = `${prefix}/${orgPart}${Date.now()}-${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-
-    if (!cfg.useS3) {
-      if (cfg.nodeEnv === 'production' && cfg.fileMode !== 'mock') {
-        throw new ServiceUnavailableException(
-          'File storage is not configured for production',
-        );
-      }
-      return {
-        key,
-        bucket: cfg.bucket,
-        mimeType,
-        size: bytes.length,
-        /** Permanent locator — never persist expiring signed URLs. */
-        url: this.storageLocator(key, cfg.bucket),
-        provider: 'mock-s3' as const,
-      };
+  private absolutePath(key: string): string {
+    const root = this.uploadRoot();
+    const full = resolve(root, key);
+    const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
+    if (full !== root && !full.startsWith(prefix)) {
+      throw new BadRequestException('Invalid storage key');
     }
-
-    const client = this.client(cfg);
-    await client.send(
-      new PutObjectCommand({
-        Bucket: cfg.bucket,
-        Key: key,
-        Body: bytes,
-        ContentType: mimeType || 'application/octet-stream',
-        ServerSideEncryption: 'AES256',
-        // Private objects — use signed URLs for download
-        ACL: undefined,
-      }),
-    );
-
-    this.logger.log(`Uploaded s3://${cfg.bucket}/${key}`);
-    return {
-      key,
-      bucket: cfg.bucket,
-      mimeType,
-      size: bytes.length,
-      url: this.storageLocator(key, cfg.bucket),
-      provider: 's3' as const,
-    };
+    return full;
   }
 
-  /** Stable non-expiring locator for DB persistence. */
-  storageLocator(key: string, bucket?: string) {
-    const cfg = this.s3Config();
-    return `storage://${bucket ?? cfg.bucket}/${key}`;
+  private metaPath(filePath: string): string {
+    return `${filePath}.meta.json`;
+  }
+
+  storageLocator(key: string, _bucket?: string) {
+    return `storage://local/${key}`;
   }
 
   /**
    * Reject client-forged keys. Accepted forms:
    * - Exact key previously returned by upload (prefix/org/…)
-   * - storage://bucket/key locator
+   * - storage://local/key locator
    */
   assertValidStorageKey(
     storageKey: string,
@@ -171,16 +120,110 @@ export class FileStorageService {
     return key;
   }
 
-  async getSignedDownloadUrl(key: string, expiresInSeconds = 900) {
-    const cfg = this.s3Config();
-    if (!cfg.useS3) {
-      return `https://${cfg.bucket}.s3.${cfg.region}.amazonaws.com/${encodeURI(key)}`;
+  async upload(
+    fileName: string,
+    bytes: Buffer,
+    mimeType: string,
+    opts?: { prefix?: string; organisationId?: string },
+  ): Promise<StoredFile> {
+    const maxMb = Number(this.config.get<string>('UPLOAD_MAX_MB') ?? '25');
+    if (bytes.length > maxMb * 1024 * 1024) {
+      throw new PayloadTooLargeException(`File exceeds ${maxMb}MB`);
     }
-    const client = this.client(cfg);
-    return getSignedUrl(
-      client as never,
-      new GetObjectCommand({ Bucket: cfg.bucket, Key: key }),
-      { expiresIn: expiresInSeconds },
+
+    const prefix = opts?.prefix ?? 'uploads';
+    const orgPart = opts?.organisationId ? `${opts.organisationId}/` : '';
+    const key = `${prefix}/${orgPart}${Date.now()}-${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const filePath = this.absolutePath(key);
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, bytes);
+    const meta: FileMeta = {
+      mimeType: mimeType || 'application/octet-stream',
+      fileName,
+      size: bytes.length,
+    };
+    await writeFile(this.metaPath(filePath), JSON.stringify(meta), 'utf8');
+    this.logger.log(`Stored local file ${key}`);
+    return {
+      key,
+      bucket: 'local',
+      mimeType: meta.mimeType,
+      size: bytes.length,
+      url: this.storageLocator(key),
+      provider: 'local',
+    };
+  }
+
+  async getSignedDownloadUrl(key: string, expiresInSeconds = 900) {
+    const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
+    const body = Buffer.from(JSON.stringify({ k: key, exp })).toString(
+      'base64url',
     );
+    const sig = createHmac('sha256', this.signingSecret())
+      .update(body)
+      .digest('base64url');
+    return `${this.publicApiBase()}/storage/${body}.${sig}`;
+  }
+
+  async openDownload(token: string): Promise<{
+    stream: ReturnType<typeof createReadStream>;
+    mimeType: string;
+    fileName: string;
+    size: number;
+  }> {
+    const [body, sig] = token.split('.');
+    if (!body || !sig) {
+      throw new UnauthorizedException('Invalid download token');
+    }
+    const expected = createHmac('sha256', this.signingSecret())
+      .update(body)
+      .digest('base64url');
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      throw new UnauthorizedException('Invalid download token');
+    }
+
+    let payload: { k?: string; exp?: number };
+    try {
+      payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as {
+        k?: string;
+        exp?: number;
+      };
+    } catch {
+      throw new UnauthorizedException('Invalid download token');
+    }
+    if (!payload.k || typeof payload.exp !== 'number') {
+      throw new UnauthorizedException('Invalid download token');
+    }
+    if (payload.exp < Math.floor(Date.now() / 1000)) {
+      throw new UnauthorizedException('Download link expired');
+    }
+
+    const filePath = this.absolutePath(payload.k);
+    try {
+      await access(filePath);
+    } catch {
+      throw new NotFoundException('File not found');
+    }
+
+    let meta: FileMeta = {
+      mimeType: 'application/octet-stream',
+      fileName: payload.k.split('/').pop() || 'download',
+      size: 0,
+    };
+    try {
+      const raw = await readFile(this.metaPath(filePath), 'utf8');
+      meta = { ...meta, ...(JSON.parse(raw) as FileMeta) };
+    } catch {
+      /* metadata is optional for older files */
+    }
+
+    return {
+      stream: createReadStream(filePath),
+      mimeType: meta.mimeType,
+      fileName: meta.fileName,
+      size: meta.size,
+    };
   }
 }

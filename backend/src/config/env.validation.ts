@@ -38,60 +38,8 @@ export function validateEnv(
       );
     }
 
-    const logReset = str('LOG_PASSWORD_RESET_LINK').toLowerCase();
-    if (logReset === 'true' || logReset === '1') {
-      errs.push(
-        'LOG_PASSWORD_RESET_LINK must not be enabled in production — configure SMTP/mail delivery instead',
-      );
-    }
-
-    const fileMode = (str('FILE_STORAGE') || 's3').toLowerCase();
-    if (fileMode === 'mock') {
-      errs.push('FILE_STORAGE=mock is not allowed in production — use real S3');
-    }
-    {
-      const access = str('AWS_ACCESS_KEY_ID').toLowerCase();
-      const secretKey = str('AWS_SECRET_ACCESS_KEY').toLowerCase();
-      const bucket = str('AWS_S3_BUCKET');
-      if (
-        !bucket ||
-        bucket === 'mock-bucket' ||
-        !access ||
-        access === 'mock' ||
-        !secretKey ||
-        secretKey === 'mock'
-      ) {
-        errs.push(
-          'Production file storage requires real AWS_S3_BUCKET, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY',
-        );
-      }
-    }
-
-    const mailProvider = (str('MAIL_PROVIDER') || '').toLowerCase();
-    if (mailProvider !== 'smtp') {
-      errs.push('MAIL_PROVIDER must be smtp in production (log/mock mail is not allowed)');
-    }
-    if (!str('SMTP_HOST') || !str('SMTP_FROM')) {
-      errs.push('SMTP_HOST and SMTP_FROM are required in production');
-    }
-
     if ((str('PUBLIC_REGISTRATION') || '').toLowerCase() === 'true') {
       errs.push('PUBLIC_REGISTRATION cannot be enabled in production — use invitations');
-    }
-
-    const avMode = (str('AV_SCAN_MODE') || '').toLowerCase();
-    if (!avMode || avMode === 'mock' || avMode === 'off') {
-      errs.push(
-        'AV_SCAN_MODE must be "http" in production (mock/off are not allowed)',
-      );
-    }
-    if (!str('AV_SCAN_URL')) {
-      errs.push('AV_SCAN_URL is required in production');
-    }
-
-    const adminEndpoints = (str('ADMIN_ENDPOINTS_ENABLED') || 'false').toLowerCase();
-    if (adminEndpoints === 'true' || adminEndpoints === '1') {
-      // allowed but noisy — prefer explicit false; no hard fail
     }
   }
 

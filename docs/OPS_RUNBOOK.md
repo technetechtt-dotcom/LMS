@@ -20,7 +20,7 @@
 Schedule an annual independent web/API pentest covering:
 - tenant isolation / IDOR
 - enrollment & assessment privilege escalation
-- file upload / AV bypass
+- file upload
 - auth (invite, reset, MFA when live)
 
 Track findings in Issues; block production accreditation until Critical/High are closed.

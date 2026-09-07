@@ -30,7 +30,7 @@ You do **not** need to create tables by hand; Prisma applies migrations on deplo
 | `FRONTEND_ORIGIN` | Your SPA origins, comma-separated: `https://your-app.vercel.app` or Railway static URL once you know it. |
 | `PORT` | **Leave unset** — Railway sets `PORT`; Nest listens on it. |
 
-Optional: `REFRESH_TOKEN_TTL_DAYS`, `PASSWORD_RESET_TTL_MINUTES`, `ADMIN_ENDPOINTS_ENABLED=false` (locks admin maintenance APIs), `AWS_*` for real S3 uploads (see `DEPLOYMENT.md`).
+Optional: `REFRESH_TOKEN_TTL_DAYS`, `PASSWORD_RESET_TTL_MINUTES`, `ADMIN_ENDPOINTS_ENABLED=false` (locks admin maintenance APIs), `UPLOAD_DIR` for local file storage. Production hosting is Render + Neon — see `DEPLOYMENT.md`.
 
 4. **Deploy**: Railway reads `backend/railway.toml`:
    - **Build**: `npm ci --include=dev && npm run build` (needs devDeps for TypeScript + Nest CLI).

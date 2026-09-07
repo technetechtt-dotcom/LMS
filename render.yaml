@@ -15,6 +15,10 @@ services:
     startCommand: npm run start:prod
     healthCheckPath: /health
     maxShutdownDelaySeconds: 30
+    disk:
+      name: lms-uploads
+      mountPath: /var/data
+      sizeGB: 10
     buildFilter:
       paths:
         - backend/**
@@ -45,44 +49,14 @@ services:
           name: lms-ops
           type: web
           envVarKey: RENDER_EXTERNAL_URL
-      - key: FILE_STORAGE
-        value: s3
-      - key: AWS_ACCESS_KEY_ID
-        sync: false
-      - key: AWS_SECRET_ACCESS_KEY
-        sync: false
-      - key: AWS_S3_BUCKET
-        sync: false
-      - key: AWS_REGION
-        value: af-south-1
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
       - key: UPLOAD_MAX_MB
         value: "25"
-      - key: MAIL_PROVIDER
-        value: smtp
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_SECURE
-        value: "false"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
-        sync: false
-      - key: SMTP_FROM
-        sync: false
-      - key: AV_SCAN_MODE
-        value: http
-      - key: AV_SCAN_URL
-        sync: false
-      - key: LOG_PASSWORD_RESET_LINK
-        value: "false"
       - key: PUBLIC_REGISTRATION
         value: "false"
       - key: ADMIN_ENDPOINTS_ENABLED
         value: "false"
-      - key: SETA_GATEWAY_URL
-        sync: false
 
   - type: web
     name: lms-web

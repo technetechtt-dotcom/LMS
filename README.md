@@ -11,13 +11,13 @@ SETA / QCTO–aligned Learning Management System: React (Vite) SPA + NestJS API 
 | Data | Prisma 5 + PostgreSQL |
 | Auth | JWT access token + HttpOnly refresh cookie (`sf_refresh`) |
 | Tenancy | `X-Organisation-Id` + `UserOrganisation` membership (TenantGuard) |
-| Files | S3 (or mock), signed GET URLs, optional HTTP AV scan |
+| Files | Local disk on the Render API (persistent disk), signed GET URLs |
 
 ## Local development
 
 ```bash
 cp backend/.env.example backend/.env
-# set DATABASE_URL, DIRECT_URL, JWT_SECRET, FRONTEND_ORIGIN, MAIL_PROVIDER=log, FILE_STORAGE=mock
+# set DATABASE_URL, DIRECT_URL, JWT_SECRET, FRONTEND_ORIGIN
 
 npm install
 npm --prefix backend install
@@ -57,7 +57,7 @@ Certificates require enrolment `COMPLETED`, all assessments `C`, and approved wo
 
 ## Production (Render)
 
-See root `render.yaml`. Required API env: `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `FRONTEND_ORIGIN`, `MAIL_PROVIDER`, AWS or `FILE_STORAGE=mock`.
+See root `render.yaml`. Required API env: `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `FRONTEND_ORIGIN`. Uploads go to a Render persistent disk. Password-reset and invite links appear in Render API logs.
 
 ## Tests
 
