@@ -201,6 +201,15 @@ export class AssessmentInstancesService {
       throw new BadRequestException('Bound assessment instrument not found');
     }
 
+    if (inProgress && instrument.timeLimitMinutes && instrument.timeLimitMinutes > 0) {
+      const expiresAt = new Date(
+        inProgress.createdAt.getTime() + instrument.timeLimitMinutes * 60_000,
+      );
+      if (new Date() > expiresAt) {
+        throw new ForbiddenException('Assessment time has expired');
+      }
+    }
+
     const responsesRaw = Array.isArray(body.responses) ? body.responses : [];
     const sanitized: ResponseInput[] = responsesRaw.map((raw) => {
       const r = raw as Record<string, unknown>;
@@ -340,6 +349,10 @@ export class AssessmentInstancesService {
         feedback: comments,
         moderatedAt: new Date(),
       },
+    });
+    await this.prisma.assessment.update({
+      where: { id: row.assessmentId },
+      data: { moderatorId: user.userId },
     });
 
     const learnerId = updated.enrollment.learner?.id;

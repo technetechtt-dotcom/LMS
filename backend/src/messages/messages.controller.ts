@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Patch,
   Post,
   Req,
   UploadedFiles,
@@ -43,5 +44,13 @@ export class MessagesController {
     const content = body.content ?? (req.body as { content?: string }).content ?? '';
     const data = await this.messages.send(req.user, toId, content, files);
     return { success: true, data };
+  }
+
+  @Patch('read')
+  async markRead(
+    @Req() req: Request & { user?: AuthUser },
+    @Body() body: { fromId?: string },
+  ) {
+    return this.messages.markFromPeerRead(req.user, body.fromId ?? '');
   }
 }

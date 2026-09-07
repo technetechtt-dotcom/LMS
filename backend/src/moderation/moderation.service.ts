@@ -111,20 +111,27 @@ export class ModerationService {
       ? (existing!.trail as unknown[])
       : [];
 
-    return this.prisma.moderation.upsert({
-      where: { assessmentId: dto.assessmentId },
-      create: {
-        assessmentId: dto.assessmentId,
-        moderatorId: dto.moderatorId,
-        decision: 'PENDING',
-        feedback: 'Awaiting moderation',
-        trail: [trailEntry],
-      },
-      update: {
-        moderatorId: dto.moderatorId,
-        trail: [...priorTrail, trailEntry] as object,
-      },
-    });
+    const [moderation] = await this.prisma.$transaction([
+      this.prisma.moderation.upsert({
+        where: { assessmentId: dto.assessmentId },
+        create: {
+          assessmentId: dto.assessmentId,
+          moderatorId: dto.moderatorId,
+          decision: 'PENDING',
+          feedback: 'Awaiting moderation',
+          trail: [trailEntry],
+        },
+        update: {
+          moderatorId: dto.moderatorId,
+          trail: [...priorTrail, trailEntry] as object,
+        },
+      }),
+      this.prisma.assessment.update({
+        where: { id: dto.assessmentId },
+        data: { moderatorId: dto.moderatorId },
+      }),
+    ]);
+    return moderation;
   }
 
   async history(assessmentId: string, user?: AuthUser) {

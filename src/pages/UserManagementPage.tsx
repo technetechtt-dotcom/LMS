@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Filter, Edit2, Mail, Phone, Building, GraduationCap } from 'lucide-react';
+import { Plus, Edit2, Mail, Phone, Building, GraduationCap } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
@@ -325,9 +325,6 @@ export function UserManagementPage() {
             ]}
           />
         </div>
-        <Button variant="secondary" leftIcon={<Filter className="h-4 w-4" />}>
-          Filter
-        </Button>
       </div>
 
       <DataTable

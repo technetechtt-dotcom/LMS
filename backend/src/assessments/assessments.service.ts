@@ -269,14 +269,17 @@ export class AssessmentsService {
         status: 'in_progress',
       },
     });
-    if (existingOpen) return existingOpen;
 
     const published = await this.prisma.assessmentInstrument.findFirst({
       where: { unitStandardId: a.unitStandardId, status: 'PUBLISHED', organisationId },
       orderBy: { version: 'desc' },
     });
-    if (!published) {
+    if (!published && !existingOpen) {
       throw new BadRequestException('No published assessment instrument');
+    }
+
+    if (existingOpen) {
+      return this.withAttemptWindow(existingOpen, published?.timeLimitMinutes);
     }
 
     const priorCount = await this.prisma.assessmentSubmission.count({
@@ -287,22 +290,39 @@ export class AssessmentsService {
       },
     });
     const nextAttempt = priorCount + 1;
-    if (published.maxAttempts > 0 && nextAttempt > published.maxAttempts) {
+    if (published && published.maxAttempts > 0 && nextAttempt > published.maxAttempts) {
       throw new ForbiddenException(
         `Maximum attempts (${published.maxAttempts}) reached for this instrument`,
       );
     }
 
-    return this.prisma.assessmentSubmission.create({
+    const created = await this.prisma.assessmentSubmission.create({
       data: {
         enrollmentId: a.enrollmentId,
         assessmentId: a.id,
-        instrumentId: published.id,
+        instrumentId: published!.id,
         attemptNumber: nextAttempt,
         status: 'in_progress',
         responses: [],
       },
     });
+    return this.withAttemptWindow(created, published?.timeLimitMinutes);
+  }
+
+  private withAttemptWindow<T extends { createdAt: Date }>(
+    row: T,
+    timeLimitMinutes?: number | null,
+  ) {
+    const minutes = timeLimitMinutes && timeLimitMinutes > 0 ? timeLimitMinutes : 0;
+    const startedAt = row.createdAt;
+    const expiresAt =
+      minutes > 0 ? new Date(startedAt.getTime() + minutes * 60_000) : null;
+    return {
+      ...row,
+      startedAt: startedAt.toISOString(),
+      expiresAt: expiresAt?.toISOString() ?? null,
+      timeLimitMinutes: minutes || null,
+    };
   }
 
   async create(dto: CreateAssessmentDto, user?: AuthUser) {

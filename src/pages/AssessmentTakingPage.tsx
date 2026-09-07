@@ -84,8 +84,18 @@ export function AssessmentTakingPage() {
           const sub = attempt.data as {
             id?: string;
             responses?: Array<{ questionId: string; answer: unknown }>;
+            expiresAt?: string | null;
+            timeLimitMinutes?: number | null;
           };
           if (sub.id) setSubmissionId(sub.id);
+          if (sub.expiresAt) {
+            const remaining = Math.floor(
+              (new Date(sub.expiresAt).getTime() - Date.now()) / 1000,
+            );
+            setTimeLeft(Math.max(0, remaining));
+          } else if (sub.timeLimitMinutes && sub.timeLimitMinutes > 0) {
+            setTimeLeft(sub.timeLimitMinutes * 60);
+          }
           if (Array.isArray(sub.responses) && sub.responses.length) {
             const restored: Record<string, unknown> = {};
             for (const r of sub.responses) {

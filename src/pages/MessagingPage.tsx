@@ -25,6 +25,8 @@ export function MessagingPage() {
     Array<{ value: string; label: string }>
   >([]);
   const [sending, setSending] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +77,17 @@ export function MessagingPage() {
       };
     });
   }, [messages, user?.id]);
+
+  const visibleConversations = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter(
+      (c) =>
+        c.user.toLowerCase().includes(q) ||
+        c.preview.toLowerCase().includes(q) ||
+        c.role.toLowerCase().includes(q),
+    );
+  }, [conversations, searchQuery]);
 
   const threadMessages = useMemo(() => {
     if (!selectedChat) return [];
@@ -179,13 +192,15 @@ export function MessagingPage() {
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input
               type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search messages..."
               className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-brand-navy" />
             
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {conversations.map((chat) =>
+          {visibleConversations.map((chat) =>
           <div
             key={chat.id}
             onClick={() => setSelectedChat(chat.id)}
@@ -227,17 +242,54 @@ export function MessagingPage() {
             {/* Chat Header */}
             <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50/50 rounded-t-lg">
               <div className="flex items-center space-x-3">
-                <Avatar initials="SK" />
+                <Avatar initials={activeConversation?.avatar || 'U'} />
                 <div>
                   <h3 className="text-sm font-bold text-gray-900">
-                    Sarah Khumalo
+                    {activeConversation?.user ?? 'Conversation'}
                   </h3>
-                  <p className="text-xs text-gray-500">Assessment Feedback</p>
+                  <p className="text-xs text-gray-500">
+                    {activeConversation?.role ?? 'Message'}
+                  </p>
                 </div>
               </div>
-              <Button variant="ghost" size="sm">
-                <MoreVertical className="h-4 w-4" />
-              </Button>
+              <div className="relative">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  onClick={() => setMenuOpen((open) => !open)}>
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+                {menuOpen && (
+                  <div className="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                      onClick={async () => {
+                        if (!activeConversation) return;
+                        try {
+                          await messagingService.markThreadRead(
+                            activeConversation.peerId,
+                          );
+                          setMessages((prev) =>
+                            prev.map((m) =>
+                              m.fromId === activeConversation.peerId &&
+                              m.toId === user?.id
+                                ? { ...m, isRead: true }
+                                : m,
+                            ),
+                          );
+                          toast.success('Conversation marked as read');
+                        } catch {
+                          toast.error('Could not mark as read');
+                        }
+                        setMenuOpen(false);
+                      }}>
+                      Mark as read
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Messages Area */}

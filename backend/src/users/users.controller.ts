@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
-import { AdminOnlyEndpoint } from '../common/decorators/admin-only-endpoint.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
 import { UsersService } from './users.service';
@@ -9,7 +8,6 @@ import { AddUserMembershipDto, CreateUserDto } from './users.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth()
-@AdminOnlyEndpoint()
 @Controller('users')
 export class UsersController {
   constructor(private readonly users: UsersService) {}

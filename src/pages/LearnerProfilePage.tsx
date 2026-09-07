@@ -98,7 +98,14 @@ export function LearnerProfilePage() {
   );
   const [moderatorAssigned, setModeratorAssigned] = useState(false);
   const [poeDocuments, setPoeDocuments] = useState<
-    Array<{ id: string; title: string; status: 'verified' | 'pending' | 'completed'; type: string; date?: string }>
+    Array<{
+      id: string;
+      title: string;
+      status: 'verified' | 'pending' | 'completed';
+      type: string;
+      date?: string;
+      downloadId?: string;
+    }>
   >([]);
   const [assessmentRows, setAssessmentRows] = useState<
     Array<{
@@ -229,13 +236,14 @@ export function LearnerProfilePage() {
         res.data.rows as unknown as OfficialPoeRequirementRow[],
       );
       setModeratorAssigned(res.data.moderatorAssigned);
-      setPoeDocuments(
+        setPoeDocuments(
         (res.data.documents ?? []).map((d) => ({
           id: d.id,
           title: d.fileName || d.type,
           status: d.status === 'verified' ? 'verified' : 'pending',
           type: d.category,
           date: d.createdAt?.slice(0, 10),
+          downloadId: d.id,
         })),
       );
     });
@@ -244,93 +252,21 @@ export function LearnerProfilePage() {
     };
   }, [id]);
 
-  const poeAdministrativeDocs =
-    poeDocuments.length > 0
-      ? poeDocuments
-      : [
-    {
-      id: '1',
-      title: 'Learner Registration Form',
-      status: 'verified' as const,
-      type: 'Administrative',
-      date: '2023-01-15',
-    },
-    {
-      id: '2',
-      title: 'Certified ID Copy',
-      status: 'verified' as const,
-      type: 'Administrative',
-      date: '2023-01-15',
-    },
-    {
-      id: '3',
-      title: 'Matric Certificate',
-      status: 'verified' as const,
-      type: 'Administrative',
-      date: '2023-01-15',
-    },
-  ];
+  const poeAdministrativeDocs = poeDocuments.filter(
+    (d) => !/knowledge|practical|workplace/i.test(d.type ?? ''),
+  );
 
-  const poeKnowledgeModules = [
-    {
-      id: 'km-lg',
-      title: 'Learner Guide',
-      status: 'completed' as const,
-      type: 'Knowledge • Textbook-style content',
-      date: '2026-02-01',
-    },
-    {
-      id: 'km-wb',
-      title: 'Learner Workbook',
-      status: 'pending' as const,
-      type: 'Knowledge • Homework / activities (facilitator-marked)',
-    },
-    {
-      id: 'km-sum',
-      title: 'Summative Assessment',
-      status: 'pending' as const,
-      type: 'Knowledge • Formal summative instrument',
-    },
-  ];
+  const poeKnowledgeModules = poeDocuments.filter((d) =>
+    /knowledge/i.test(d.type ?? ''),
+  );
 
-  const poePracticalItems = [
-    {
-      id: '4',
-      title: 'Module 1: Intro to Programming',
-      status: 'completed' as const,
-      type: 'Practical / simulated assessment',
-      date: '2023-02-20',
-    },
-    {
-      id: '5',
-      title: 'Module 2: Database Design',
-      status: 'completed' as const,
-      type: 'Practical / simulated assessment',
-      date: '2023-03-15',
-    },
-    {
-      id: '6',
-      title: 'Module 3: Web Development',
-      status: 'pending' as const,
-      type: 'Practical / simulated assessment',
-    },
-  ];
+  const poePracticalItems = poeDocuments.filter((d) =>
+    /practical/i.test(d.type ?? ''),
+  );
 
-  const poeWorkplaceItems = [
-    {
-      id: '7',
-      title: 'Workplace Logbook: Month 1',
-      status: 'verified' as const,
-      type: 'Workplace',
-      date: '2023-02-28',
-    },
-    {
-      id: '8',
-      title: 'Workplace Logbook: Month 2',
-      status: 'missing' as const,
-      type: 'Workplace',
-    },
-  ];
+  const poeWorkplaceItems = poeDocuments.filter((d) =>
+    /workplace/i.test(d.type ?? ''),
+  );
 
   const poeTabCount =
     poeAdministrativeDocs.length +
@@ -750,11 +686,35 @@ export function LearnerProfilePage() {
                 your official POE checklist.
               </p>
               <FileUpload
-                onUpload={(files) =>
-                  toast.success(
-                    `${files.length} document(s) queued — your facilitator will verify.`,
-                  )
-                }
+                onUpload={(files) => {
+                  if (!id) return;
+                  void (async () => {
+                    try {
+                      for (const file of files) {
+                        await poeService.upload(id, file, {
+                          category: 'administrative',
+                          type: 'Administrative',
+                        });
+                      }
+                      const overview = await poeService.getByLearner(id);
+                      setPoeDocuments(
+                        (overview.data ?? []).map((d) => ({
+                          id: d.id,
+                          title: d.fileName || d.type,
+                          status: d.status === 'verified' ? 'verified' : 'pending',
+                          type: d.category,
+                          date: d.createdAt?.slice(0, 10),
+                          downloadId: d.id,
+                        })),
+                      );
+                      toast.success(
+                        `${files.length} document(s) uploaded for verification`,
+                      );
+                    } catch {
+                      toast.error('Could not upload documents');
+                    }
+                  })();
+                }}
               />
             </div>
           </Card>

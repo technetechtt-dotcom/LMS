@@ -6,12 +6,15 @@ import {
   Download } from
 'lucide-react';
 import { Badge } from '../ui/Badge';
+import { documentService } from '../../services/api';
+import { toast } from 'sonner';
 interface POEItem {
   id: string;
   title: string;
   status: 'completed' | 'pending' | 'missing' | 'verified';
   date?: string;
   type: string;
+  downloadId?: string;
 }
 interface POESectionProps {
   title: string;
@@ -59,6 +62,9 @@ export function POESection({ title, items }: POESectionProps) {
         </span>
       </div>
       <ul className="divide-y divide-gray-200">
+        {items.length === 0 && (
+          <li className="px-4 py-6 text-sm text-gray-500">No documents in this section yet.</li>
+        )}
         {items.map((item) =>
         <li
           key={item.id}
@@ -78,7 +84,22 @@ export function POESection({ title, items }: POESectionProps) {
             <div className="flex items-center space-x-4">
               {getStatusBadge(item.status)}
               {(item.status === 'completed' || item.status === 'verified') &&
-            <button className="text-gray-400 hover:text-brand-navy">
+            <button
+              type="button"
+              className="text-gray-400 hover:text-brand-navy"
+              aria-label={`Download ${item.title}`}
+              onClick={async () => {
+                if (!item.downloadId) {
+                  toast.error('No file is stored for this item');
+                  return;
+                }
+                try {
+                  const res = await documentService.downloadUrl(item.downloadId);
+                  window.open(res.data.downloadUrl, '_blank', 'noopener');
+                } catch {
+                  toast.error('Download failed');
+                }
+              }}>
                   <Download className="h-4 w-4" />
                 </button>
             }

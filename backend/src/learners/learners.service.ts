@@ -216,7 +216,7 @@ export class LearnersService {
     if (
       user &&
       !user.roleCodes?.some((c) =>
-        ['ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER', 'SETA'].includes(
+        ['ADMIN', 'PLATFORM_ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER', 'SETA'].includes(
           c,
         ),
       )

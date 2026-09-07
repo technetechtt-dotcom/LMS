@@ -13,8 +13,42 @@ import { Select } from '../components/ui/Select';
 import { DataTable } from '../components/ui/DataTable';
 import { Badge } from '../components/ui/Badge';
 import { toast } from 'sonner';
-import { api, auditService, authService, complianceService } from '../services/api';
+import { api, auditService, authService, complianceService, privacyService } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { downloadJson } from '../utils/downloadJson';
+
+type UserPrefs = {
+  notifyAssessment: boolean;
+  notifyCompliance: boolean;
+  notifyMarketing: boolean;
+  notifySmsSecurity: boolean;
+  notifySmsUrgent: boolean;
+  language: string;
+  timezone: string;
+};
+
+const DEFAULT_PREFS: UserPrefs = {
+  notifyAssessment: true,
+  notifyCompliance: true,
+  notifyMarketing: false,
+  notifySmsSecurity: true,
+  notifySmsUrgent: false,
+  language: 'en',
+  timezone: 'sa',
+};
+
+function prefsKey(userId?: string) {
+  return userId ? `sf-prefs:${userId}` : 'sf-prefs:anon';
+}
+
+function loadPrefs(userId?: string): UserPrefs {
+  try {
+    const raw = localStorage.getItem(prefsKey(userId));
+    return raw ? { ...DEFAULT_PREFS, ...(JSON.parse(raw) as UserPrefs) } : DEFAULT_PREFS;
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
 
 type AuditLogRow = {
   id: string;
@@ -51,6 +85,9 @@ export function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [prefs, setPrefs] = useState<UserPrefs>(() => loadPrefs(user?.id));
+  const [logFrom, setLogFrom] = useState('');
+  const [logTo, setLogTo] = useState('');
 
   useEffect(() => {
     if (user?.name) setProfileName(user.name);
@@ -59,6 +96,10 @@ export function SettingsPage() {
     if (user?.jobTitle) setProfileJobTitle(user.jobTitle);
     if (user?.hasSignature) setHasSignature(true);
   }, [user?.name, user?.email, user?.phone, user?.jobTitle, user?.hasSignature]);
+
+  useEffect(() => {
+    setPrefs(loadPrefs(user?.id));
+  }, [user?.id]);
 
   useEffect(() => {
     auditService.list(100).then((rows) => {
@@ -141,6 +182,34 @@ export function SettingsPage() {
       setSavingPassword(false);
     }
   };
+
+  const persistPrefs = () => {
+    localStorage.setItem(prefsKey(user?.id), JSON.stringify(prefs));
+    toast.success('Preferences saved');
+  };
+
+  const handleExportLogs = () => {
+    const from = logFrom ? new Date(logFrom) : null;
+    const to = logTo ? new Date(`${logTo}T23:59:59`) : null;
+    const filtered = logs.filter((row) => {
+      const t = Date.parse(row.timestamp);
+      if (Number.isNaN(t)) return true;
+      if (from && t < from.getTime()) return false;
+      if (to && t > to.getTime()) return false;
+      return true;
+    });
+    downloadJson(`access-logs-${new Date().toISOString().slice(0, 10)}.json`, filtered);
+  };
+
+  const handleRequestDataExport = async () => {
+    try {
+      await privacyService.requestAccessExport();
+      toast.success('POPIA access request submitted');
+    } catch {
+      toast.error('Could not submit data export request');
+    }
+  };
+
   const handleNLRDSubmit = async () => {
     setNlrdLoading(true);
     try {
@@ -157,8 +226,8 @@ export function SettingsPage() {
       );
       toast.success(
         res.success
-          ? `NLRD batch ${res.batchId ?? ''} submitted`
-          : 'NLRD export generated',
+          ? `Internal NLRD export ${res.batchId ?? ''} generated (not SETA-certified)`
+          : 'Internal NLRD export generated (not SETA-certified)',
       );
     } catch (e) {
       toast.error('Submission Failed');
@@ -274,30 +343,10 @@ export function SettingsPage() {
                 <div className="h-24 w-24 rounded-full bg-brand-navy flex items-center justify-center text-3xl font-bold text-white">
                   {(profileName || 'U').slice(0, 2).toUpperCase()}
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => signatureInputRef.current?.click()}>
-                  Change Avatar
-                </Button>
-                <input
-                  ref={signatureInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    void authService
-                      .uploadSignature(file)
-                      .then(() => {
-                        setHasSignature(true);
-                        toast.success('Signature uploaded');
-                      })
-                      .catch(() => toast.error('Could not upload signature'));
-                  }}
-                />
+                <p className="text-sm text-gray-500">
+                  Profile photo uses your initials. Upload a signature below for
+                  document signing.
+                </p>
               </div>
 
               {/* Digital Signature Section */}
@@ -344,6 +393,23 @@ export function SettingsPage() {
                   onClick={() => signatureInputRef.current?.click()}>
                     Upload Signature
                   </Button>
+                  <input
+                    ref={signatureInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      void authService
+                        .uploadSignature(file)
+                        .then(() => {
+                          setHasSignature(true);
+                          toast.success('Signature uploaded');
+                        })
+                        .catch(() => toast.error('Could not upload signature'));
+                    }}
+                  />
                   <Button
                   type="button"
                   variant="outline"
@@ -456,7 +522,12 @@ export function SettingsPage() {
 
         {activeTab === 'notifications' &&
         <Card title="Notification Preferences">
-            <form onSubmit={handleSave} className="space-y-6">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                persistPrefs();
+              }}
+              className="space-y-6">
               <div className="space-y-4">
                 <h4 className="font-medium text-gray-900">
                   Email Notifications
@@ -466,8 +537,10 @@ export function SettingsPage() {
                     <input
                     type="checkbox"
                     className="h-4 w-4 text-brand-navy rounded border-gray-300"
-                    defaultChecked />
-                  
+                    checked={prefs.notifyAssessment}
+                    onChange={(e) =>
+                      setPrefs((p) => ({ ...p, notifyAssessment: e.target.checked }))
+                    } />
                     <span className="text-sm text-gray-700">
                       Assessment submissions
                     </span>
@@ -476,8 +549,10 @@ export function SettingsPage() {
                     <input
                     type="checkbox"
                     className="h-4 w-4 text-brand-navy rounded border-gray-300"
-                    defaultChecked />
-                  
+                    checked={prefs.notifyCompliance}
+                    onChange={(e) =>
+                      setPrefs((p) => ({ ...p, notifyCompliance: e.target.checked }))
+                    } />
                     <span className="text-sm text-gray-700">
                       Compliance alerts
                     </span>
@@ -485,8 +560,11 @@ export function SettingsPage() {
                   <label className="flex items-center space-x-3">
                     <input
                     type="checkbox"
-                    className="h-4 w-4 text-brand-navy rounded border-gray-300" />
-                  
+                    className="h-4 w-4 text-brand-navy rounded border-gray-300"
+                    checked={prefs.notifyMarketing}
+                    onChange={(e) =>
+                      setPrefs((p) => ({ ...p, notifyMarketing: e.target.checked }))
+                    } />
                     <span className="text-sm text-gray-700">
                       Marketing updates
                     </span>
@@ -503,8 +581,10 @@ export function SettingsPage() {
                     <input
                     type="checkbox"
                     className="h-4 w-4 text-brand-navy rounded border-gray-300"
-                    defaultChecked />
-                  
+                    checked={prefs.notifySmsSecurity}
+                    onChange={(e) =>
+                      setPrefs((p) => ({ ...p, notifySmsSecurity: e.target.checked }))
+                    } />
                     <span className="text-sm text-gray-700">
                       Security alerts
                     </span>
@@ -512,8 +592,11 @@ export function SettingsPage() {
                   <label className="flex items-center space-x-3">
                     <input
                     type="checkbox"
-                    className="h-4 w-4 text-brand-navy rounded border-gray-300" />
-                  
+                    className="h-4 w-4 text-brand-navy rounded border-gray-300"
+                    checked={prefs.notifySmsUrgent}
+                    onChange={(e) =>
+                      setPrefs((p) => ({ ...p, notifySmsUrgent: e.target.checked }))
+                    } />
                     <span className="text-sm text-gray-700">
                       Urgent compliance issues
                     </span>
@@ -531,9 +614,9 @@ export function SettingsPage() {
         {activeTab === 'logs' &&
         <Card title="System Access Logs" noPadding>
             <div className="p-4 border-b border-gray-200 flex space-x-4">
-              <Input type="date" className="max-w-xs" />
-              <Input type="date" className="max-w-xs" />
-              <Button variant="outline">Export Logs</Button>
+              <Input type="date" className="max-w-xs" value={logFrom} onChange={(e) => setLogFrom(e.target.value)} />
+              <Input type="date" className="max-w-xs" value={logTo} onChange={(e) => setLogTo(e.target.value)} />
+              <Button type="button" variant="outline" onClick={handleExportLogs}>Export Logs</Button>
             </div>
             <DataTable data={logs} columns={logColumns} keyField="id" />
           </Card>
@@ -542,6 +625,10 @@ export function SettingsPage() {
         {activeTab === 'nlrd' &&
         <div className="space-y-6">
             <Card title="NLRD Batch Submission">
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-3 mb-6">
+                Internal LMS export only — not a certified SETA/QCTO NLRD
+                submission.
+              </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <Select
                 label="Programme"
@@ -580,7 +667,13 @@ export function SettingsPage() {
               </div>
 
               <div className="flex justify-end space-x-3">
-                <Button variant="outline">Validate Batch</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleNLRDSubmit}
+                  isLoading={nlrdLoading}>
+                  Validate Batch
+                </Button>
                 <Button
                 onClick={handleNLRDSubmit}
                 isLoading={nlrdLoading}
@@ -601,10 +694,17 @@ export function SettingsPage() {
 
         {activeTab === 'system' &&
         <Card title="System Preferences">
-            <form onSubmit={handleSave} className="space-y-6">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                persistPrefs();
+              }}
+              className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <Select
                 label="Language"
+                value={prefs.language}
+                onChange={(e) => setPrefs((p) => ({ ...p, language: e.target.value }))}
                 options={[
                 {
                   value: 'en',
@@ -622,6 +722,8 @@ export function SettingsPage() {
               
                 <Select
                 label="Timezone"
+                value={prefs.timezone}
+                onChange={(e) => setPrefs((p) => ({ ...p, timezone: e.target.value }))}
                 options={[
                 {
                   value: 'sa',
@@ -638,7 +740,10 @@ export function SettingsPage() {
                 <p className="text-sm text-gray-500 mb-4">
                   Download a copy of your personal data as required by POPIA.
                 </p>
-                <Button variant="outline">Request Data Export</Button>
+                <Button type="button" variant="outline" onClick={() => void handleRequestDataExport()}>Request Data Export</Button>
+              </div>
+              <div className="flex justify-end">
+                <Button type="submit">Save Preferences</Button>
               </div>
             </form>
           </Card>

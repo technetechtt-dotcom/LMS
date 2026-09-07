@@ -722,6 +722,25 @@ export const poeService = {
   },
 };
 
+export const documentService = {
+  downloadUrl: async (
+    id: string,
+  ): Promise<ApiResponse<{ downloadUrl: string }>> => {
+    const raw = await apiFetchJSON<
+      ApiResponse<{ downloadUrl: string }> | { downloadUrl: string }
+    >(`/documents/${encodeURIComponent(id)}/download`);
+    return { data: unwrapData(raw), success: true };
+  },
+};
+
+export const privacyService = {
+  requestAccessExport: async (): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>('/privacy/dsar', {
+      type: 'ACCESS',
+    });
+  },
+};
+
 export type PoeArtifactKind = 'WORKBOOK' | 'SUMMATIVE' | 'LEARNER_GUIDE';
 
 export interface PoeArtifact {
@@ -1553,6 +1572,17 @@ export const messagingService = {
       return { data, success: true };
     }
     return remotePostJson<Message>('/messages', { toId, content });
+  },
+
+  markThreadRead: async (fromId: string): Promise<ApiResponse<{ success: boolean }>> => {
+    const raw = await apiFetchJSON<{ success: boolean } | ApiResponse<{ success: boolean }>>(
+      '/messages/read',
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ fromId }),
+      },
+    );
+    return { data: unwrapData(raw) as { success: boolean }, success: true };
   },
 
   getNotifications: async (): Promise<ApiResponse<Notification[]>> => {

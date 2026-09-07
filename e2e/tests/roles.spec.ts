@@ -132,3 +132,43 @@ test.describe('facilitator attendance', () => {
     await expect(page.getByText(/attendance/i).first()).toBeVisible();
   });
 });
+
+test.describe('admin user management', () => {
+  test('admin can open user directory', async ({ page }) => {
+    await login(page, 'admin@skillforge.co.za');
+    await page.goto('/users');
+    await expect(page.getByRole('heading', { name: /user/i })).toBeVisible();
+  });
+});
+
+test.describe('learner documents and messages', () => {
+  test('learner messages page loads', async ({ page }) => {
+    await login(page, 'learner@skillforge.co.za');
+    await page.goto('/messages');
+    await expect(page.getByRole('heading', { name: /messages/i })).toBeVisible();
+  });
+
+  test('learner settings persist preference controls', async ({ page }) => {
+    await login(page, 'learner@skillforge.co.za');
+    await page.goto('/settings');
+    await expect(page.getByText(/personal information|settings/i).first()).toBeVisible();
+  });
+});
+
+test.describe('mentor workplace', () => {
+  test('mentor dashboard loads allocated workplace view', async ({ page }) => {
+    await login(page, 'mentor@skillforge.co.za');
+    await page.goto('/workplace-mentor-dashboard');
+    await expect(
+      page.getByRole('heading', { name: /mentor/i }).first(),
+    ).toBeVisible();
+  });
+});
+
+test.describe('qa officer', () => {
+  test('qa dashboard loads', async ({ page }) => {
+    await login(page, 'qa@skillforge.co.za');
+    await page.goto('/qa-dashboard');
+    await expect(page.getByRole('heading', { name: /qa/i }).first()).toBeVisible();
+  });
+});

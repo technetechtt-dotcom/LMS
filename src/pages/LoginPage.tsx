@@ -175,30 +175,15 @@ export function LoginPage() {
             </Link>
           </div>
 
+          {import.meta.env.DEV && (
           <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300" />
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">
-                  Regulatory Access
-                </span>
-              </div>
-            </div>
-
             <p className="mt-4 text-center text-xs text-gray-500 leading-relaxed">
-              Demo password: <code className="text-gray-700">Password123!</code>
+              Local seed password: <code className="text-gray-700">Password123!</code>
               <br />
-              e.g. <code className="text-gray-700">admin@skillforge.co.za</code>,{' '}
-              <code className="text-gray-700">learner@skillforge.co.za</code>
-              <br />
-              Platform operators:{' '}
-              <a href={`${getOpsUrl()}/login`} className="text-brand-blue hover:underline">
-                Ops Console (port 5177)
-              </a>
+              e.g. <code className="text-gray-700">admin@skillforge.co.za</code>
             </p>
           </div>
+          )}
           </>
           )}
         </div>

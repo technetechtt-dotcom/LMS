@@ -184,4 +184,21 @@ export class MessagesService {
 
     return this.mapMessage(row);
   }
+
+  async markFromPeerRead(user: AuthUser | undefined, fromId: string) {
+    const userId = user?.userId;
+    if (!userId) throw new ForbiddenException('Authentication required');
+    const organisationId = requireOrganisationId(user);
+    if (!fromId?.trim()) throw new BadRequestException('fromId is required');
+    await this.prisma.message.updateMany({
+      where: {
+        organisationId,
+        toId: userId,
+        fromId: fromId.trim(),
+        isRead: false,
+      },
+      data: { isRead: true },
+    });
+    return { success: true };
+  }
 }

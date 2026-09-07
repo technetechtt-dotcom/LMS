@@ -546,17 +546,6 @@ export function LearnersPage() {
           keyField="id"
           selectable
         />
-        <div className="p-4 border-t border-gray-100 flex items-center space-x-2">
-          <Button variant="outline" size="sm">
-            Previous
-          </Button>
-          <Button size="sm" className="bg-brand-navy text-white">
-            1
-          </Button>
-          <Button variant="outline" size="sm">
-            2
-          </Button>
-        </div>
       </Card>
 
       <Modal
