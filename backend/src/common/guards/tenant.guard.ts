@@ -30,7 +30,20 @@ export class TenantGuard implements CanActivate {
 
     const headerOrg = readOrganisationHeader(req.headers);
     const jwtOrg = req.user.organisationId?.trim();
-    const targetOrg = headerOrg || jwtOrg;
+    let targetOrg = headerOrg || jwtOrg;
+
+    if (!targetOrg) {
+      const primary = await this.prisma.userOrganisation.findFirst({
+        where: {
+          userId: req.user.userId,
+          deletedAt: null,
+          isPrimary: true,
+          user: { deletedAt: null, isActive: true },
+        },
+        select: { organisationId: true },
+      });
+      targetOrg = primary?.organisationId ?? undefined;
+    }
 
     if (!targetOrg) {
       throw new ForbiddenException(

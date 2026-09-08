@@ -147,11 +147,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (credentials: LoginCredentials) => {
-    if (user || accessToken) {
-      throw new Error(
-        'You are already signed in. Sign out first to switch accounts.',
-      );
-    }
     setIsBusy(true);
     try {
       const res = await authService.login(credentials);
@@ -175,7 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsBusy(false);
     }
-  }, [user, accessToken]);
+  }, []);
 
   const logout = useCallback(async () => {
     setIsBusy(true);

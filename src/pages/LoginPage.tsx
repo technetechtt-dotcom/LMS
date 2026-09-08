@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login, logout, isLoading, isAuthenticated, user } = useAuth();
+  const { login, logout, isLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({
@@ -39,10 +39,6 @@ export function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isAuthenticated) {
-      toast.error('Sign out first to switch accounts.');
-      return;
-    }
     if (!validate()) return;
     try {
       const profile = await login({ email, password });
@@ -75,34 +71,6 @@ export function LoginPage() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-gray-200">
-          {isAuthenticated && user ? (
-            <div className="space-y-4 text-center">
-              <p className="text-sm text-gray-700">
-                You are signed in as <span className="font-medium">{user.name}</span>{' '}
-                ({user.role}).
-              </p>
-              <p className="text-sm text-gray-500">
-                Sign out first if you want to use a different account.
-              </p>
-              <Button
-                className="w-full"
-                onClick={() =>
-                  navigate(getDefaultRouteForRole(user.role), { replace: true })
-                }>
-                Continue to dashboard
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={async () => {
-                  await logout();
-                  toast.success('Signed out. You can now sign in as another user.');
-                }}>
-                Sign out
-              </Button>
-            </div>
-          ) : (
           <form className="space-y-6" onSubmit={handleLogin}>
             <Input
               label="Email Address"
@@ -162,30 +130,23 @@ export function LoginPage() {
               </Button>
             </div>
           </form>
-          )}
+        </div>
 
-          {!isAuthenticated && (
-          <>
-          <div className="mt-6 text-center">
-            <Link
-              to="/onboarding"
-              className="text-sm font-medium text-brand-blue hover:text-blue-600"
-            >
-              New learner? Register here
-            </Link>
-          </div>
+        <div className="mt-6 text-center">
+          <Link
+            to="/onboarding"
+            className="text-sm font-medium text-brand-blue hover:text-blue-600"
+          >
+            New learner? Register here
+          </Link>
+        </div>
 
-          {import.meta.env.DEV && (
-          <div className="mt-6">
-            <p className="mt-4 text-center text-xs text-gray-500 leading-relaxed">
-              Local seed password: <code className="text-gray-700">Password123!</code>
-              <br />
-              e.g. <code className="text-gray-700">admin@skillforge.co.za</code>
-            </p>
-          </div>
-          )}
-          </>
-          )}
+        <div className="mt-6">
+          <p className="mt-4 text-center text-xs text-gray-500 leading-relaxed">
+            Local seed password: <code className="text-gray-700">Password123!</code>
+            <br />
+            e.g. <code className="text-gray-700">admin@skillforge.co.za</code>
+          </p>
         </div>
 
         <p className="mt-6 text-center text-xs text-gray-500">

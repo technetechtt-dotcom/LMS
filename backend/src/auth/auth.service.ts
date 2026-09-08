@@ -1,8 +1,8 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   Logger,
+  NotFoundException,
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -86,28 +86,6 @@ export class AuthService {
       },
     });
     return this.issueSession(user.id, user.email, 'lms');
-  }
-
-  async assertAccountSwitchAllowed(emailRaw: string, refreshTokens: string[]) {
-    if (refreshTokens.length === 0) return;
-    const tokenHashes = refreshTokens.map(hashOpaqueToken);
-    const activeSession = await this.prisma.refreshToken.findFirst({
-      where: {
-        tokenHash: { in: tokenHashes },
-        revokedAt: null,
-        expiresAt: { gt: new Date() },
-        user: { deletedAt: null, isActive: true },
-      },
-      include: { user: { select: { email: true } } },
-    });
-    if (
-      activeSession &&
-      activeSession.user.email.toLowerCase() !== emailRaw.toLowerCase().trim()
-    ) {
-      throw new ConflictException(
-        'Another account is already signed in. Sign out before switching accounts.',
-      );
-    }
   }
 
   async login(

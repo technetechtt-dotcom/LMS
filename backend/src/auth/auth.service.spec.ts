@@ -1,7 +1,6 @@
-import { ConflictException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 
-describe('AuthService account switching', () => {
+describe('AuthService', () => {
   const refreshToken = { findFirst: jest.fn() };
   const service = new AuthService(
     { refreshToken } as never,
@@ -13,30 +12,13 @@ describe('AuthService account switching', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it('allows login when the browser has no active session', async () => {
-    await expect(
-      service.assertAccountSwitchAllowed('next@example.com', []),
-    ).resolves.toBeUndefined();
-    expect(refreshToken.findFirst).not.toHaveBeenCalled();
-  });
-
-  it('allows the active account to authenticate again', async () => {
-    refreshToken.findFirst.mockResolvedValue({
-      user: { email: 'same@example.com' },
-    });
-
-    await expect(
-      service.assertAccountSwitchAllowed('SAME@example.com', ['refresh-token']),
-    ).resolves.toBeUndefined();
-  });
-
-  it('requires logout before a different account can authenticate', async () => {
+  it('does not enforce account switching on login', async () => {
     refreshToken.findFirst.mockResolvedValue({
       user: { email: 'current@example.com' },
     });
 
     await expect(
-      service.assertAccountSwitchAllowed('next@example.com', ['refresh-token']),
-    ).rejects.toBeInstanceOf(ConflictException);
+      service.login({ email: 'next@example.com', password: 'any' } as never),
+    ).rejects.toThrow();
   });
 });

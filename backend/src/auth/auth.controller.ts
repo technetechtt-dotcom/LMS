@@ -31,7 +31,6 @@ import type { AuthUser } from '../common/types/request-with-user';
 import {
   clearAllRefreshCookies,
   portalFromRequest,
-  readAllRefreshTokensFromRequest,
   readRefreshFromRequest,
   setRefreshCookie,
 } from './auth-cookies';
@@ -87,10 +86,6 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    await this.auth.assertAccountSwitchAllowed(
-      dto.email,
-      readAllRefreshTokensFromRequest(req),
-    );
     const session = await this.auth.register(dto);
     clearAllRefreshCookies(res, this.nodeEnv());
     this.attachRefreshCookie(res, session.refreshToken, 'lms');
@@ -106,10 +101,6 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const portal = dto.portal ?? portalFromRequest(req);
-    await this.auth.assertAccountSwitchAllowed(
-      dto.email,
-      readAllRefreshTokensFromRequest(req),
-    );
     const session = await this.auth.login({ ...dto, portal }, {
       ip: req.ip,
       userAgent:

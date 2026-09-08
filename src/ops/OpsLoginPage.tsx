@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 
 export function OpsLoginPage() {
   const navigate = useNavigate();
-  const { login, logout, isLoading, isAuthenticated, user } = useAuth();
+  const { login, logout, isLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({ email: '', password: '' });
@@ -32,10 +32,6 @@ export function OpsLoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isAuthenticated) {
-      toast.error('Sign out first to switch accounts.');
-      return;
-    }
     if (!validate()) return;
     try {
       const profile = await login({ email, password });
@@ -67,31 +63,6 @@ export function OpsLoginPage() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-slate-900 py-8 px-4 shadow-xl sm:rounded-lg sm:px-10 border border-slate-700">
-          {isAuthenticated && user ? (
-            <div className="space-y-4 text-center">
-              <p className="text-sm text-slate-200">
-                Signed in as {user.name} ({user.role}).
-              </p>
-              <p className="text-sm text-slate-400">
-                Sign out first to switch accounts.
-              </p>
-              {OPS_ROLES.includes(user.role as (typeof OPS_ROLES)[number]) && (
-                <Button className="w-full" onClick={() => navigate('/', { replace: true })}>
-                  Continue to console
-                </Button>
-              )}
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={async () => {
-                  await logout();
-                  toast.success('Signed out. You can now sign in as another operator.');
-                }}>
-                Sign out
-              </Button>
-            </div>
-          ) : (
           <form className="space-y-6" onSubmit={handleLogin}>
             <Input
               label="Operator email"
@@ -117,7 +88,6 @@ export function OpsLoginPage() {
               Sign in to Ops Console
             </Button>
           </form>
-          )}
           <p className="mt-6 text-center text-xs text-slate-500">
             Demo: <code className="text-slate-400">platform@skillforge.co.za</code>
             {' '}— password <code className="text-slate-400">Password123!</code>

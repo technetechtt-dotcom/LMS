@@ -11,10 +11,11 @@
     "start": "node dist/src/main.js",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/src/main.js",
-    "start:railway": "prisma migrate deploy && node dist/src/main.js",
+    "start:railway": "node scripts/migrate-deploy.cjs && node dist/src/main.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:deploy:retry": "node scripts/migrate-deploy.cjs",
     "prisma:seed": "ts-node -P tsconfig.json prisma/seed.ts",
     "seed": "npm run prisma:seed"
   },
