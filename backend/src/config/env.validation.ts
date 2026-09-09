@@ -41,19 +41,28 @@ export function validateEnv(
       errs.push('ADMIN_ENDPOINTS_ENABLED must be true so authorised provisioning remains available');
     }
 
-    for (const key of [
+    const objectStorageKeys = [
       'OBJECT_STORAGE_ENDPOINT',
       'OBJECT_STORAGE_BUCKET',
       'OBJECT_STORAGE_REGION',
       'OBJECT_STORAGE_ACCESS_KEY_ID',
       'OBJECT_STORAGE_SECRET_ACCESS_KEY',
-    ]) {
-      if (!str(key)) errs.push(`${key} is required for durable production uploads`);
+    ];
+    const configuredObjectStorageKeys = objectStorageKeys.filter((key) => str(key));
+    if (
+      configuredObjectStorageKeys.length > 0 &&
+      configuredObjectStorageKeys.length < objectStorageKeys.length
+    ) {
+      for (const key of objectStorageKeys) {
+        if (!str(key)) {
+          errs.push(`${key} is required when object storage is configured`);
+        }
+      }
     }
 
     for (const key of ['MAIL_DELIVERY_URL', 'MALWARE_SCAN_URL']) {
       const value = str(key);
-      if (!value || !value.toLowerCase().startsWith('https://')) {
+      if (value && !value.toLowerCase().startsWith('https://')) {
         errs.push(`${key} must be an HTTPS URL in production`);
       }
     }

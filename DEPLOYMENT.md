@@ -7,7 +7,7 @@
 - **Database:** PostgreSQL via Prisma.
 - **Evidence:** a private S3-compatible bucket with quarantine, malware scanning, checksums, verified state, and retention metadata.
 
-## Required production configuration
+## Production configuration
 
 | Variable | Purpose |
 |---|---|
@@ -15,15 +15,15 @@
 | `JWT_SECRET` | Unique secret of at least 32 characters. |
 | `FRONTEND_ORIGIN`, `OPS_ORIGIN` | Exact browser origins allowed by CORS. |
 | `ADMIN_ENDPOINTS_ENABLED=true` | Keeps authorised provisioning available; role and tenant guards remain enforced. |
-| `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_REGION` | Private S3-compatible object store. |
-| `OBJECT_STORAGE_ACCESS_KEY_ID`, `OBJECT_STORAGE_SECRET_ACCESS_KEY` | Least-privilege object-store credentials. |
-| `MALWARE_SCAN_URL` | HTTPS scanner webhook. It must return `{ "clean": true }` only after scanning the quarantined object. |
+| `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_REGION` | Private S3-compatible object store required to enable production uploads. Configure all object-storage variables together. |
+| `OBJECT_STORAGE_ACCESS_KEY_ID`, `OBJECT_STORAGE_SECRET_ACCESS_KEY` | Least-privilege object-store credentials required to enable production uploads. |
+| `MALWARE_SCAN_URL` | HTTPS scanner webhook required to enable production uploads. It must return `{ "clean": true }` only after scanning the quarantined object. |
 | `MALWARE_SCAN_TOKEN` | Scanner bearer credential, when required. |
-| `MAIL_DELIVERY_URL` | HTTPS delivery webhook for activation and reset mail. |
+| `MAIL_DELIVERY_URL` | HTTPS delivery webhook required to enable activation and reset mail. |
 | `MAIL_DELIVERY_TOKEN` | Mail provider bearer credential, when required. |
 | `UPLOAD_RETENTION_DAYS` | Retention deadline recorded per upload; default is 2555 days. |
 
-`UPLOAD_DIR` is for local development only. The API fails closed in production if durable storage, the scanner, or the mail delivery endpoint is absent. The object bucket must not be public.
+`UPLOAD_DIR` is for local development only. Missing optional integrations no longer prevent unrelated API routes and health checks from starting. Upload and mail operations still fail closed in production until their integrations are configured. The object bucket must not be public.
 
 ## Database migrations
 
