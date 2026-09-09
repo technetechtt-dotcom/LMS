@@ -141,21 +141,13 @@ export function LoginPage() {
           </Link>
         </div>
 
-        <div className="mt-6">
-          <p className="mt-4 text-center text-xs text-gray-500 leading-relaxed">
-            Local seed password: <code className="text-gray-700">Password123!</code>
-            <br />
-            e.g. <code className="text-gray-700">admin@skillforge.co.za</code>
-          </p>
-        </div>
-
         <p className="mt-6 text-center text-xs text-gray-500">
           POPIA-compliant system. See{' '}
-          <Link to="/privacy" className="text-brand-blue hover:underline">
+          <Link to="/privacy" className="text-brand-blue underline underline-offset-2">
             Privacy Policy
           </Link>{' '}
           and{' '}
-          <Link to="/terms" className="text-brand-blue hover:underline">
+          <Link to="/terms" className="text-brand-blue underline underline-offset-2">
             Terms of Service
           </Link>
           .

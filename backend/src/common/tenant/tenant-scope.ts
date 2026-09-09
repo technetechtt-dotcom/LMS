@@ -68,6 +68,27 @@ export function isLearnerOnly(user?: AuthUser | null): boolean {
   return !isStaffUser(user) && user.roleCodes.includes('LEARNER');
 }
 
+export function isMentorOnly(user?: AuthUser | null): boolean {
+  if (!user?.roleCodes?.includes('MENTOR')) return false;
+  return !user.roleCodes.some((code) =>
+    ['ADMIN', 'PLATFORM_ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER', 'SETA'].includes(code),
+  );
+}
+
+/** Actor-specific enrollment scope layered on top of the active tenant. */
+export function enrollmentActorWhere(user?: AuthUser | null) {
+  if (isLearnerOnly(user)) return { learnerId: user!.userId };
+  if (isMentorOnly(user)) {
+    return {
+      metadata: {
+        path: ['workplaceMentorId'],
+        equals: user!.userId,
+      },
+    };
+  }
+  return {};
+}
+
 /** Prisma filter: enrollment belongs to organisation. */
 export function enrollmentOrgWhere(organisationId: string) {
   return {
@@ -85,7 +106,7 @@ export function enrollmentOrgWhere(organisationId: string) {
  */
 export function assertEnrollmentAccess(
   user: AuthUser | undefined,
-  enrollment: { learnerId: string } | null,
+  enrollment: { learnerId: string; metadata?: unknown } | null,
   label = 'Resource',
 ): void {
   if (!enrollment) {
@@ -93,6 +114,15 @@ export function assertEnrollmentAccess(
   }
   if (isLearnerOnly(user) && enrollment.learnerId !== user?.userId) {
     throw new ForbiddenException(`${label} access denied`);
+  }
+  if (isMentorOnly(user)) {
+    const metadata =
+      enrollment.metadata && typeof enrollment.metadata === 'object'
+        ? (enrollment.metadata as { workplaceMentorId?: string })
+        : {};
+    if (metadata.workplaceMentorId !== user?.userId) {
+      throw new ForbiddenException(`${label} access denied`);
+    }
   }
 }
 
@@ -120,9 +150,6 @@ export function assertAllocatedModerator(
 ): void {
   if (!user?.userId) {
     throw new ForbiddenException('Authentication required');
-  }
-  if (isPlatformAdmin(user) || user.roleCodes.includes('ADMIN')) {
-    return;
   }
   if (!moderatorId) {
     throw new ForbiddenException(

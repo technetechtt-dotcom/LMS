@@ -54,7 +54,9 @@ function withTenantHeaders(headers: Headers) {
   }
 }
 
-async function trySilentRefresh(): Promise<string | undefined> {
+let refreshInFlight: Promise<string | undefined> | null = null;
+
+async function performSilentRefresh(): Promise<string | undefined> {
   const url = `${API_BASE_URL}/auth/refresh`;
   const portal = getAuthPortal();
   const res = await fetch(url, {
@@ -80,6 +82,16 @@ async function trySilentRefresh(): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+/** Collapse simultaneous 401 responses into one refresh-token rotation. */
+function trySilentRefresh(): Promise<string | undefined> {
+  if (!refreshInFlight) {
+    refreshInFlight = performSilentRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
 }
 
 function invalidateLocalSession(path: string, status: number) {

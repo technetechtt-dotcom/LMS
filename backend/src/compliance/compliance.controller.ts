@@ -3,7 +3,9 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
+  Put,
   Req,
   UploadedFile,
   UseInterceptors,
@@ -89,6 +91,24 @@ export class ComplianceController {
       body.setaId ?? 'default',
       body.format ?? 'xml',
     );
+    return { success: true, data };
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER', 'SETA', 'FACILITATOR')
+  @Get('decisions')
+  async decisions(@Req() req: Request & { user?: AuthUser }) {
+    const data = await this.compliance.listDecisions(req.user);
+    return { success: true, data };
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER', 'SETA')
+  @Put('decisions/:controlKey')
+  async recordDecision(
+    @Param('controlKey') controlKey: string,
+    @Body() body: { status?: string; notes?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.compliance.recordDecision(controlKey, body, req.user);
     return { success: true, data };
   }
 }

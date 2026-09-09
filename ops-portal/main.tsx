@@ -18,6 +18,6 @@ createRoot(rootEl).render(
     <AuthProvider>
       <OpsApp />
     </AuthProvider>
-    <Toaster position="top-right" richColors />
+    <Toaster position="top-right" />
   </React.StrictMode>,
 );

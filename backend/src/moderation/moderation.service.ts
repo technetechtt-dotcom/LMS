@@ -8,7 +8,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AllocateModeratorDto, CreateModerationDto } from './moderation.dto';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
+  assertAllocatedModerator,
+  canModerateSubmission,
   enrollmentOrgWhere,
+  isPlatformAdmin,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
 
@@ -18,9 +21,12 @@ export class ModerationService {
 
   list(user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
+    const privileged =
+      isPlatformAdmin(user) || Boolean(user?.roleCodes?.includes('ADMIN'));
     return this.prisma.moderation.findMany({
       where: {
         deletedAt: null,
+        ...(!privileged && user?.userId ? { moderatorId: user.userId } : {}),
         assessment: {
           deletedAt: null,
           enrollment: enrollmentOrgWhere(organisationId),
@@ -43,16 +49,39 @@ export class ModerationService {
         deletedAt: null,
         enrollment: enrollmentOrgWhere(organisationId),
       },
-      select: { id: true },
+      select: {
+        id: true,
+        result: true,
+        moderatorId: true,
+        submissions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { status: true },
+        },
+      },
     });
     if (!assessment) {
       throw new NotFoundException('Assessment not found in organisation');
+    }
+    if (!canModerateSubmission(user)) {
+      throw new ForbiddenException('Only moderators may record a decision');
+    }
+    assertAllocatedModerator(user, assessment.moderatorId);
+    if (assessment.submissions[0]?.status !== 'assessor_verified') {
+      throw new BadRequestException(
+        'Moderation requires an assessor-verified submission',
+      );
+    }
+    if (!['C', 'NYC'].includes(assessment.result)) {
+      throw new BadRequestException(
+        'Assessor must finalise C/NYC competency before moderation',
+      );
     }
 
     return this.prisma.moderation.create({
       data: {
         assessmentId: dto.assessmentId,
-        moderatorId,
+        moderatorId: assessment.moderatorId!,
         decision: dto.decision,
         feedback: dto.feedback,
         trail: [

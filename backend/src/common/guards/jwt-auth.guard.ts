@@ -47,6 +47,7 @@ export class JwtAuthGuard implements CanActivate {
         where: {
           id: user.sessionId,
           userId: user.userId,
+          portal: user.portal,
           revokedAt: null,
           expiresAt: { gt: new Date() },
         },

@@ -268,6 +268,7 @@ export class AssessmentsService {
         enrollmentId: a.enrollmentId,
         status: 'in_progress',
       },
+      include: { instrument: { select: { timeLimitMinutes: true } } },
     });
 
     const published = await this.prisma.assessmentInstrument.findFirst({
@@ -279,7 +280,10 @@ export class AssessmentsService {
     }
 
     if (existingOpen) {
-      return this.withAttemptWindow(existingOpen, published?.timeLimitMinutes);
+      return this.withAttemptWindow(
+        existingOpen,
+        existingOpen.instrument?.timeLimitMinutes,
+      );
     }
 
     const priorCount = await this.prisma.assessmentSubmission.count({
@@ -322,6 +326,7 @@ export class AssessmentsService {
       startedAt: startedAt.toISOString(),
       expiresAt: expiresAt?.toISOString() ?? null,
       timeLimitMinutes: minutes || null,
+      expired: expiresAt ? expiresAt.getTime() <= Date.now() : false,
     };
   }
 
@@ -381,7 +386,7 @@ export class AssessmentsService {
       }
     }
 
-    let moderatorId: string | undefined;
+    let moderatorId: string;
     if (dto.moderatorId) {
       const membership = await this.prisma.userOrganisation.findFirst({
         where: {
@@ -398,6 +403,10 @@ export class AssessmentsService {
         );
       }
       moderatorId = dto.moderatorId;
+    } else {
+      throw new BadRequestException(
+        'moderatorId is required before an assessment can be created',
+      );
     }
 
     return this.prisma.assessment.create({

@@ -100,21 +100,40 @@ export class CompletionGateService {
 
     if (minAttendanceRate > 0) {
       const scheduledSessions = await this.prisma.attendanceSession.count({
-        where: { programmeId: enrollment.programmeId },
+        where: {
+          programmeId: enrollment.programmeId,
+          closedAt: { not: null },
+          scheduledAt: { lte: new Date() },
+        },
       });
       let rate = 0;
       if (scheduledSessions > 0) {
-        const present = await this.prisma.attendance.findMany({
-          where: {
-            enrollmentId,
-            deletedAt: null,
-            sessionId: { not: null },
-            status: { in: ['PRESENT', 'LATE'] },
-          },
-          select: { sessionId: true },
-          distinct: ['sessionId'],
-        });
-        rate = (present.length / scheduledSessions) * 100;
+        const [present, excused] = await Promise.all([
+          this.prisma.attendance.findMany({
+            where: {
+              enrollmentId,
+              deletedAt: null,
+              sessionId: { not: null },
+              session: { closedAt: { not: null }, scheduledAt: { lte: new Date() } },
+              status: { in: ['PRESENT', 'LATE'] },
+            },
+            select: { sessionId: true },
+            distinct: ['sessionId'],
+          }),
+          this.prisma.attendance.findMany({
+            where: {
+              enrollmentId,
+              deletedAt: null,
+              sessionId: { not: null },
+              session: { closedAt: { not: null }, scheduledAt: { lte: new Date() } },
+              status: 'EXCUSED',
+            },
+            select: { sessionId: true },
+            distinct: ['sessionId'],
+          }),
+        ]);
+        const requiredSessions = Math.max(0, scheduledSessions - excused.length);
+        rate = requiredSessions > 0 ? (present.length / requiredSessions) * 100 : 100;
       } else {
         const rows = await this.prisma.attendance.findMany({
           where: { enrollmentId, deletedAt: null },
@@ -122,7 +141,8 @@ export class CompletionGateService {
         const present = rows.filter(
           (r) => r.status === 'PRESENT' || r.status === 'LATE',
         ).length;
-        rate = rows.length ? (present / rows.length) * 100 : 0;
+        const requiredRows = rows.filter((r) => r.status !== 'EXCUSED').length;
+        rate = requiredRows > 0 ? (present / requiredRows) * 100 : rows.length ? 100 : 0;
       }
       const ok = rate >= minAttendanceRate;
       checks.attendanceRate = ok;

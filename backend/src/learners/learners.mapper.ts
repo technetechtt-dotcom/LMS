@@ -33,8 +33,7 @@ function deriveUiStatus(
 ): 'active' | 'completed' | 'withdrawn' | 'at_risk' {
   if (meta.withdrawn === true) return 'withdrawn';
   if (lifecycle === 'COMPLETED') return 'completed';
-  const progress = typeof meta.progress === 'number' ? meta.progress : 45;
-  if (meta.atRisk === true || progress < 50) return 'at_risk';
+  if (meta.atRisk === true) return 'at_risk';
   return 'active';
 }
 
@@ -61,18 +60,18 @@ export function mapEnrollmentToLearnerApi(
         ? meta.progress
         : e.status === 'COMPLETED'
           ? 100
-          : 45,
-    setaStatus: (meta.setaStatus as 'compliant' | 'pending') ?? 'compliant',
+        : 0,
+    setaStatus: (meta.setaStatus as 'compliant' | 'pending') ?? 'pending',
     enrollmentDate: started.toISOString().slice(0, 10),
     expectedCompletionDate:
       meta.expectedCompletionDate ??
-      new Date(started.getTime() + 365 * 86400000).toISOString().slice(0, 10),
+      e.programme.endDate?.toISOString().slice(0, 10) ?? '—',
     status: deriveUiStatus(e.status, meta),
     assessmentTotal: assessment?.total ?? 0,
     assessmentCompetent: assessment?.competent ?? 0,
-    lastActivity: meta.lastActivity ?? 'Recently',
+    lastActivity: meta.lastActivity ?? e.updatedAt.toISOString(),
     lastActivityDescription:
-      meta.lastActivityDescription ?? 'Activity synced from enrolment',
+      meta.lastActivityDescription ?? 'No activity description recorded',
     createdAt: e.createdAt.toISOString(),
     updatedAt: e.updatedAt.toISOString(),
   };

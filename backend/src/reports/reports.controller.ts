@@ -1,9 +1,9 @@
-import { Controller, Get, Param, Query, Req, StreamableFile } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, StreamableFile } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
-import { ReportsService } from './reports.service';
+import { ReportsService, type ReportFilters } from './reports.service';
 
 @ApiTags('Reports')
 @ApiBearerAuth()
@@ -41,8 +41,9 @@ export class ReportsController {
   async setaSnapshot(
     @Req() req: Request & { user?: AuthUser },
     @Query('format') format?: string,
+    @Query() query?: Record<string, string | undefined>,
   ) {
-    const data = await this.reports.setaSnapshot(req.user);
+    const data = await this.reports.setaSnapshot(req.user, this.filters(query ?? {}));
     if (format === 'csv') {
       return new StreamableFile(Buffer.from(this.reports.snapshotToCsv(data), 'utf8'), {
         type: 'text/csv; charset=utf-8',
@@ -57,5 +58,51 @@ export class ReportsController {
       });
     }
     return data;
+  }
+
+  private filters(query: Record<string, string | undefined>): ReportFilters {
+    return {
+      programmeId: query.programmeId || undefined,
+      qualificationId: query.qualificationId || undefined,
+      employerOrganisationId: query.employerOrganisationId || undefined,
+      asOf: query.asOf || undefined,
+    };
+  }
+
+  @Roles('ADMIN', 'SETA', 'QA_OFFICER', 'FACILITATOR')
+  @Get('generated')
+  async generated(@Req() req: Request & { user?: AuthUser }) {
+    return this.reports.listGenerated(req.user);
+  }
+
+  @Roles('ADMIN', 'SETA', 'QA_OFFICER', 'FACILITATOR')
+  @Post('generated')
+  createGenerated(
+    @Body() body: { reportType?: string; format?: string; filters?: ReportFilters },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.reports.createGenerated(body, req.user);
+  }
+
+  @Roles('ADMIN', 'SETA', 'QA_OFFICER', 'FACILITATOR')
+  @Delete('generated/:id')
+  deleteGenerated(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.reports.deleteGenerated(id, req.user);
+  }
+
+  @Roles('ADMIN', 'SETA', 'QA_OFFICER', 'FACILITATOR')
+  @Get('generated/:id/download')
+  async downloadGenerated(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const file = await this.reports.generatedFile(id, req.user);
+    return new StreamableFile(file.bytes, {
+      type: file.type,
+      disposition: `attachment; filename="${file.filename}"`,
+    });
   }
 }

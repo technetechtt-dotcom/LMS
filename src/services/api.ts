@@ -193,6 +193,21 @@ export const authService = {
       newPassword,
     });
   },
+
+  getPreferences: async <T extends Record<string, unknown>>(): Promise<ApiResponse<T>> => {
+    const raw = await apiFetchJSON<ApiResponse<T> | T>('/auth/me/preferences');
+    return { data: unwrapData(raw), success: true };
+  },
+
+  updatePreferences: async <T extends Record<string, unknown>>(
+    value: T,
+  ): Promise<ApiResponse<T>> => {
+    const raw = await apiFetchJSON<ApiResponse<T> | T>('/auth/me/preferences', {
+      method: 'PATCH',
+      body: JSON.stringify(value),
+    });
+    return { data: unwrapData(raw), success: true };
+  },
 };
 
 export const learnerService = {
@@ -715,6 +730,7 @@ export const poeService = {
     documentId: string,
     _verifierId?: string,
   ): Promise<ApiResponse<POEDocument>> => {
+    void _verifierId;
     return remotePostJson<POEDocument>(
       `/poe-documents/${encodeURIComponent(documentId)}/verify`,
       {},
@@ -866,6 +882,32 @@ export const poeArtifactService = {
 };
 
 export const complianceService = {
+  getDecisions: async (): Promise<
+    ApiResponse<Array<{
+      id: string;
+      controlKey: string;
+      status: 'NOT_REVIEWED' | 'IN_REVIEW' | 'SATISFIED' | 'ACTION_REQUIRED';
+      notes?: string;
+      decidedAt: string;
+    }>>
+  > => {
+    const raw = await apiFetchJSON<unknown>('/compliance/decisions');
+    const data = unwrapData(raw);
+    return { data: Array.isArray(data) ? data : [], success: true };
+  },
+
+  recordDecision: async (
+    controlKey: string,
+    status: 'NOT_REVIEWED' | 'IN_REVIEW' | 'SATISFIED' | 'ACTION_REQUIRED',
+    notes?: string,
+  ): Promise<ApiResponse<unknown>> => {
+    return remotePostJson<unknown>(
+      `/compliance/decisions/${encodeURIComponent(controlKey)}`,
+      { status, notes },
+      'PUT',
+    );
+  },
+
   getDocuments: async (): Promise<ApiResponse<ComplianceDocument[]>> => {
     const raw = await apiFetchJSON<
       ApiResponse<ComplianceDocument[]> | ComplianceDocument[]
@@ -968,6 +1010,16 @@ export const materialService = {
     >('/materials', fd);
     const data = unwrapData(raw as ApiResponse<TrainingMaterial>);
     return { data, success: true };
+  },
+
+  downloadUrl: async (id: string): Promise<ApiResponse<{ downloadUrl: string }>> => {
+    const raw = await apiFetchJSON<unknown>(
+      `/materials/${encodeURIComponent(id)}/download-url`,
+    );
+    return {
+      data: unwrapData(raw) as { downloadUrl: string },
+      success: true,
+    };
   },
 
   getCompleteness: async (
@@ -1080,9 +1132,22 @@ export const userService = {
     email: string;
     firstName: string;
     lastName: string;
-    password?: string;
-  }): Promise<ApiResponse<{ id: string; temporaryPassword?: string }>> => {
-    return remotePostJson<{ id: string; temporaryPassword?: string }>(
+    roleId: string;
+    organisationId?: string;
+    programmeId?: string;
+    enrollmentMetadata?: Record<string, unknown>;
+  }): Promise<ApiResponse<{
+    id: string;
+    pendingActivation: boolean;
+    activationExpiresAt: string;
+    mailStatus: 'SENT' | 'FAILED';
+  }>> => {
+    return remotePostJson<{
+      id: string;
+      pendingActivation: boolean;
+      activationExpiresAt: string;
+      mailStatus: 'SENT' | 'FAILED';
+    }>(
       '/users',
       body,
     );
@@ -1305,6 +1370,24 @@ export type LearnershipProgressRow = {
   _count: { status: number };
 };
 
+export type ReportFilters = {
+  programmeId?: string;
+  qualificationId?: string;
+  employerOrganisationId?: string;
+  asOf?: string;
+};
+
+export type GeneratedReportRow = {
+  id: string;
+  name: string;
+  reportType: string;
+  format: 'csv' | 'pdf';
+  status: string;
+  filters: ReportFilters;
+  createdAt: string;
+  generatedBy: { firstName: string; lastName: string };
+};
+
 export const reportsService = {
   getProgress: async (): Promise<ApiResponse<LearnershipProgressRow[]>> => {
     const raw = await apiFetchJSON<
@@ -1317,7 +1400,7 @@ export const reportsService = {
     };
   },
 
-  getSetaSnapshot: async (): Promise<
+  getSetaSnapshot: async (filters: ReportFilters = {}): Promise<
     ApiResponse<{
       enrollments: number;
       docs: number;
@@ -1332,15 +1415,46 @@ export const reportsService = {
         assessments: number;
         generatedAt: string;
       }>
-    >('/reports/seta-snapshot');
+    >(`/reports/seta-snapshot${buildQuery(filters)}`);
     const data = unwrapData(raw);
     return { data, success: true };
   },
 
   downloadSnapshot: async (
     format: 'csv' | 'pdf',
+    filters: ReportFilters = {},
   ): Promise<{ blob: Blob; filename: string }> => {
-    const file = await apiFetchBlob(`/reports/seta-snapshot?format=${format}`);
+    const query = new URLSearchParams({ format });
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) query.set(key, value);
+    });
+    const file = await apiFetchBlob(`/reports/seta-snapshot?${query.toString()}`);
+    return { blob: file.blob, filename: file.filename };
+  },
+
+  listGenerated: async (): Promise<ApiResponse<GeneratedReportRow[]>> => {
+    const raw = await apiFetchJSON<unknown>('/reports/generated');
+    const data = unwrapData(raw);
+    return { data: Array.isArray(data) ? data : [], success: true };
+  },
+
+  createGenerated: async (body: {
+    reportType: string;
+    format: 'csv' | 'pdf';
+    filters: ReportFilters;
+  }): Promise<ApiResponse<GeneratedReportRow>> =>
+    remotePostJson<GeneratedReportRow>('/reports/generated', body),
+
+  deleteGenerated: async (id: string): Promise<void> => {
+    await apiFetchJSON(`/reports/generated/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  downloadGenerated: async (id: string): Promise<{ blob: Blob; filename: string }> => {
+    const file = await apiFetchBlob(
+      `/reports/generated/${encodeURIComponent(id)}/download`,
+    );
     return { blob: file.blob, filename: file.filename };
   },
 };

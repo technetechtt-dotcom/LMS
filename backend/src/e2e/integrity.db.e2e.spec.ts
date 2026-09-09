@@ -11,6 +11,7 @@ import { CompletionGateService } from '../enrollments/completion-gate.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { InvitationsService } from '../invitations/invitations.service';
 import { WorkplaceLogsService } from '../workplace-logs/workplace-logs.service';
+import { UsersService } from '../users/users.service';
 import {
   generateOpaqueRefreshToken,
   hashOpaqueToken,
@@ -40,6 +41,20 @@ describe('integrity DB E2E', () => {
     prisma,
     { sendPasswordReset: jest.fn() } as never,
     { get: jest.fn() } as never,
+  );
+  const activationMail = { sendActivation: jest.fn().mockResolvedValue(undefined) };
+  const users = new UsersService(
+    prisma,
+    activationMail as never,
+    {
+      get: jest.fn((key: string) =>
+        key === 'ACTIVATION_TTL_HOURS'
+          ? '24'
+          : key === 'FRONTEND_ORIGIN'
+            ? 'http://localhost:5173'
+            : 'test',
+      ),
+    } as never,
   );
 
   const suffix = randomUUID().slice(0, 8);
@@ -284,6 +299,7 @@ describe('integrity DB E2E', () => {
         enrollmentId,
         unitStandardId: unit.id,
         assessorId,
+        moderatorId,
         result: 'PENDING',
       },
     });
@@ -441,13 +457,19 @@ describe('integrity DB E2E', () => {
   });
 
   it('uses scheduled-session count as attendance denominator', async () => {
+    await prisma.attendanceSession.updateMany({
+      where: { organisationId: orgA, programmeId },
+      data: { closedAt: new Date(), scheduledAt: new Date(Date.now() - 60_000) },
+    });
     await prisma.attendanceSession.create({
       data: {
         organisationId: orgA,
         programmeId,
         openedById: adminId,
         tokenHash: hashOpaqueToken(generateOpaqueRefreshToken()),
-        expiresAt: new Date(Date.now() + 30 * 60_000),
+        expiresAt: new Date(Date.now() - 30 * 60_000),
+        scheduledAt: new Date(Date.now() - 60_000),
+        closedAt: new Date(),
       },
     });
     const gate = await completion.evaluate(enrollmentId, orgA);
@@ -502,5 +524,54 @@ describe('integrity DB E2E', () => {
       where: { userId: created.id, organisationId: orgA },
     });
     expect(membership).toBeTruthy();
+  });
+
+  it('provisions user, membership, enrollment and activation token atomically', async () => {
+    const email = `provisioned-${suffix}@e2e.test`;
+    const created = await users.create(
+      {
+        email,
+        firstName: 'Provisioned',
+        lastName: 'Learner',
+        roleId: roleLearnerId,
+        programmeId,
+      },
+      asAdmin(),
+    );
+    const [account, membership, enrollment, activation] = await Promise.all([
+      prisma.user.findUnique({ where: { email } }),
+      prisma.userOrganisation.findFirst({
+        where: { userId: created.id, organisationId: orgA },
+      }),
+      prisma.enrollment.findFirst({
+        where: { learnerId: created.id, programmeId },
+      }),
+      prisma.passwordResetToken.findFirst({
+        where: { userId: created.id, purpose: 'ACTIVATION', usedAt: null },
+      }),
+    ]);
+    expect(account?.passwordSetAt).toBeNull();
+    expect(membership).toBeTruthy();
+    expect(enrollment).toBeTruthy();
+    expect(activation?.expiresAt.getTime()).toBeGreaterThan(Date.now());
+    expect(activationMail.sendActivation).toHaveBeenCalledWith(
+      email,
+      expect.stringContaining('/reset-password?token='),
+    );
+
+    const failedEmail = `rollback-${suffix}@e2e.test`;
+    await expect(
+      users.create(
+        {
+          email: failedEmail,
+          firstName: 'Rollback',
+          lastName: 'Learner',
+          roleId: roleLearnerId,
+          programmeId: randomUUID(),
+        },
+        asAdmin(),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(await prisma.user.findUnique({ where: { email: failedEmail } })).toBeNull();
   });
 });

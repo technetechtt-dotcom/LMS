@@ -1,173 +1,194 @@
-import React, { useState, useRef } from 'react';
-import { Upload, File, X, CheckCircle } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { AlertCircle, CheckCircle, File, Loader2, Upload, X } from 'lucide-react';
+
 interface FileUploadProps {
   accept?: string;
   maxSizeMB?: number;
   multiple?: boolean;
-  onUpload?: (files: File[]) => void;
+  /** Resolving means the API accepted the upload; rejecting displays an error state. */
+  onUpload?: (files: File[]) => Promise<unknown> | unknown;
+  /** Use when this control only selects a file for a later form submission. */
+  selectionOnly?: boolean;
 }
+
 interface FileItem {
   file: File;
-  progress: number;
-  status: 'uploading' | 'complete' | 'error';
+  status: 'selected' | 'uploading' | 'complete' | 'error';
+  error?: string;
 }
+
 export function FileUpload({
   accept = '.pdf,.doc,.docx,.jpg,.png',
   maxSizeMB = 10,
   multiple = true,
-  onUpload
+  onUpload,
+  selectionOnly = false,
 }: FileUploadProps) {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [validationError, setValidationError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-  const processFiles = (newFiles: File[]) => {
-    const validFiles = newFiles.filter(
-      (file) => file.size <= maxSizeMB * 1024 * 1024
-    );
-    if (validFiles.length < newFiles.length) {
 
-      // Could show toast here for skipped files
-    }const newFileItems: FileItem[] = validFiles.map((file) => ({
+  const updateBatch = (
+    selected: File[],
+    update: Pick<FileItem, 'status' | 'error'>,
+  ) => {
+    setFiles((current) =>
+      current.map((item) =>
+        selected.includes(item.file) ? { ...item, ...update } : item,
+      ),
+    );
+  };
+
+  const processFiles = async (newFiles: File[]) => {
+    const limit = maxSizeMB * 1024 * 1024;
+    const validFiles = newFiles.filter((file) => file.size <= limit);
+    setValidationError(
+      validFiles.length < newFiles.length
+        ? `One or more files exceeded the ${maxSizeMB} MB limit.`
+        : '',
+    );
+    if (!validFiles.length) return;
+
+    const items: FileItem[] = validFiles.map((file) => ({
       file,
-      progress: 0,
-      status: 'uploading'
+      status: selectionOnly || !onUpload ? 'selected' : 'uploading',
     }));
-    setFiles((prev) => multiple ? [...prev, ...newFileItems] : newFileItems);
-    // Simulate upload progress
-    newFileItems.forEach((item) => {
-      let progress = 0;
-      const interval = setInterval(() => {
-        progress += 10;
-        if (progress >= 100) {
-          clearInterval(interval);
-          setFiles((prev) =>
-          prev.map((f) =>
-          f.file === item.file ?
-          {
-            ...f,
-            progress: 100,
-            status: 'complete'
-          } :
-          f
-          )
-          );
-        } else {
-          setFiles((prev) =>
-          prev.map((f) =>
-          f.file === item.file ?
-          {
-            ...f,
-            progress
-          } :
-          f
-          )
-          );
-        }
-      }, 200);
-    });
-    if (onUpload) onUpload(validFiles);
-  };
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const droppedFiles = Array.from(e.dataTransfer.files);
-    processFiles(droppedFiles);
-  };
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const selectedFiles = Array.from(e.target.files);
-      processFiles(selectedFiles);
+    setFiles((current) => (multiple ? [...current, ...items] : items));
+
+    if (!onUpload) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    try {
+      await onUpload(validFiles);
+      if (!selectionOnly) {
+        updateBatch(validFiles, { status: 'complete', error: undefined });
+      }
+    } catch (error) {
+      updateBatch(validFiles, {
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Upload failed',
+      });
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
-  const removeFile = (fileToRemove: File) => {
-    setFiles((prev) => prev.filter((item) => item.file !== fileToRemove));
+
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    setIsDragging(false);
+    void processFiles(Array.from(event.dataTransfer.files));
   };
+
   return (
     <div className="w-full space-y-4">
       <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
+        role="button"
+        tabIndex={0}
+        aria-label="Choose files to upload"
+        onDragOver={(event) => {
+          event.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={(event) => {
+          event.preventDefault();
+          setIsDragging(false);
+        }}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className={`
-          border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
-          ${isDragging ? 'border-brand-blue bg-blue-50' : 'border-gray-300 hover:border-brand-navy hover:bg-gray-50'}
-        `}>
-        
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            fileInputRef.current?.click();
+          }
+        }}
+        className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-brand-blue focus:ring-offset-2 ${
+          isDragging
+            ? 'border-brand-blue bg-blue-50'
+            : 'border-gray-300 hover:border-brand-navy hover:bg-gray-50'
+        }`}>
         <input
           type="file"
           ref={fileInputRef}
-          className="hidden"
+          className="sr-only"
           accept={accept}
           multiple={multiple}
-          onChange={handleFileSelect} />
-        
+          onChange={(event) => {
+            if (event.target.files) {
+              void processFiles(Array.from(event.target.files));
+            }
+          }}
+        />
         <Upload
-          className={`mx-auto h-12 w-12 ${isDragging ? 'text-brand-blue' : 'text-gray-400'}`} />
-        
+          aria-hidden="true"
+          className={`mx-auto h-12 w-12 ${isDragging ? 'text-brand-blue' : 'text-gray-400'}`}
+        />
         <p className="mt-2 text-sm font-medium text-gray-900">
-          Click to upload or drag and drop
+          Choose a file or drag and drop
         </p>
         <p className="mt-1 text-xs text-gray-500">
-          {accept.replace(/\./g, ' ').toUpperCase()} (Max {maxSizeMB}MB)
+          {accept.replace(/\./g, ' ').toUpperCase()} (Max {maxSizeMB} MB)
         </p>
       </div>
 
-      {files.length > 0 &&
-      <ul className="divide-y divide-gray-200 border border-gray-200 rounded-md overflow-hidden">
-          {files.map((item, index) =>
-        <li
-          key={index}
-          className="px-4 py-3 flex items-center justify-between bg-white">
-          
+      {validationError && (
+        <p role="alert" className="text-sm text-red-700">
+          {validationError}
+        </p>
+      )}
+
+      {files.length > 0 && (
+        <ul className="divide-y divide-gray-200 border border-gray-200 rounded-md overflow-hidden">
+          {files.map((item) => (
+            <li
+              key={`${item.file.name}-${item.file.size}-${item.file.lastModified}`}
+              className="px-4 py-3 flex items-center justify-between bg-white">
               <div className="flex items-center flex-1 min-w-0">
-                <File className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                <File aria-hidden="true" className="h-5 w-5 text-gray-400 flex-shrink-0" />
                 <div className="ml-3 flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">
                     {item.file.name}
                   </p>
                   <p className="text-xs text-gray-500">
                     {(item.file.size / 1024 / 1024).toFixed(2)} MB
+                    {item.status === 'selected' ? ' · Selected' : ''}
+                    {item.status === 'complete' ? ' · Uploaded and verified' : ''}
                   </p>
+                  {item.error && (
+                    <p role="alert" className="text-xs text-red-700 mt-1">
+                      {item.error}
+                    </p>
+                  )}
                 </div>
               </div>
 
-              <div className="flex items-center ml-4 space-x-4">
-                {item.status === 'uploading' &&
-            <div className="w-24 bg-gray-200 rounded-full h-2">
-                    <div
-                className="bg-brand-blue h-2 rounded-full transition-all duration-300"
-                style={{
-                  width: `${item.progress}%`
-                }} />
-              
-                  </div>
-            }
-                {item.status === 'complete' &&
-            <CheckCircle className="h-5 w-5 text-green-500" />
-            }
+              <div className="flex items-center ml-4 space-x-3">
+                {item.status === 'uploading' && (
+                  <Loader2 aria-label="Uploading" className="h-5 w-5 text-brand-blue animate-spin" />
+                )}
+                {item.status === 'complete' && (
+                  <CheckCircle aria-label="Upload verified" className="h-5 w-5 text-green-600" />
+                )}
+                {item.status === 'error' && (
+                  <AlertCircle aria-label="Upload failed" className="h-5 w-5 text-red-600" />
+                )}
                 <button
-              onClick={(e) => {
-                e.stopPropagation();
-                removeFile(item.file);
-              }}
-              className="text-gray-400 hover:text-red-500">
-              
-                  <X className="h-5 w-5" />
+                  type="button"
+                  aria-label={`Remove ${item.file.name}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setFiles((current) => current.filter((candidate) => candidate.file !== item.file));
+                  }}
+                  className="text-gray-400 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-500 rounded">
+                  <X aria-hidden="true" className="h-5 w-5" />
                 </button>
               </div>
             </li>
-        )}
+          ))}
         </ul>
-      }
-    </div>);
-
+      )}
+    </div>
+  );
 }

@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Send, Paperclip, MoreVertical } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
 import { Avatar } from '../components/ui/Avatar';
 import { Modal } from '../components/ui/Modal';
 import { FileUpload } from '../components/ui/FileUpload';
@@ -395,16 +394,21 @@ export function MessagingPage() {
         
         <div className="space-y-4">
           <FileUpload
-            onUpload={(files) => {
+            onUpload={async (files) => {
               if (files.length && activeConversation) {
-                void messagingService
-                  .send(activeConversation.peerId, replyText || 'Attachment', files)
-                  .then((res) => {
-                    setMessages((prev) => [...prev, res.data]);
-                    toast.success('File sent');
-                    setShowAttachmentModal(false);
-                  })
-                  .catch(() => toast.error('Could not send attachment'));
+                try {
+                  const res = await messagingService.send(
+                    activeConversation.peerId,
+                    replyText || 'Attachment',
+                    files,
+                  );
+                  setMessages((prev) => [...prev, res.data]);
+                  toast.success('File sent');
+                  setShowAttachmentModal(false);
+                } catch (error) {
+                  toast.error('Could not send attachment');
+                  throw error;
+                }
               }
             }}
           />

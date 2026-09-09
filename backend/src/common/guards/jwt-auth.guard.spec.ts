@@ -38,6 +38,11 @@ describe('JwtAuthGuard session enforcement', () => {
 
     await expect(guard.canActivate(requestContext(request))).resolves.toBe(true);
     expect(request).toHaveProperty('user.userId', 'user-1');
+    expect(refreshToken.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ portal: 'lms' }),
+      }),
+    );
   });
 
   it('rejects a token after its refresh session has been revoked', async () => {

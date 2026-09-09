@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 const PASSWORD = 'Password123!';
+const OPS_BASE_URL = process.env.PLAYWRIGHT_OPS_BASE_URL ?? 'http://localhost:5177';
 
 const roles = [
   { email: 'admin@skillforge.co.za', home: '/dashboard' },
@@ -123,6 +124,63 @@ test.describe('facilitator assessment builder', () => {
     await expect(page.getByRole('button', { name: /save draft/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /publish/i })).toBeVisible();
   });
+
+  test('Add Question is operable from the keyboard', async ({ page }) => {
+    await login(page, 'facilitator@skillforge.co.za');
+    await page.goto('/assessment-builder/new');
+    const addQuestion = page.getByText('Add Question', { exact: true });
+    await addQuestion.focus();
+    await addQuestion.press('Enter');
+    await expect(page.getByRole('button', { name: 'Multiple Choice' })).toBeVisible();
+    await page.getByRole('button', { name: 'Multiple Choice' }).click();
+    await expect(page.getByRole('heading', { name: 'Questions (1)' })).toBeVisible();
+  });
+});
+
+test.describe('independent login sessions', () => {
+  test('a second login does not revoke the first browser session', async ({ browser }) => {
+    const firstContext = await browser.newContext();
+    const secondContext = await browser.newContext();
+    const firstPage = await firstContext.newPage();
+    const secondPage = await secondContext.newPage();
+    try {
+      await login(firstPage, 'learner@skillforge.co.za');
+      await login(secondPage, 'learner@skillforge.co.za');
+      await firstPage.goto('/settings');
+      await expect(firstPage).not.toHaveURL(/\/login/);
+      await expect(firstPage.getByText(/personal information|settings/i).first()).toBeVisible();
+    } finally {
+      await firstContext.close();
+      await secondContext.close();
+    }
+  });
+
+  test('an invalid access token is refreshed and the route resumes', async ({ page }) => {
+    await login(page, 'learner@skillforge.co.za');
+    await page.evaluate(() => {
+      const key = 'skillforge_auth_v1';
+      const saved = JSON.parse(localStorage.getItem(key) ?? '{}') as Record<string, unknown>;
+      localStorage.setItem(key, JSON.stringify({ ...saved, accessToken: 'expired-test-token' }));
+    });
+    await page.reload();
+    await expect(page).toHaveURL(/\/learner-dashboard/);
+    await expect(page.getByRole('heading', { name: /welcome back/i })).toBeVisible();
+  });
+
+  test('LMS and Ops sessions coexist in one browser profile', async ({ page, context }) => {
+    await login(page, 'admin@skillforge.co.za');
+    const opsPage = await context.newPage();
+    await opsPage.goto(`${OPS_BASE_URL}/login`);
+    await opsPage.getByLabel('Operator email').fill('platform@skillforge.co.za');
+    await opsPage.getByLabel('Password').fill(PASSWORD);
+    await opsPage.getByRole('button', { name: /sign in to ops console/i }).click();
+    await opsPage.waitForURL((url) => url.origin === OPS_BASE_URL && url.pathname === '/');
+    await expect(opsPage.getByRole('heading', { name: /ops overview/i })).toBeVisible();
+
+    await page.reload();
+    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page.getByRole('heading', { name: /dashboard/i }).first()).toBeVisible();
+  });
 });
 
 test.describe('facilitator attendance', () => {
@@ -151,7 +209,32 @@ test.describe('learner documents and messages', () => {
   test('learner settings persist preference controls', async ({ page }) => {
     await login(page, 'learner@skillforge.co.za');
     await page.goto('/settings');
-    await expect(page.getByText(/personal information|settings/i).first()).toBeVisible();
+    await page.getByRole('button', { name: 'Notifications' }).click();
+    const assessmentPreference = page.getByRole('checkbox', {
+      name: 'Assessment submissions',
+    });
+    const initial = await assessmentPreference.isChecked();
+    await assessmentPreference.setChecked(!initial);
+    await page.getByRole('button', { name: 'Save Preferences' }).click();
+    await expect(page.getByText('Preferences saved')).toBeVisible();
+    await page.reload();
+    await page.getByRole('button', { name: 'Notifications' }).click();
+    await expect(assessmentPreference).toBeChecked({ checked: !initial });
+  });
+});
+
+test.describe('persisted reporting workflow', () => {
+  test('admin generates, downloads and deletes a persisted report', async ({ page }) => {
+    await login(page, 'admin@skillforge.co.za');
+    await page.goto('/reports');
+    await page.getByRole('button', { name: 'Generate New Report' }).click();
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Generate Report', exact: true }).click();
+    await download;
+    const row = page.getByText('SETA operational snapshot').first();
+    await expect(row).toBeVisible();
+    await page.getByRole('button', { name: /Delete SETA operational snapshot/i }).first().click();
+    await expect(row).not.toBeVisible();
   });
 });
 

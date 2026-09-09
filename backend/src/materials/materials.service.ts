@@ -250,7 +250,10 @@ export class MaterialsService {
     let fileName: string | null = null;
 
     if (file) {
-      const up = await this.files.upload(file.originalname, file.buffer, file.mimetype);
+      const up = await this.files.upload(file.originalname, file.buffer, file.mimetype, {
+        prefix: 'materials',
+        organisationId,
+      });
       url = up.url;
       storageKey = up.key;
       fileSizeBytes = file.size;
@@ -292,6 +295,19 @@ export class MaterialsService {
     return {
       success: true,
       data: this.toClientRow(stored),
+    };
+  }
+
+  async downloadUrl(user: AuthUser | undefined, id: string) {
+    const organisationId = this.requireOrganisationId(user);
+    const material = await this.prisma.learningMaterial.findFirst({
+      where: { id, organisationId, deletedAt: null },
+      select: { storageKey: true, url: true },
+    });
+    if (!material) throw new NotFoundException('Material not found');
+    if (!material.storageKey) return { downloadUrl: material.url };
+    return {
+      downloadUrl: await this.files.getSignedDownloadUrl(material.storageKey),
     };
   }
 

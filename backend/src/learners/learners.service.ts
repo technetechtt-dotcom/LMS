@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import { UsersService } from '../users/users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   mapEnrollmentToLearnerApi,
@@ -24,7 +24,10 @@ export type LearnerListQuery = {
 
 @Injectable()
 export class LearnersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly users: UsersService,
+  ) {}
 
   private async assessmentStatsForEnrollmentIds(
     enrollmentIds: string[],
@@ -259,11 +262,6 @@ export class LearnersService {
       throw new BadRequestException('firstName/lastName or name is required');
     }
 
-    const passwordHash = await bcrypt.hash(
-      dto.password ?? `Temp-${Math.random().toString(36).slice(2)}9!`,
-      10,
-    );
-
     const learnerRole = await this.prisma.role.findFirst({
       where: { code: 'LEARNER' },
     });
@@ -271,64 +269,19 @@ export class LearnersService {
       throw new BadRequestException('LEARNER role is not seeded');
     }
 
-    const enrollment = await this.prisma.$transaction(async (tx) => {
-      let learner = await tx.user.findUnique({ where: { email } });
-      if (!learner) {
-        learner = await tx.user.create({
-          data: {
-            email,
-            passwordHash,
-            firstName,
-            lastName,
-          },
-        });
-      }
-
-      const membership = await tx.userOrganisation.findFirst({
-        where: {
-          userId: learner.id,
-          organisationId,
-          deletedAt: null,
-        },
-      });
-      if (!membership) {
-        await tx.userOrganisation.create({
-          data: {
-            userId: learner.id,
-            organisationId,
-            roleId: learnerRole.id,
-            isPrimary: true,
-          },
-        });
-      }
-
-      return tx.enrollment.create({
-        data: {
-          learnerId: learner.id,
-          programmeId: dto.programmeId,
-          sdioOrganisationId: organisationId,
-          status: 'ENROLLED',
-          startedAt: new Date(),
-          metadata: {
-            idNumber: dto.idNumber,
-            phone: dto.phone,
-            progress: dto.progress ?? 0,
-            setaStatus: 'pending',
-          },
-        },
-        include: {
-          learner: true,
-          programme: {
-            include: { qualification: true, organisation: true },
-          },
-        },
-      });
-    });
-
-    return mapEnrollmentToLearnerApi(enrollment as EnrollmentWithRelations, {
-      total: 0,
-      competent: 0,
-    });
+    return this.users.create({
+      email,
+      firstName,
+      lastName,
+      roleId: learnerRole.id,
+      programmeId: dto.programmeId,
+      enrollmentMetadata: {
+        idNumber: dto.idNumber,
+        phone: dto.phone,
+        progress: dto.progress ?? 0,
+        setaStatus: 'pending',
+      },
+    }, user);
   }
 
   async update(id: string, dto: UpdateLearnerDto, user?: AuthUser) {

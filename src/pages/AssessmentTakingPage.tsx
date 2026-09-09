@@ -36,7 +36,7 @@ export function AssessmentTakingPage() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [responses, setResponses] = useState<Record<string, unknown>>({});
   const [markedForReview, setMarkedForReview] = useState<Set<string>>(new Set());
-  const [timeLeft, setTimeLeft] = useState(60 * 60); // 60 minutes in seconds
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -86,6 +86,7 @@ export function AssessmentTakingPage() {
             responses?: Array<{ questionId: string; answer: unknown }>;
             expiresAt?: string | null;
             timeLimitMinutes?: number | null;
+            expired?: boolean;
           };
           if (sub.id) setSubmissionId(sub.id);
           if (sub.expiresAt) {
@@ -95,6 +96,11 @@ export function AssessmentTakingPage() {
             setTimeLeft(Math.max(0, remaining));
           } else if (sub.timeLimitMinutes && sub.timeLimitMinutes > 0) {
             setTimeLeft(sub.timeLimitMinutes * 60);
+          } else {
+            setTimeLeft(null);
+          }
+          if (sub.expired) {
+            setLoadError('Assessment time has expired');
           }
           if (Array.isArray(sub.responses) && sub.responses.length) {
             const restored: Record<string, unknown> = {};
@@ -181,10 +187,17 @@ export function AssessmentTakingPage() {
   ]);
 
   useEffect(() => {
-    if (isSubmitted || !questions.length || loadingAssessment || loadError)
+    if (
+      timeLeft === null ||
+      isSubmitted ||
+      !questions.length ||
+      loadingAssessment ||
+      loadError
+    )
       return;
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
+        if (prev === null) return null;
         if (prev <= 0) {
           clearInterval(timer);
           void handleSubmit();
@@ -200,6 +213,7 @@ export function AssessmentTakingPage() {
     loadingAssessment,
     loadError,
     handleSubmit,
+    timeLeft,
   ]);
 
   if (loadingAssessment) {
@@ -310,10 +324,10 @@ export function AssessmentTakingPage() {
           </div>
           <div className="flex items-center gap-6">
             <div
-              className={`flex items-center font-mono font-medium text-lg ${timeLeft < 300 ? 'text-red-600 animate-pulse' : 'text-gray-700'}`}>
+              className={`flex items-center font-mono font-medium text-lg ${timeLeft !== null && timeLeft < 300 ? 'text-red-600 animate-pulse' : 'text-gray-700'}`}>
               
               <Clock className="h-5 w-5 mr-2" />
-              {formatTime(timeLeft)}
+              {timeLeft === null ? 'Untimed' : formatTime(timeLeft)}
             </div>
             <div className="text-sm text-gray-500">
               Question {currentQuestionIndex + 1} of {questions.length}
@@ -431,31 +445,27 @@ export function AssessmentTakingPage() {
                 </p>
                 <FileUpload
                 multiple={false}
-                onUpload={(files) => {
+                onUpload={async (files) => {
                   const f = files[0];
                   if (!f) return;
-                  void (async () => {
-                    if (!submissionId) {
-                      toast.error('Start the attempt before uploading a file');
-                      return;
-                    }
-                    try {
-                      const res = await assessmentService.uploadAnswerFile(
-                        submissionId,
-                        currentQuestion.id,
-                        f,
-                      );
-                      const uploaded = res.data?.uploaded;
-                      handleAnswer(
-                        uploaded ?? { fileName: f.name },
-                      );
-                      toast.success('File uploaded');
-                    } catch (err) {
-                      toast.error(
-                        err instanceof Error ? err.message : 'Upload failed',
-                      );
-                    }
-                  })();
+                  if (!submissionId) {
+                    const error = new Error('Start the attempt before uploading a file');
+                    toast.error(error.message);
+                    throw error;
+                  }
+                  try {
+                    const res = await assessmentService.uploadAnswerFile(
+                      submissionId,
+                      currentQuestion.id,
+                      f,
+                    );
+                    const uploaded = res.data?.uploaded;
+                    handleAnswer(uploaded ?? { fileName: f.name });
+                    toast.success('File uploaded and verified');
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : 'Upload failed');
+                    throw error;
+                  }
                 }}
                 accept=".pdf,.doc,.docx,.zip" />
               

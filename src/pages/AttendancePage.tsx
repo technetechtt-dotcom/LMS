@@ -5,10 +5,8 @@ import {
   Download,
   QrCode,
   Filter,
-  AlertTriangle,
   TrendingUp,
   UserX,
-  CheckCircle,
   Smartphone,
   Zap,
 } from 'lucide-react';

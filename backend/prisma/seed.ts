@@ -12,6 +12,9 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Refusing to seed known development accounts in production');
+  }
   const roleCodes = [
     ['ADMIN', 'SDIO Admin'],
     ['PLATFORM_ADMIN', 'Platform Super Admin'],
@@ -156,6 +159,30 @@ async function main() {
       passwordHash,
       firstName: 'Platform',
       lastName: 'Operator',
+    },
+  });
+
+  // Migrations disable these known identities in deployed databases. An explicit
+  // non-production seed is the only operation that may reactivate them.
+  await prisma.user.updateMany({
+    where: {
+      email: {
+        in: [
+          'admin@skillforge.co.za',
+          'learner@skillforge.co.za',
+          'assessor@skillforge.co.za',
+          'moderator@skillforge.co.za',
+          'facilitator@skillforge.co.za',
+          'mentor@skillforge.co.za',
+          'qa@skillforge.co.za',
+          'platform@skillforge.co.za',
+        ],
+      },
+    },
+    data: {
+      passwordHash,
+      passwordSetAt: new Date(),
+      isActive: true,
     },
   });
 

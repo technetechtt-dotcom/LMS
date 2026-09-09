@@ -313,10 +313,7 @@ export class PoeWorkflowService {
       );
     }
 
-    const codes = user?.roleCodes ?? [];
-    const isAdmin = codes.includes('ADMIN') || codes.includes('PLATFORM_ADMIN');
-
-    if (action === 'assessor_mark' && !isAdmin) {
+    if (action === 'assessor_mark') {
       if (!artifact.assessorId || artifact.assessorId !== user!.userId) {
         throw new ForbiddenException(
           'Only the allocated assessor may mark this artefact',
@@ -324,8 +321,7 @@ export class PoeWorkflowService {
       }
     }
     if (
-      (action === 'moderate_approve' || action === 'moderate_reject') &&
-      !isAdmin
+      action === 'moderate_approve' || action === 'moderate_reject'
     ) {
       if (!artifact.moderatorId || artifact.moderatorId !== user!.userId) {
         throw new ForbiddenException(
@@ -378,13 +374,11 @@ export class PoeWorkflowService {
       }
       case 'moderate_approve':
         data.moderatedAt = now;
-        data.moderatorId = user!.userId;
         data.moderatorFeedback = body.feedback;
         data.moderationOutcome = PoeModerationOutcome.APPROVED;
         break;
       case 'moderate_reject':
         data.moderatedAt = now;
-        data.moderatorId = user!.userId;
         data.moderatorFeedback = body.feedback;
         data.moderationOutcome = PoeModerationOutcome.REJECTED;
         break;

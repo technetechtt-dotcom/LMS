@@ -30,6 +30,7 @@ import {
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   clearAllRefreshCookies,
+  clearRefreshCookie,
   portalFromRequest,
   readRefreshFromRequest,
   setRefreshCookie,
@@ -87,7 +88,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const session = await this.auth.register(dto);
-    clearAllRefreshCookies(res, this.nodeEnv());
+    clearRefreshCookie(res, this.nodeEnv(), 'lms');
     this.attachRefreshCookie(res, session.refreshToken, 'lms');
     return this.sessionWithoutRefreshToken(session);
   }
@@ -108,7 +109,7 @@ export class AuthController {
           ? req.headers['user-agent']
           : undefined,
     });
-    clearAllRefreshCookies(res, this.nodeEnv());
+    clearRefreshCookie(res, this.nodeEnv(), portal);
     this.attachRefreshCookie(res, session.refreshToken, portal);
     return this.sessionWithoutRefreshToken(session);
   }
@@ -162,6 +163,21 @@ export class AuthController {
   ) {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedException('Invalid session');
+    const portal = req.user?.portal ?? portalFromRequest(req);
+    const sessionId = req.user?.sessionId;
+    if (!sessionId) throw new UnauthorizedException('Invalid session');
+    clearRefreshCookie(res, this.nodeEnv(), portal);
+    return this.auth.logoutSession(userId, sessionId);
+  }
+
+  @ApiBearerAuth()
+  @Post('logout-all')
+  async logoutAll(
+    @Req() req: Request & { user?: AuthUser },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Invalid session');
     clearAllRefreshCookies(res, this.nodeEnv());
     return this.auth.logoutEverywhere(userId);
   }
@@ -183,6 +199,25 @@ export class AuthController {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedException('Invalid session');
     return this.auth.updateProfile(userId, dto);
+  }
+
+  @ApiBearerAuth()
+  @Get('me/preferences')
+  getPreferences(@Req() req: Request & { user?: AuthUser }) {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Invalid session');
+    return this.auth.getPreferences(userId);
+  }
+
+  @ApiBearerAuth()
+  @Patch('me/preferences')
+  updatePreferences(
+    @Req() req: Request & { user?: AuthUser },
+    @Body() body: Record<string, unknown>,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Invalid session');
+    return this.auth.updatePreferences(userId, body);
   }
 
   @ApiBearerAuth()

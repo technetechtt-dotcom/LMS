@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import type { Document } from '@prisma/client';
@@ -16,6 +16,63 @@ export class ComplianceService {
     private readonly files: FileStorageService,
     private readonly config: ConfigService,
   ) {}
+
+  async listDecisions(user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    return this.prisma.complianceDecision.findMany({
+      where: { organisationId },
+      orderBy: { controlKey: 'asc' },
+      include: {
+        decidedBy: { select: { firstName: true, lastName: true } },
+      },
+    });
+  }
+
+  async recordDecision(
+    controlKeyRaw: string,
+    body: { status?: string; notes?: string },
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    if (!user?.userId) throw new BadRequestException('Authentication required');
+    const controlKey = controlKeyRaw.trim().toLowerCase();
+    const allowedControls = new Set([
+      'learner-registration',
+      'assessment-instruments',
+      'moderation-reports',
+      'workplace-logbooks',
+      'health-safety',
+    ]);
+    const allowedStatuses = new Set([
+      'NOT_REVIEWED',
+      'IN_REVIEW',
+      'SATISFIED',
+      'ACTION_REQUIRED',
+    ]);
+    const status = body.status?.trim().toUpperCase() ?? 'NOT_REVIEWED';
+    if (!allowedControls.has(controlKey)) {
+      throw new BadRequestException('Unknown compliance control');
+    }
+    if (!allowedStatuses.has(status)) {
+      throw new BadRequestException('Invalid compliance decision status');
+    }
+    return this.prisma.complianceDecision.upsert({
+      where: { organisationId_controlKey: { organisationId, controlKey } },
+      create: {
+        organisationId,
+        controlKey,
+        status,
+        notes: body.notes?.trim() || null,
+        decidedById: user.userId,
+      },
+      update: {
+        status,
+        notes: body.notes?.trim() || null,
+        decidedById: user.userId,
+        decidedAt: new Date(),
+      },
+    });
+  }
 
   private mapComplianceDoc(doc: Document): Record<string, unknown> {
     const meta = (doc.metadata as Record<string, unknown> | null) ?? {};
@@ -304,14 +361,21 @@ export class ComplianceService {
 
     const adapter = resolveSetaAdapter(setaId);
     const packaged = adapter.buildExport(format === 'json' ? payload : body);
+    const extension = format === 'json' ? 'json' : 'xml';
+    const stored = await this.files.upload(
+      `${batchId}.${extension}`,
+      Buffer.from(packaged.body, 'utf8'),
+      packaged.contentType,
+      { prefix: 'exports/seta', organisationId },
+    );
 
     await this.prisma.document.create({
       data: {
         organisationId,
         category: 'seta-submission',
         name: `SETA export ${batchId}`,
-        storageKey: `exports/seta/${batchId}.${format === 'json' ? 'json' : 'xml'}`,
-        url: `/exports/seta/${batchId}.${format === 'json' ? 'json' : 'xml'}`,
+        storageKey: stored.key,
+        url: this.files.storageLocator(stored.key, stored.bucket),
         metadata: {
           type: 'seta-export',
           adapter: adapter.id,
@@ -331,7 +395,7 @@ export class ComplianceService {
       format: format === 'json' ? 'json' : 'xml',
       contentType: packaged.contentType,
       body: packaged.body,
-      url: `/exports/seta/${batchId}.${format === 'json' ? 'json' : 'xml'}`,
+      url: await this.files.getSignedDownloadUrl(stored.key),
       gateway: await this.submitToGateway(
         organisationId,
         batchId,
@@ -350,7 +414,9 @@ export class ComplianceService {
     body: string,
     contentType: string,
   ) {
-    const gatewayUrl = this.config.get<string>('SETA_GATEWAY_URL')?.trim();
+    const configuredGatewayUrl = this.config.get<string>('SETA_GATEWAY_URL')?.trim();
+    const adapterIsCertified = adapter !== 'generic-internal';
+    const gatewayUrl = adapterIsCertified ? configuredGatewayUrl : undefined;
     const row = await this.prisma.setaGatewaySubmission.create({
       data: {
         organisationId,
@@ -365,8 +431,9 @@ export class ComplianceService {
         id: row.id,
         status: 'generated_not_submitted',
         gatewayUrl: null as string | null,
-        message:
-          'SETA_GATEWAY_URL is not configured; export stored locally pending regulator submission',
+        message: adapterIsCertified
+          ? 'SETA_GATEWAY_URL is not configured; export stored pending regulator submission'
+          : 'Internal adapter is not certified; external regulator submission was blocked',
       };
     }
     try {

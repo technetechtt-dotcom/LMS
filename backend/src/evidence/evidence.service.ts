@@ -3,10 +3,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { FileStorageService } from '../common/file-storage.service';
 import { CreateEvidenceDto } from './evidence.dto';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   assertEnrollmentAccess,
+  enrollmentActorWhere,
   enrollmentOrgWhere,
   isLearnerOnly,
   requireOrganisationId,
@@ -14,7 +16,10 @@ import {
 
 @Injectable()
 export class EvidenceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly files: FileStorageService,
+  ) {}
 
   async list(user?: AuthUser, enrollmentId?: string) {
     const organisationId = requireOrganisationId(user);
@@ -25,7 +30,7 @@ export class EvidenceService {
           deletedAt: null,
           ...enrollmentOrgWhere(organisationId),
         },
-        select: { learnerId: true },
+        select: { learnerId: true, metadata: true },
       });
       assertEnrollmentAccess(user, enrollment, 'Evidence');
     }
@@ -36,7 +41,7 @@ export class EvidenceService {
         ...(enrollmentId ? { enrollmentId } : {}),
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
-          ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
+          ...enrollmentActorWhere(user),
         },
       },
       include: { unitStandard: true, outcome: true },
@@ -54,14 +59,20 @@ export class EvidenceService {
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
       },
-      select: { id: true, learnerId: true },
+      select: { id: true, learnerId: true, metadata: true },
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
     assertEnrollmentAccess(user, enrollment, 'Evidence');
 
+    const storageKey = await this.files.assertValidStorageKey(
+      dto.storageKey,
+      organisationId,
+    );
     return this.prisma.evidence.create({
       data: {
         ...dto,
+        storageKey,
+        url: this.files.storageLocator(storageKey),
         uploadedById,
       },
     });

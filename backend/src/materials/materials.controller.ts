@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Query,
   Req,
@@ -44,6 +45,14 @@ export class MaterialsController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.materials.list(req.user, query);
+  }
+
+  @Get(':id/download-url')
+  downloadUrl(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.materials.downloadUrl(req.user, id);
   }
 
   @Post('record')

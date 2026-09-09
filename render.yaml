@@ -10,15 +10,12 @@ services:
     # Neon LMS project is aws-us-east-1; Ohio (us-east-2) keeps API latency low.
     region: ohio
     branch: main
-    autoDeployTrigger: commit
+    # Releases are triggered by the protected CI/staging workflow.
+    autoDeployTrigger: off
     buildCommand: npm ci --include=dev && npm run build
     preDeployCommand: npm run prisma:migrate:deploy:retry
     startCommand: npm run start:prod
     healthCheckPath: /health
-    disk:
-      name: lms-uploads
-      mountPath: /var/data
-      sizeGB: 10
     buildFilter:
       paths:
         - backend/**
@@ -45,20 +42,44 @@ services:
           name: lms-ops
           type: web
           envVarKey: RENDER_EXTERNAL_URL
-      - key: UPLOAD_DIR
-        value: /var/data/uploads
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
       - key: UPLOAD_MAX_MB
         value: "25"
+      - key: UPLOAD_RETENTION_DAYS
+        value: "2555"
+      - key: OBJECT_STORAGE_ENDPOINT
+        sync: false
+      - key: OBJECT_STORAGE_BUCKET
+        sync: false
+      - key: OBJECT_STORAGE_REGION
+        sync: false
+      - key: OBJECT_STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: OBJECT_STORAGE_SECRET_ACCESS_KEY
+        sync: false
+      - key: OBJECT_STORAGE_FORCE_PATH_STYLE
+        value: "true"
+      - key: MALWARE_SCAN_URL
+        sync: false
+      - key: MALWARE_SCAN_TOKEN
+        sync: false
+      - key: MAIL_DELIVERY_URL
+        sync: false
+      - key: MAIL_DELIVERY_TOKEN
+        sync: false
       - key: PUBLIC_REGISTRATION
         value: "false"
       - key: ADMIN_ENDPOINTS_ENABLED
-        value: "false"
+        value: "true"
 
   - type: web
     name: lms-web
     runtime: static
     branch: main
-    autoDeployTrigger: commit
+    autoDeployTrigger: off
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     buildFilter:
@@ -116,7 +137,7 @@ services:
     name: lms-ops
     runtime: static
     branch: main
-    autoDeployTrigger: commit
+    autoDeployTrigger: off
     buildCommand: npm ci && npm run build:ops
     staticPublishPath: dist-ops
     buildFilter:

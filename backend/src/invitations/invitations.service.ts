@@ -61,18 +61,12 @@ export class InvitationsService {
     const refreshed = await this.prisma.invitation.findUniqueOrThrow({
       where: { id: invite.id },
     });
-    const front =
-      this.config.get<string>('FRONTEND_ORIGIN')?.split(',')[0]?.trim() ??
-      'http://localhost:5173';
-    const url = `${front}/register?invite=${encodeURIComponent(raw)}`;
-
     return {
       id: refreshed.id,
       email,
       expiresAt: expiresAt.toISOString(),
       mailStatus: refreshed.mailStatus,
       mailAttempts: refreshed.mailAttempts,
-      inviteUrl: this.config.get('NODE_ENV') === 'production' ? undefined : url,
     };
   }
 
@@ -110,7 +104,7 @@ export class InvitationsService {
       'http://localhost:5173';
     const url = `${front}/register?invite=${encodeURIComponent(rawToken)}`;
     try {
-      await this.mail.sendPasswordReset(email, url);
+      await this.mail.sendActivation(email, url);
       await this.prisma.invitation.update({
         where: { id: invitationId },
         data: {

@@ -1,0 +1,76 @@
+name: Protected release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    name: deploy-and-accept-staging
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Trigger staging services
+        env:
+          API_HOOK: ${{ secrets.RENDER_STAGING_API_DEPLOY_HOOK }}
+          WEB_HOOK: ${{ secrets.RENDER_STAGING_WEB_DEPLOY_HOOK }}
+          OPS_HOOK: ${{ secrets.RENDER_STAGING_OPS_DEPLOY_HOOK }}
+        run: |
+          test -n "$API_HOOK" && test -n "$WEB_HOOK" && test -n "$OPS_HOOK"
+          curl --fail --silent --show-error --request POST "$API_HOOK"
+          curl --fail --silent --show-error --request POST "$WEB_HOOK"
+          curl --fail --silent --show-error --request POST "$OPS_HOOK"
+      - name: Wait for deployed revision
+        env:
+          HEALTH_URL: ${{ vars.STAGING_API_URL }}/health
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$HEALTH_URL" >/dev/null; then exit 0; fi
+            sleep 10
+          done
+          echo "Staging API did not become healthy" >&2
+          exit 1
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Staging acceptance
+        env:
+          PLAYWRIGHT_REMOTE: '1'
+          PLAYWRIGHT_BASE_URL: ${{ vars.STAGING_WEB_URL }}
+          PLAYWRIGHT_API_URL: ${{ vars.STAGING_API_URL }}
+          PLAYWRIGHT_OPS_URL: ${{ vars.STAGING_OPS_URL }}
+        run: npx playwright test -c e2e/playwright.config.ts staging-acceptance.spec.ts
+
+  production:
+    name: deploy-production
+    needs: staging
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Trigger production services after approval
+        env:
+          API_HOOK: ${{ secrets.RENDER_PRODUCTION_API_DEPLOY_HOOK }}
+          WEB_HOOK: ${{ secrets.RENDER_PRODUCTION_WEB_DEPLOY_HOOK }}
+          OPS_HOOK: ${{ secrets.RENDER_PRODUCTION_OPS_DEPLOY_HOOK }}
+        run: |
+          test -n "$API_HOOK" && test -n "$WEB_HOOK" && test -n "$OPS_HOOK"
+          curl --fail --silent --show-error --request POST "$API_HOOK"
+          curl --fail --silent --show-error --request POST "$WEB_HOOK"
+          curl --fail --silent --show-error --request POST "$OPS_HOOK"

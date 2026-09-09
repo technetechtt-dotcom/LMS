@@ -1,4 +1,4 @@
-import React from 'react';
+import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { getDefaultRouteForRole } from './utils/routing';
@@ -6,55 +6,64 @@ import { LMS_ROLES } from './config/authPortal';
 import { AppLayout } from './components/layout/AppLayout';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
 import { RoleGate } from './components/layout/RoleGate';
-import { LoginPage } from './pages/LoginPage';
-import { OnboardingPage } from './pages/OnboardingPage';
-import { RegisterPage } from './pages/RegisterPage';
-import { CertificateVerifyPage } from './pages/CertificateVerifyPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { LearnerDashboardPage } from './pages/LearnerDashboardPage';
-import { LearnerCoursesPage } from './pages/LearnerCoursesPage';
-import { FacilitatorDashboardPage } from './pages/FacilitatorDashboardPage';
-import { FacilitatorAssessmentsPage } from './pages/FacilitatorAssessmentsPage';
-import { FacilitatorCommunicationPage } from './pages/FacilitatorCommunicationPage';
-import { FacilitatorLearnersPage } from './pages/FacilitatorLearnersPage';
-import { FacilitatorProgressReportsPage } from './pages/FacilitatorProgressReportsPage';
-import { ProgrammesPage } from './pages/ProgrammesPage';
-import { LearnerProfilePage } from './pages/LearnerProfilePage';
-import { LearnersPage } from './pages/LearnersPage';
-import { AssessmentsPage } from './pages/AssessmentsPage';
-import { LearnerAssessmentsPage } from './pages/LearnerAssessmentsPage';
-import { LearnerCertificatesPage } from './pages/LearnerCertificatesPage';
-import { CompliancePage } from './pages/CompliancePage';
-import { AuditPage } from './pages/AuditPage';
-import { UserManagementPage } from './pages/UserManagementPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { MessagingPage } from './pages/MessagingPage';
-import { MaterialsPage } from './pages/MaterialsPage';
-import { CertificatesPage } from './pages/CertificatesPage';
-import { ReportsPage } from './pages/ReportsPage';
-import { AttendancePage } from './pages/AttendancePage';
-import { SETAExportsPage } from './pages/SETAExportsPage';
-import { FacilitatorsPage } from './pages/FacilitatorsPage';
-import { SETAFundedProgrammesPage } from './pages/SETAFundedProgrammesPage';
-import { FacilitatorSETACompliancePage } from './pages/FacilitatorSETACompliancePage';
-import { FacilitatorTrainingMaterialsPage } from './pages/FacilitatorTrainingMaterialsPage';
-import { AssessmentBuilderPage } from './pages/AssessmentBuilderPage';
-import { AssessmentTakingPage } from './pages/AssessmentTakingPage';
-import { SubmissionReviewPage } from './pages/SubmissionReviewPage';
-import { PoeArtifactReviewPage } from './pages/PoeArtifactReviewPage';
-import { AssessorDashboardPage } from './pages/AssessorDashboardPage';
-import { ModeratorDashboardPage } from './pages/ModeratorDashboardPage';
-import { QaOfficerDashboardPage } from './pages/QaOfficerDashboardPage';
-import { WorkplaceMentorDashboardPage } from './pages/WorkplaceMentorDashboardPage';
-import { HelpPage } from './pages/HelpPage';
-import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
-import { ResetPasswordPage } from './pages/ResetPasswordPage';
-import { ProgrammeDetailPage } from './pages/ProgrammeDetailPage';
-import { CourseDetailPage } from './pages/CourseDetailPage';
-import { NotFoundPage } from './pages/NotFoundPage';
-import { NotificationsPage } from './pages/NotificationsPage';
-import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
-import { TermsPage } from './pages/TermsPage';
+const LoginPage = lazy(() => import('./pages/LoginPage').then(({ LoginPage }) => ({ default: LoginPage })));
+const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then(({ OnboardingPage }) => ({ default: OnboardingPage })));
+const RegisterPage = lazy(() => import('./pages/RegisterPage').then(({ RegisterPage }) => ({ default: RegisterPage })));
+const CertificateVerifyPage = lazy(() => import('./pages/CertificateVerifyPage').then(({ CertificateVerifyPage }) => ({ default: CertificateVerifyPage })));
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then(({ DashboardPage }) => ({ default: DashboardPage })));
+const LearnerDashboardPage = lazy(() => import('./pages/LearnerDashboardPage').then(({ LearnerDashboardPage }) => ({ default: LearnerDashboardPage })));
+const LearnerCoursesPage = lazy(() => import('./pages/LearnerCoursesPage').then(({ LearnerCoursesPage }) => ({ default: LearnerCoursesPage })));
+const FacilitatorDashboardPage = lazy(() => import('./pages/FacilitatorDashboardPage').then(({ FacilitatorDashboardPage }) => ({ default: FacilitatorDashboardPage })));
+const FacilitatorAssessmentsPage = lazy(() => import('./pages/FacilitatorAssessmentsPage').then(({ FacilitatorAssessmentsPage }) => ({ default: FacilitatorAssessmentsPage })));
+const FacilitatorCommunicationPage = lazy(() => import('./pages/FacilitatorCommunicationPage').then(({ FacilitatorCommunicationPage }) => ({ default: FacilitatorCommunicationPage })));
+const FacilitatorLearnersPage = lazy(() => import('./pages/FacilitatorLearnersPage').then(({ FacilitatorLearnersPage }) => ({ default: FacilitatorLearnersPage })));
+const FacilitatorProgressReportsPage = lazy(() => import('./pages/FacilitatorProgressReportsPage').then(({ FacilitatorProgressReportsPage }) => ({ default: FacilitatorProgressReportsPage })));
+const ProgrammesPage = lazy(() => import('./pages/ProgrammesPage').then(({ ProgrammesPage }) => ({ default: ProgrammesPage })));
+const LearnerProfilePage = lazy(() => import('./pages/LearnerProfilePage').then(({ LearnerProfilePage }) => ({ default: LearnerProfilePage })));
+const LearnersPage = lazy(() => import('./pages/LearnersPage').then(({ LearnersPage }) => ({ default: LearnersPage })));
+const AssessmentsPage = lazy(() => import('./pages/AssessmentsPage').then(({ AssessmentsPage }) => ({ default: AssessmentsPage })));
+const LearnerAssessmentsPage = lazy(() => import('./pages/LearnerAssessmentsPage').then(({ LearnerAssessmentsPage }) => ({ default: LearnerAssessmentsPage })));
+const LearnerCertificatesPage = lazy(() => import('./pages/LearnerCertificatesPage').then(({ LearnerCertificatesPage }) => ({ default: LearnerCertificatesPage })));
+const CompliancePage = lazy(() => import('./pages/CompliancePage').then(({ CompliancePage }) => ({ default: CompliancePage })));
+const AuditPage = lazy(() => import('./pages/AuditPage').then(({ AuditPage }) => ({ default: AuditPage })));
+const UserManagementPage = lazy(() => import('./pages/UserManagementPage').then(({ UserManagementPage }) => ({ default: UserManagementPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(({ SettingsPage }) => ({ default: SettingsPage })));
+const MessagingPage = lazy(() => import('./pages/MessagingPage').then(({ MessagingPage }) => ({ default: MessagingPage })));
+const MaterialsPage = lazy(() => import('./pages/MaterialsPage').then(({ MaterialsPage }) => ({ default: MaterialsPage })));
+const CertificatesPage = lazy(() => import('./pages/CertificatesPage').then(({ CertificatesPage }) => ({ default: CertificatesPage })));
+const ReportsPage = lazy(() => import('./pages/ReportsPage').then(({ ReportsPage }) => ({ default: ReportsPage })));
+const AttendancePage = lazy(() => import('./pages/AttendancePage').then(({ AttendancePage }) => ({ default: AttendancePage })));
+const SETAExportsPage = lazy(() => import('./pages/SETAExportsPage').then(({ SETAExportsPage }) => ({ default: SETAExportsPage })));
+const FacilitatorsPage = lazy(() => import('./pages/FacilitatorsPage').then(({ FacilitatorsPage }) => ({ default: FacilitatorsPage })));
+const SETAFundedProgrammesPage = lazy(() => import('./pages/SETAFundedProgrammesPage').then(({ SETAFundedProgrammesPage }) => ({ default: SETAFundedProgrammesPage })));
+const FacilitatorSETACompliancePage = lazy(() => import('./pages/FacilitatorSETACompliancePage').then(({ FacilitatorSETACompliancePage }) => ({ default: FacilitatorSETACompliancePage })));
+const FacilitatorTrainingMaterialsPage = lazy(() => import('./pages/FacilitatorTrainingMaterialsPage').then(({ FacilitatorTrainingMaterialsPage }) => ({ default: FacilitatorTrainingMaterialsPage })));
+const AssessmentBuilderPage = lazy(() => import('./pages/AssessmentBuilderPage').then(({ AssessmentBuilderPage }) => ({ default: AssessmentBuilderPage })));
+const AssessmentTakingPage = lazy(() => import('./pages/AssessmentTakingPage').then(({ AssessmentTakingPage }) => ({ default: AssessmentTakingPage })));
+const SubmissionReviewPage = lazy(() => import('./pages/SubmissionReviewPage').then(({ SubmissionReviewPage }) => ({ default: SubmissionReviewPage })));
+const PoeArtifactReviewPage = lazy(() => import('./pages/PoeArtifactReviewPage').then(({ PoeArtifactReviewPage }) => ({ default: PoeArtifactReviewPage })));
+const AssessorDashboardPage = lazy(() => import('./pages/AssessorDashboardPage').then(({ AssessorDashboardPage }) => ({ default: AssessorDashboardPage })));
+const ModeratorDashboardPage = lazy(() => import('./pages/ModeratorDashboardPage').then(({ ModeratorDashboardPage }) => ({ default: ModeratorDashboardPage })));
+const QaOfficerDashboardPage = lazy(() => import('./pages/QaOfficerDashboardPage').then(({ QaOfficerDashboardPage }) => ({ default: QaOfficerDashboardPage })));
+const WorkplaceMentorDashboardPage = lazy(() => import('./pages/WorkplaceMentorDashboardPage').then(({ WorkplaceMentorDashboardPage }) => ({ default: WorkplaceMentorDashboardPage })));
+const HelpPage = lazy(() => import('./pages/HelpPage').then(({ HelpPage }) => ({ default: HelpPage })));
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage').then(({ ForgotPasswordPage }) => ({ default: ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(({ ResetPasswordPage }) => ({ default: ResetPasswordPage })));
+const ProgrammeDetailPage = lazy(() => import('./pages/ProgrammeDetailPage').then(({ ProgrammeDetailPage }) => ({ default: ProgrammeDetailPage })));
+const CourseDetailPage = lazy(() => import('./pages/CourseDetailPage').then(({ CourseDetailPage }) => ({ default: CourseDetailPage })));
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(({ NotFoundPage }) => ({ default: NotFoundPage })));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage').then(({ NotificationsPage }) => ({ default: NotificationsPage })));
+const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage').then(({ PrivacyPolicyPage }) => ({ default: PrivacyPolicyPage })));
+const TermsPage = lazy(() => import('./pages/TermsPage').then(({ TermsPage }) => ({ default: TermsPage })));
+
+function RouteLoadingFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center" role="status" aria-live="polite">
+      <span className="sr-only">Loading page</span>
+      <div aria-hidden="true" className="h-8 w-8 animate-spin rounded-full border-b-2 border-brand-navy" />
+    </div>
+  );
+}
 function HomeRedirect() {
   const { user, isLoading } = useAuth();
   if (!isLoading && !user) {
@@ -62,8 +71,9 @@ function HomeRedirect() {
   }
   if (isLoading || !user) {
     return (
-      <div className="flex items-center justify-center min-h-[40vh]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-navy" />
+      <div className="flex min-h-[40vh] items-center justify-center" role="status" aria-live="polite">
+        <span className="sr-only">Loading account</span>
+        <div aria-hidden="true" className="h-8 w-8 animate-spin rounded-full border-b-2 border-brand-navy" />
       </div>
     );
   }
@@ -73,6 +83,7 @@ function HomeRedirect() {
 function App() {
   return (
     <Router>
+      <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
@@ -442,6 +453,7 @@ function App() {
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+      </Suspense>
     </Router>
   );
 }

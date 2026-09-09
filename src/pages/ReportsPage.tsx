@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { FileText, Download, Plus, Filter, Eye, Trash2 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
@@ -8,11 +8,12 @@ import { Badge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
-import { reportsService } from '../services/api';
+import { programmeService, reportsService, type ReportFilters } from '../services/api';
+import type { Programme } from '../types';
 import { triggerDownload } from '../utils/downloadJson';
 
 type ReportListRow = {
-  id: number;
+  id: string;
   name: string;
   program: string;
   date: string;
@@ -22,10 +23,11 @@ type ReportListRow = {
 
 export function ReportsPage() {
   const [showGenerateReport, setShowGenerateReport] = useState(false);
-  const [qualification, setQualification] = useState('all');
   const [learnership, setLearnership] = useState('all');
-  const [learnerGroup, setLearnerGroup] = useState('all');
   const [period, setPeriod] = useState('');
+  const [programmes, setProgrammes] = useState<Programme[]>([]);
+  const [reports, setReports] = useState<ReportListRow[]>([]);
+  const [reportFormat, setReportFormat] = useState<'csv' | 'pdf'>('pdf');
   const [snapshot, setSnapshot] = useState<{
     enrollments: number;
     docs: number;
@@ -33,29 +35,50 @@ export function ReportsPage() {
     generatedAt: string;
   } | null>(null);
 
-  useEffect(() => {
-    reportsService
-      .getSetaSnapshot()
-      .then((res) => setSnapshot(res.data))
-      .catch(() => toast.error('Could not load SETA snapshot'));
-  }, []);
+  const activeFilters = useCallback((): ReportFilters => ({
+    programmeId: learnership !== 'all' ? learnership : undefined,
+    asOf: period || undefined,
+  }), [learnership, period]);
 
-  const reports: ReportListRow[] = snapshot
-    ? [
-        {
-          id: 1,
-          name: 'SETA operational snapshot',
-          program: 'All programmes',
-          date: new Date(snapshot.generatedAt).toLocaleString(),
-          generatedBy: 'API',
-          status: 'Completed',
-        },
-      ]
-    : [];
+  const loadReports = useCallback(async () => {
+    try {
+      const [snapshotResult, generated] = await Promise.all([
+        reportsService.getSetaSnapshot(activeFilters()),
+        reportsService.listGenerated(),
+      ]);
+      setSnapshot(snapshotResult.data);
+      setReports(
+        (generated.data ?? []).map((row) => ({
+          id: row.id,
+          name: row.name,
+          program:
+            programmes.find((programme) => programme.id === row.filters.programmeId)?.title ??
+            (row.filters.programmeId ? 'Filtered programme' : 'All programmes'),
+          date: new Date(row.createdAt).toLocaleString(),
+          generatedBy:
+            `${row.generatedBy.firstName} ${row.generatedBy.lastName}`.trim(),
+          status: row.status === 'COMPLETED' ? 'Completed' : row.status,
+        })),
+      );
+    } catch {
+      toast.error('Could not load reports');
+    }
+  }, [activeFilters, programmes]);
+
+  useEffect(() => {
+    void loadReports();
+  }, [loadReports]);
+
+  useEffect(() => {
+    programmeService
+      .getAll()
+      .then((res) => setProgrammes(res.data ?? []))
+      .catch(() => undefined);
+  }, []);
 
   const downloadSnapshotFile = async (format: 'csv' | 'pdf') => {
     try {
-      const file = await reportsService.downloadSnapshot(format);
+      const file = await reportsService.downloadSnapshot(format, activeFilters());
       triggerDownload(file.blob, file.filename || `seta-snapshot.${format}`);
       toast.success(`${format.toUpperCase()} downloaded`);
     } catch {
@@ -63,18 +86,12 @@ export function ReportsPage() {
     }
   };
 
-  const downloadSnapshot = async () => {
-    await downloadSnapshotFile('csv');
-  };
-
-  const previewSnapshot = async () => {
+  const previewGenerated = async (id: string) => {
     try {
-      const res = await reportsService.getSetaSnapshot();
-      window.open(
-        `data:application/json,${encodeURIComponent(JSON.stringify(res.data, null, 2))}`,
-        '_blank',
-        'noopener',
-      );
+      const file = await reportsService.downloadGenerated(id);
+      const url = URL.createObjectURL(file.blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch {
       toast.error('Could not open preview');
     }
@@ -111,24 +128,41 @@ export function ReportsPage() {
   {
     header: 'ACTIONS',
     accessorKey: 'id' as const,
-    cell: () =>
+    cell: (row: ReportListRow) =>
     <div className="flex space-x-2 text-gray-400">
           <button
         className="hover:text-brand-blue"
-        onClick={() => void previewSnapshot()}>
+        aria-label={`Preview ${row.name}`}
+        onClick={() => void previewGenerated(row.id)}>
         
             <Eye className="h-4 w-4" />
           </button>
           <button
         className="hover:text-brand-blue"
-        onClick={() => void downloadSnapshot()}>
+        aria-label={`Download ${row.name}`}
+        onClick={async () => {
+          try {
+            const file = await reportsService.downloadGenerated(row.id);
+            triggerDownload(file.blob, file.filename);
+          } catch {
+            toast.error('Download failed');
+          }
+        }}>
         
             <Download className="h-4 w-4" />
           </button>
           <button
         className="hover:text-red-500"
-        disabled
-        title="Delete not supported">
+        aria-label={`Delete ${row.name}`}
+        onClick={async () => {
+          try {
+            await reportsService.deleteGenerated(row.id);
+            setReports((current) => current.filter((report) => report.id !== row.id));
+            toast.success('Report deleted');
+          } catch {
+            toast.error('Could not delete report');
+          }
+        }}>
         
             <Trash2 className="h-4 w-4" />
           </button>
@@ -138,9 +172,14 @@ export function ReportsPage() {
 
   const handleGenerateReport = async () => {
     try {
-      await downloadSnapshotFile('pdf');
-      const res = await reportsService.getSetaSnapshot();
-      setSnapshot(res.data);
+      const created = await reportsService.createGenerated({
+        reportType: 'seta-snapshot',
+        format: reportFormat,
+        filters: activeFilters(),
+      });
+      const file = await reportsService.downloadGenerated(created.data.id);
+      triggerDownload(file.blob, file.filename);
+      await loadReports();
       toast.success('Report generated successfully');
       setShowGenerateReport(false);
     } catch {
@@ -166,18 +205,7 @@ export function ReportsPage() {
       </div>
 
       <Card title="Report Filters">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-          <Select
-            label="Qualification"
-            value={qualification}
-            onChange={(e) => setQualification(e.target.value)}
-            options={[
-            {
-              value: 'all',
-              label: 'All Qualifications'
-            }]
-            } />
-          
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <Select
             label="Learnership"
             value={learnership}
@@ -186,18 +214,11 @@ export function ReportsPage() {
             {
               value: 'all',
               label: 'All Learnerships'
-            }]
-            } />
-          
-          <Select
-            label="Learner Group"
-            value={learnerGroup}
-            onChange={(e) => setLearnerGroup(e.target.value)}
-            options={[
-            {
-              value: 'all',
-              label: 'All Groups'
-            }]
+            },
+            ...programmes.map((programme) => ({
+              value: programme.id,
+              label: programme.title,
+            }))]
             } />
           
           <Input
@@ -212,9 +233,7 @@ export function ReportsPage() {
           <Button
             variant="outline"
             onClick={() => {
-              setQualification('all');
               setLearnership('all');
-              setLearnerGroup('all');
               setPeriod('');
               toast.success('Filters reset');
             }}>
@@ -225,7 +244,7 @@ export function ReportsPage() {
             leftIcon={<Filter className="h-4 w-4" />}
             onClick={() => {
               void reportsService
-                .getSetaSnapshot()
+                .getSetaSnapshot(activeFilters())
                 .then((res) => {
                   setSnapshot(res.data);
                   toast.success(
@@ -239,22 +258,31 @@ export function ReportsPage() {
         </div>
       </Card>
 
+      {snapshot && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          Current filter: {snapshot.enrollments} enrollments, {snapshot.docs} documents,
+          {' '}{snapshot.assessments} assessments. Generated {new Date(snapshot.generatedAt).toLocaleString()}.
+        </div>
+      )}
+
       <Card
         title="Generated Reports"
         action={
-        <div className="flex space-x-3 text-sm text-gray-500">
-            <span
-            className="flex items-center cursor-pointer hover:text-gray-700"
+          <div className="flex space-x-3 text-sm text-gray-500">
+            <button
+            type="button"
+            className="flex items-center hover:text-gray-700"
             onClick={() => void downloadSnapshotFile('pdf')}>
             
               <FileText className="h-4 w-4 mr-1" /> PDF
-            </span>
-            <span
-            className="flex items-center cursor-pointer hover:text-gray-700"
+            </button>
+            <button
+            type="button"
+            className="flex items-center hover:text-gray-700"
             onClick={() => void downloadSnapshotFile('csv')}>
             
               <FileText className="h-4 w-4 mr-1" /> CSV
-            </span>
+            </button>
           </div>
         }>
         
@@ -271,59 +299,36 @@ export function ReportsPage() {
             label="Report Type"
             options={[
             {
-              value: 'progress',
-              label: 'Progress Report'
-            },
-            {
-              value: 'enrolment',
-              label: 'Enrolment Report'
-            },
-            {
-              value: 'assessment',
-              label: 'Assessment Report'
-            },
-            {
-              value: 'compliance',
-              label: 'Compliance Report'
+              value: 'seta-snapshot',
+              label: 'SETA Operational Snapshot'
             }]
             } />
           
           <Select
             label="Programme"
+            value={learnership}
+            onChange={(event) => setLearnership(event.target.value)}
             options={[
             {
-              value: 'it',
-              label: 'IT Skills Program'
+              value: 'all',
+              label: 'All Learnerships'
             },
-            {
-              value: 'business',
-              label: 'Business Administration'
-            }]
+            ...programmes.map((programme) => ({
+              value: programme.id,
+              label: programme.title,
+            }))]
             } />
-          
-          <Select
-            label="Reporting Period"
-            options={[
-            {
-              value: 'q1',
-              label: 'Q1 (Jan - Mar)'
-            },
-            {
-              value: 'q2',
-              label: 'Q2 (Apr - Jun)'
-            },
-            {
-              value: 'q3',
-              label: 'Q3 (Jul - Sep)'
-            },
-            {
-              value: 'q4',
-              label: 'Q4 (Oct - Dec)'
-            }]
-            } />
+
+          <Input
+            label="Data as at"
+            type="date"
+            value={period}
+            onChange={(event) => setPeriod(event.target.value)} />
           
           <Select
             label="Format"
+            value={reportFormat}
+            onChange={(event) => setReportFormat(event.target.value as 'csv' | 'pdf')}
             options={[
             {
               value: 'pdf',
@@ -333,10 +338,7 @@ export function ReportsPage() {
               value: 'csv',
               label: 'CSV Data'
             },
-            {
-              value: 'excel',
-              label: 'Excel Spreadsheet'
-            }]
+            ]
             } />
           
           <div className="flex justify-end space-x-3 pt-4">

@@ -8,7 +8,6 @@ import { DataTable } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
 import {
-  enrollmentService,
   programmeService,
   userService,
   type DirectoryUserRow,
@@ -142,24 +141,14 @@ export function OpsUsersPage() {
         email,
         firstName,
         lastName,
-      });
-      const userId = created.data.id;
-      await userService.addMembership({
-        userId,
         roleId: role.id,
         ...(isPlatformAdmin ? { organisationId: selectedOrgId } : {}),
+        ...(roleCode === 'LEARNER' && programmeId ? { programmeId } : {}),
       });
-      if (roleCode === 'LEARNER' && programmeId) {
-        await enrollmentService.create({
-          learnerId: userId,
-          programmeId,
-        });
-      }
-      const temp = created.data.temporaryPassword;
       toast.success(
-        temp
-          ? `User created. Temporary password: ${temp}`
-          : 'User created',
+        created.data.mailStatus === 'SENT'
+          ? 'Account provisioned. An expiring activation link was sent.'
+          : 'Account provisioned, but activation email delivery failed.',
       );
       setShowModal(false);
       await load();
@@ -232,7 +221,8 @@ export function OpsUsersPage() {
             ]}
           />
           <p className="text-xs text-gray-500">
-            A unique temporary password is emailed to the user and shown once.
+            The account, membership, and optional enrolment are created together.
+            An expiring activation link forces the user to set their password.
           </p>
           <div className="flex justify-end gap-2">
             <Button

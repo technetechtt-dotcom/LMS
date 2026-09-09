@@ -17,7 +17,7 @@ createRoot(rootEl).render(
     <AuthProvider>
       <App />
     </AuthProvider>
-    <Toaster position="top-right" richColors />
+    <Toaster position="top-right" />
   </React.StrictMode>,
 );
 

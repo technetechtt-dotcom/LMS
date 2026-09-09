@@ -35,6 +35,18 @@ export class AssessmentInstancesService {
     @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
+  private assertAttemptNotExpired(attempt: {
+    createdAt: Date;
+    instrument?: { timeLimitMinutes: number | null } | null;
+  }) {
+    const minutes = attempt.instrument?.timeLimitMinutes ?? 0;
+    if (minutes <= 0) return;
+    const expiresAt = attempt.createdAt.getTime() + minutes * 60_000;
+    if (Date.now() >= expiresAt) {
+      throw new ForbiddenException('Assessment time has expired');
+    }
+  }
+
   private mapSubmission(row: {
     id: string;
     enrollmentId: string;
@@ -176,6 +188,12 @@ export class AssessmentInstancesService {
       orderBy: { createdAt: 'desc' },
     });
 
+    if (!inProgress) {
+      throw new BadRequestException(
+        'Start or resume an assessment attempt before submitting',
+      );
+    }
+
     let instrumentId = inProgress?.instrumentId ?? null;
     if (!instrumentId) {
       const published = await this.prisma.assessmentInstrument.findFirst({
@@ -201,14 +219,10 @@ export class AssessmentInstancesService {
       throw new BadRequestException('Bound assessment instrument not found');
     }
 
-    if (inProgress && instrument.timeLimitMinutes && instrument.timeLimitMinutes > 0) {
-      const expiresAt = new Date(
-        inProgress.createdAt.getTime() + instrument.timeLimitMinutes * 60_000,
-      );
-      if (new Date() > expiresAt) {
-        throw new ForbiddenException('Assessment time has expired');
-      }
-    }
+    this.assertAttemptNotExpired({
+      createdAt: inProgress.createdAt,
+      instrument: { timeLimitMinutes: instrument.timeLimitMinutes },
+    });
 
     const responsesRaw = Array.isArray(body.responses) ? body.responses : [];
     const sanitized: ResponseInput[] = responsesRaw.map((raw) => {
@@ -297,9 +311,7 @@ export class AssessmentInstancesService {
       },
     });
     if (!row) throw new NotFoundException('Submission not found');
-    if (row.assessment.moderatorId) {
-      assertAllocatedModerator(user, row.assessment.moderatorId);
-    }
+    assertAllocatedModerator(user, row.assessment.moderatorId);
     if (row.status !== 'assessor_verified') {
       throw new BadRequestException(
         'Moderation requires assessor-verified submissions',
@@ -536,6 +548,7 @@ export class AssessmentInstancesService {
         enrollment: { select: { learnerId: true } },
         instrument: {
           select: {
+            timeLimitMinutes: true,
             questions: {
               where: { id: questionId, deletedAt: null },
               select: { questionType: true },
@@ -548,6 +561,7 @@ export class AssessmentInstancesService {
     if (row.enrollment.learnerId !== user?.userId) {
       throw new ForbiddenException('You may only upload files for your own attempt');
     }
+    this.assertAttemptNotExpired(row);
     const question = row.instrument?.questions[0];
     if (!question || question.questionType !== 'file_upload') {
       throw new BadRequestException(
@@ -580,6 +594,8 @@ export class AssessmentInstancesService {
       },
     ];
 
+    // Scanning may take long enough for the attempt to expire.
+    this.assertAttemptNotExpired(row);
     const updated = await this.prisma.assessmentSubmission.update({
       where: { id: submissionId },
       data: { responses: next as object[] },
@@ -606,12 +622,16 @@ export class AssessmentInstancesService {
         status: 'in_progress',
         enrollment: enrollmentOrgWhere(organisationId),
       },
-      include: { enrollment: { select: { learnerId: true } } },
+      include: {
+        enrollment: { select: { learnerId: true } },
+        instrument: { select: { timeLimitMinutes: true } },
+      },
     });
     if (!row) throw new NotFoundException('In-progress submission not found');
     if (isLearnerOnly(user) && row.enrollment.learnerId !== user.userId) {
       throw new ForbiddenException('You may only save your own attempt');
     }
+    this.assertAttemptNotExpired(row);
 
     const sanitized = (Array.isArray(responses) ? responses : []).map((raw) => {
       const r = raw as Record<string, unknown>;

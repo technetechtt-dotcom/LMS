@@ -8,6 +8,7 @@ import { Button } from '../ui/Button';
 import { toast } from 'sonner';
 import { attendanceService } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { triggerDownload } from '../../utils/downloadJson';
 
 type SessionRow = {
   id: string;
@@ -113,6 +114,21 @@ export function AttendanceView() {
     },
   ];
 
+  const exportRegister = () => {
+    const escape = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const csv = [
+      ['Date', 'Session', 'Status'],
+      ...rows.map((row) => [row.date, row.title, row.status]),
+    ]
+      .map((values) => values.map(escape).join(','))
+      .join('\n');
+    triggerDownload(
+      new Blob([csv], { type: 'text/csv;charset=utf-8' }),
+      `attendance-register-${new Date().toISOString().slice(0, 10)}.csv`,
+    );
+    toast.success('Attendance register exported');
+  };
+
   if (loading) {
     return <p className="text-gray-500">Loading attendance…</p>;
   }
@@ -163,7 +179,12 @@ export function AttendanceView() {
       <Card
         title="Session History"
         action={
-          <Button variant="outline" size="sm" leftIcon={<Download className="h-4 w-4" />} disabled>
+          <Button
+            variant="outline"
+            size="sm"
+            leftIcon={<Download className="h-4 w-4" />}
+            onClick={exportRegister}
+            disabled={rows.length === 0}>
             Export Register
           </Button>
         }

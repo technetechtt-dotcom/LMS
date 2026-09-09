@@ -67,7 +67,7 @@ export function OpsLoginPage() {
             <Input
               label="Operator email"
               type="email"
-              placeholder="platform@skillforge.co.za"
+              placeholder="operator@organisation.example"
               icon={<Mail className="h-5 w-5" />}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -88,10 +88,6 @@ export function OpsLoginPage() {
               Sign in to Ops Console
             </Button>
           </form>
-          <p className="mt-6 text-center text-xs text-slate-500">
-            Demo: <code className="text-slate-400">platform@skillforge.co.za</code>
-            {' '}— password <code className="text-slate-400">Password123!</code>
-          </p>
         </div>
       </div>
     </div>

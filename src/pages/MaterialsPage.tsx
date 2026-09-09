@@ -172,6 +172,16 @@ export function MaterialsPage() {
     }));
   }, [uploadModuleFamily]);
 
+  const openMaterial = async (material: MaterialTableRow | null) => {
+    if (!material) return;
+    try {
+      const response = await materialService.downloadUrl(material.id);
+      openFileUrl(response.data.downloadUrl, material.title);
+    } catch {
+      toast.error('Could not create a secure download link');
+    }
+  };
+
   useEffect(() => {
     if (uploadModuleFamily === 'other') {
       setUploadArtifactSlug('other');
@@ -395,17 +405,20 @@ export function MaterialsPage() {
     accessorKey: 'id' as const,
     cell: (row: MaterialTableRow) =>
     <div className="text-right text-sm font-medium">
-          <div className="relative group">
-            <Button variant="ghost" size="sm">
-              <MoreVertical className="w-4 h-4" />
-            </Button>
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-slate-200 hidden group-hover:block z-10">
+          <details className="relative">
+            <summary
+              aria-label={`Actions for ${row.title}`}
+              className="list-none [&::-webkit-details-marker]:hidden inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-blue cursor-pointer">
+              <MoreVertical className="w-4 h-4" aria-hidden="true" />
+            </summary>
+            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-slate-200 z-10">
               <div className="py-1">
                 <button
               className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center"
               onClick={() => {
                 setSelectedMaterial(row);
                 setShowViewerModal(true);
+                document.querySelectorAll('details[open]').forEach((menu) => menu.removeAttribute('open'));
               }}>
               
                   <Eye className="w-4 h-4 mr-2" />
@@ -413,7 +426,10 @@ export function MaterialsPage() {
                 </button>
                 <button
               className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center"
-              onClick={() => openFileUrl(row.fileUrl, row.title)}>
+              onClick={(event) => {
+                void openMaterial(row);
+                event.currentTarget.closest('details')?.removeAttribute('open');
+              }}>
               
                   <Download className="w-4 h-4 mr-2" />
                   Download
@@ -423,6 +439,7 @@ export function MaterialsPage() {
               onClick={() => {
                 setSelectedMaterial(row);
                 setShowShareModal(true);
+                document.querySelectorAll('details[open]').forEach((menu) => menu.removeAttribute('open'));
               }}>
               
                   <Share2 className="w-4 h-4 mr-2" />
@@ -430,14 +447,17 @@ export function MaterialsPage() {
                 </button>
                 <button
               className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center"
-              onClick={() => window.print()}>
+              onClick={(event) => {
+                window.print();
+                event.currentTarget.closest('details')?.removeAttribute('open');
+              }}>
               
                   <Printer className="w-4 h-4 mr-2" />
                   Print
                 </button>
               </div>
             </div>
-          </div>
+          </details>
         </div>
 
   },
@@ -1037,6 +1057,7 @@ export function MaterialsPage() {
               </p>
               <FileUpload
                 multiple={false}
+                selectionOnly
                 onUpload={(files) => setUploadFiles(files)}
               />
             </div>
@@ -1097,7 +1118,7 @@ export function MaterialsPage() {
             </Button>
             <Button
               onClick={() => {
-                openFileUrl(selectedMaterial?.fileUrl, selectedMaterial?.title);
+                void openMaterial(selectedMaterial);
                 setShowViewerModal(false);
               }}>
               

@@ -137,6 +137,8 @@ export function FeedbackWidget() {
           scale: 0.95
         }}
         onClick={() => setIsOpen(!isOpen)}
+        aria-label={isOpen ? 'Close feedback form' : 'Open feedback form'}
+        aria-expanded={isOpen}
         className={`
           fixed bottom-6 right-6 p-3 rounded-full shadow-lg z-40 transition-colors
           ${isOpen ? 'bg-gray-200 text-gray-600' : 'bg-brand-navy text-white hover:bg-brand-blue'}

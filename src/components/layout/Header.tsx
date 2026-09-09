@@ -135,6 +135,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
         <div className="flex items-center">
           <button
             onClick={onMenuToggle}
+            aria-label="Open navigation menu"
             className="md:hidden p-2 -ml-2 mr-2 text-gray-500 hover:text-gray-700 rounded-md hover:bg-gray-100">
             
             <Menu className="h-6 w-6" />
@@ -171,6 +172,8 @@ export function Header({ onMenuToggle }: HeaderProps) {
           <div className="relative" ref={notificationRef}>
             <button
               onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+              aria-label="Open notifications"
+              aria-expanded={isNotificationsOpen}
               className="p-2 text-gray-400 hover:text-gray-500 rounded-full hover:bg-gray-100 relative focus:outline-none">
               
               <Bell className="h-5 w-5" />

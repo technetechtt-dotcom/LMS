@@ -9,8 +9,10 @@ import { CreateDocumentDto } from './documents.dto';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   assertEnrollmentAccess,
+  enrollmentActorWhere,
   enrollmentOrgWhere,
   isLearnerOnly,
+  isMentorOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
 
@@ -30,7 +32,7 @@ export class DocumentsService {
           deletedAt: null,
           ...enrollmentOrgWhere(organisationId),
         },
-        select: { learnerId: true },
+        select: { learnerId: true, metadata: true },
       });
       assertEnrollmentAccess(user, enrollment, 'Document');
     }
@@ -40,10 +42,8 @@ export class DocumentsService {
         deletedAt: null,
         organisationId,
         ...(enrollmentId ? { enrollmentId } : {}),
-        ...(isLearnerOnly(user)
-          ? {
-              enrollment: { learnerId: user!.userId },
-            }
+        ...(isLearnerOnly(user) || isMentorOnly(user)
+          ? { enrollment: enrollmentActorWhere(user) }
           : {}),
       },
       orderBy: { createdAt: 'desc' },
@@ -59,7 +59,7 @@ export class DocumentsService {
           deletedAt: null,
           ...enrollmentOrgWhere(organisationId),
         },
-        select: { learnerId: true },
+        select: { learnerId: true, metadata: true },
       });
       if (!enrollment) throw new NotFoundException('Enrollment not found');
       assertEnrollmentAccess(user, enrollment, 'Document');
@@ -69,7 +69,7 @@ export class DocumentsService {
       );
     }
 
-    const key = this.files.assertValidStorageKey(
+    const key = await this.files.assertValidStorageKey(
       dto.storageKey,
       organisationId,
     );
@@ -93,11 +93,11 @@ export class DocumentsService {
         id,
         deletedAt: null,
         organisationId,
-        ...(isLearnerOnly(user)
-          ? { enrollment: { learnerId: user!.userId } }
+        ...(isLearnerOnly(user) || isMentorOnly(user)
+          ? { enrollment: enrollmentActorWhere(user) }
           : {}),
       },
-      include: { enrollment: { select: { learnerId: true } } },
+      include: { enrollment: { select: { learnerId: true, metadata: true } } },
     });
     if (!doc) throw new NotFoundException('Document not found');
     if (doc.enrollment) {

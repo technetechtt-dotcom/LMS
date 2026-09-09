@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import type { LoginDto, RegisterDto, UpdateProfileDto, ChangePasswordDto } from './auth.dto';
@@ -103,6 +104,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    if (!user.passwordSetAt) {
+      await this.logLoginAttempt(user.id, email, 'LOGIN_BLOCKED_ACTIVATION', meta, {});
+      throw new UnauthorizedException(
+        'Account activation is required before sign in',
+      );
+    }
+
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) {
       await this.logLoginAttempt(user.id, email, 'LOGIN_FAILURE_PASSWORD', meta, {});
@@ -169,16 +177,12 @@ export class AuthService {
     const refreshRaw = generateOpaqueRefreshToken();
     const tokenHash = hashOpaqueToken(refreshRaw);
 
-    await this.prisma.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
-
     const refreshSession = await this.prisma.refreshToken.create({
       data: {
         userId,
         tokenHash,
         expiresAt: this.refreshExpiryDate(),
+        portal,
       },
     });
     const { accessToken } = await this.signToken(
@@ -202,6 +206,7 @@ export class AuthService {
     const row = await this.prisma.refreshToken.findFirst({
       where: {
         tokenHash: hash,
+        portal,
         revokedAt: null,
         expiresAt: { gt: new Date() },
       },
@@ -227,24 +232,27 @@ export class AuthService {
     const newHash = hashOpaqueToken(newRaw);
     const expiresAt = this.refreshExpiryDate();
 
-    const refreshSession = await this.prisma.$transaction(async (tx) => {
-      await tx.refreshToken.update({
-        where: { id: row.id },
-        data: { revokedAt: new Date() },
-      });
-      return tx.refreshToken.create({
-        data: {
-          userId: row.userId,
-          tokenHash: newHash,
-          expiresAt,
-        },
-      });
+    const rotated = await this.prisma.refreshToken.updateMany({
+      where: {
+        id: row.id,
+        tokenHash: hash,
+        portal,
+        revokedAt: null,
+      },
+      data: {
+        tokenHash: newHash,
+        expiresAt,
+        lastUsedAt: new Date(),
+      },
     });
+    if (rotated.count !== 1) {
+      throw new UnauthorizedException('Refresh token was already rotated');
+    }
 
     const { accessToken } = await this.signToken(
       row.userId,
       row.user.email,
-      refreshSession.id,
+      row.id,
       portal,
     );
     const apiUser = await this.buildUserResponse(row.userId);
@@ -252,7 +260,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken: newRaw,
-      sessionId: refreshSession.id,
+      sessionId: row.id,
       tokenType: 'Bearer' as const,
       user: apiUser,
     };
@@ -261,6 +269,14 @@ export class AuthService {
   async logoutEverywhere(userId: string) {
     await this.prisma.refreshToken.updateMany({
       where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return { success: true as const, data: null };
+  }
+
+  async logoutSession(userId: string, sessionId: string) {
+    await this.prisma.refreshToken.updateMany({
+      where: { id: sessionId, userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
     return { success: true as const, data: null };
@@ -310,13 +326,6 @@ export class AuthService {
       'http://localhost:5173';
     const resetUrl = `${base}/reset-password?token=${raw}`;
 
-    const reveal =
-      (this.config.get<string>('LOG_PASSWORD_RESET_LINK') ?? '').toLowerCase() ===
-      'true';
-    if (reveal) {
-      this.logger.warn(`[dev] Password reset link for ${email}: ${resetUrl}`);
-    }
-
     try {
       await this.mail.sendPasswordReset(email, resetUrl);
     } catch (err) {
@@ -356,7 +365,7 @@ export class AuthService {
       });
       await tx.user.update({
         where: { id: row.userId },
-        data: { passwordHash },
+        data: { passwordHash, passwordSetAt: new Date(), isActive: true },
       });
       await tx.refreshToken.updateMany({
         where: { userId: row.userId, revokedAt: null },
@@ -379,6 +388,36 @@ export class AuthService {
 
   async getProfile(userId: string) {
     return this.buildUserResponse(userId);
+  }
+
+  async getPreferences(userId: string) {
+    const row = await this.prisma.userPreference.findUnique({
+      where: { userId },
+    });
+    return (row?.value as Record<string, unknown> | undefined) ?? {};
+  }
+
+  async updatePreferences(userId: string, value: Record<string, unknown>) {
+    const allowedKeys = new Set([
+      'notifyAssessment',
+      'notifyCompliance',
+      'notifyMarketing',
+      'notifySmsSecurity',
+      'notifySmsUrgent',
+      'language',
+      'timezone',
+    ]);
+    const sanitized = Object.fromEntries(
+      Object.entries(value).filter(([key, item]) =>
+        allowedKeys.has(key) && ['string', 'boolean'].includes(typeof item),
+      ),
+    ) as Prisma.InputJsonObject;
+    const row = await this.prisma.userPreference.upsert({
+      where: { userId },
+      create: { userId, value: sanitized },
+      update: { value: sanitized },
+    });
+    return row.value as Record<string, unknown>;
   }
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {
@@ -452,7 +491,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.newPassword, 10);
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash },
+      data: { passwordHash, passwordSetAt: new Date() },
     });
     await this.prisma.refreshToken.updateMany({
       where: { userId, revokedAt: null },

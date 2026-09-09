@@ -1,7 +1,14 @@
 import {
   assertAllocatedAssessor,
+  assertAllocatedModerator,
+  assertEnrollmentAccess,
+  canAssessorReview,
+  canFacilitatorMark,
+  canModerateSubmission,
+  enrollmentActorWhere,
   enrollmentOrgWhere,
   isLearnerOnly,
+  isMentorOnly,
   isPlatformAdmin,
   isStaffUser,
   readOrganisationHeader,
@@ -38,6 +45,8 @@ describe('tenant-scope', () => {
   it('reads organisation header aliases', () => {
     expect(readOrganisationHeader({ 'x-organisation-id': 'abc' })).toBe('abc');
     expect(readOrganisationHeader({ 'x-tenant-id': 't1' })).toBe('t1');
+    expect(readOrganisationHeader({ 'x-org-id': ['org-array', 'ignored'] })).toBe('org-array');
+    expect(readOrganisationHeader({})).toBeUndefined();
   });
 
   it('requires organisation id', () => {
@@ -77,5 +86,60 @@ describe('tenant-scope', () => {
       ),
     ).toThrow();
     expect(() => assertAllocatedAssessor(admin, 'other')).not.toThrow();
+  });
+
+  it('scopes mentor-only users to their allocated learners', () => {
+    const mentor: AuthUser = {
+      userId: 'mentor-1',
+      email: 'mentor@example.com',
+      organisationId: 'org1',
+      roleCodes: ['MENTOR'],
+    };
+    expect(isMentorOnly(mentor)).toBe(true);
+    expect(isMentorOnly({ ...mentor, roleCodes: ['MENTOR', 'ADMIN'] })).toBe(false);
+    expect(enrollmentActorWhere(mentor)).toEqual({
+      metadata: { path: ['workplaceMentorId'], equals: 'mentor-1' },
+    });
+    expect(() =>
+      assertEnrollmentAccess(
+        mentor,
+        { learnerId: 'learner-1', metadata: { workplaceMentorId: 'other' } },
+        'Document',
+      ),
+    ).toThrow('Document access denied');
+    expect(() =>
+      assertEnrollmentAccess(
+        mentor,
+        { learnerId: 'learner-1', metadata: { workplaceMentorId: 'mentor-1' } },
+      ),
+    ).not.toThrow();
+  });
+
+  it('scopes learner-only actors and rejects missing enrollment context', () => {
+    expect(enrollmentActorWhere(learner)).toEqual({ learnerId: 'u1' });
+    expect(enrollmentActorWhere(admin)).toEqual({});
+    expect(() => assertEnrollmentAccess(learner, null)).toThrow('Resource not found');
+    expect(() =>
+      assertEnrollmentAccess(learner, { learnerId: 'another' }),
+    ).toThrow('Resource access denied');
+    expect(() =>
+      assertEnrollmentAccess(learner, { learnerId: 'u1' }),
+    ).not.toThrow();
+  });
+
+  it('never permits moderator allocation bypass, including admins', () => {
+    expect(() => assertAllocatedModerator(admin, null)).toThrow('No moderator');
+    expect(() => assertAllocatedModerator(admin, 'another')).toThrow('allocated moderator');
+    expect(() => assertAllocatedModerator({ ...admin, userId: 'assigned' }, 'assigned')).not.toThrow();
+  });
+
+  it('separates facilitator, assessor and moderator capabilities', () => {
+    expect(canFacilitatorMark(staff)).toBe(true);
+    expect(canFacilitatorMark(learner)).toBe(false);
+    expect(canAssessorReview({ ...staff, roleCodes: ['ASSESSOR'] })).toBe(true);
+    expect(canAssessorReview(learner)).toBe(false);
+    expect(canModerateSubmission({ ...staff, roleCodes: ['MODERATOR'] })).toBe(true);
+    expect(canModerateSubmission({ ...staff, roleCodes: ['QA_OFFICER'] })).toBe(true);
+    expect(canModerateSubmission(learner)).toBe(false);
   });
 });

@@ -7,7 +7,7 @@ import { DataTable } from '../components/ui/DataTable';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { toast } from 'sonner';
-import { programmeService, userService, enrollmentService } from '../services/api';
+import { programmeService, userService } from '../services/api';
 import type { DirectoryUserRow } from '../services/api';
 
 type ManagedUser = {
@@ -236,24 +236,14 @@ export function UserManagementPage() {
         email,
         firstName,
         lastName,
-      });
-      const userId = created.data.id;
-      await userService.addMembership({
-        userId,
         roleId: role.id,
+        ...(roleCode === 'LEARNER' ? { programmeId } : {}),
       });
-      if (roleCode === 'LEARNER') {
-        await enrollmentService.create({
-          learnerId: userId,
-          programmeId,
-        });
-      }
       setIsModalOpen(false);
-      const temp = created.data.temporaryPassword;
       toast.success(
-        temp
-          ? `User created. Temporary password: ${temp}`
-          : 'User created',
+        created.data.mailStatus === 'SENT'
+          ? 'Account provisioned. An expiring activation link was sent.'
+          : 'Account provisioned, but activation email delivery failed.',
       );
       const userRes = await userService.getAll();
       setUsers((userRes.data ?? []).map(mapDirectoryUser));

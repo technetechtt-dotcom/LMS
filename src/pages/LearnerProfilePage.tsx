@@ -16,15 +16,11 @@ import { DataTable } from '../components/ui/DataTable';
 import { AttendanceView } from '../components/learner/AttendanceView';
 import { FileUpload } from '../components/ui/FileUpload';
 import { toast } from 'sonner';
-import { jsPDF } from 'jspdf';
 import { learnerService, poeService, assessmentService } from '../services/api';
 import type { Learner } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { evaluateOfficialPoeReadiness } from '../utils/officialPoe';
-import {
-  compileOfficialPoePackageBlob,
-  type OfficialPoeCompileMeta,
-} from '../utils/officialPoeCompilePdf';
+import type { OfficialPoeCompileMeta } from '../utils/officialPoeCompilePdf';
 
 function initialsFromName(name: string): string {
   const p = name.split(/\s+/).filter(Boolean);
@@ -34,7 +30,7 @@ function initialsFromName(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-/** Fallback when PoE overview API is unavailable. */
+/** Conservative fallback: missing API data must never look regulator-verified. */
 function buildOfficialPoeFallback(): {
   rows: OfficialPoeRequirementRow[];
   moderatorAssigned: boolean;
@@ -47,13 +43,13 @@ function buildOfficialPoeFallback(): {
         id: 'cv',
         title: 'Learner CV',
         category: 'admin',
-        submission: 'verified',
+        submission: 'missing',
       },
       {
         id: 'addr',
         title: 'Proof of address',
         category: 'admin',
-        submission: 'submitted',
+        submission: 'missing',
       },
       {
         id: 'aff',
@@ -65,20 +61,20 @@ function buildOfficialPoeFallback(): {
         id: 'g12',
         title: 'Grade 12 certificate',
         category: 'admin',
-        submission: 'verified',
+        submission: 'missing',
       },
       {
         id: 'lwb',
         title: 'Learner workbook',
         category: 'workbook',
-        submission: 'submitted',
+        submission: 'missing',
         facilitatorMarkedSigned: false,
       },
       {
         id: 'sum',
         title: 'Summative assessment',
         category: 'summative',
-        submission: 'submitted',
+        submission: 'missing',
         assessorMarkedSigned: false,
         moderatorMarkedSigned: 'na',
       },
@@ -311,8 +307,9 @@ export function LearnerProfilePage() {
     },
   ];
 
-  const downloadQuickSummary = () => {
+  const downloadQuickSummary = async () => {
     if (!learnerRecord) return;
+    const { jsPDF } = await import('jspdf');
     const doc = new jsPDF();
     doc.setFontSize(20);
     doc.text('Portfolio of Evidence — Assessment summary', 105, 20, {
@@ -345,6 +342,9 @@ export function LearnerProfilePage() {
       return;
     }
     try {
+      const { compileOfficialPoePackageBlob } = await import(
+        '../utils/officialPoeCompilePdf'
+      );
       const blob = await compileOfficialPoePackageBlob({
         learnerName: learnerRecord.name,
         idNumber: learnerRecord.idNumber,
@@ -686,34 +686,31 @@ export function LearnerProfilePage() {
                 your official POE checklist.
               </p>
               <FileUpload
-                onUpload={(files) => {
+                onUpload={async (files) => {
                   if (!id) return;
-                  void (async () => {
-                    try {
-                      for (const file of files) {
-                        await poeService.upload(id, file, {
-                          category: 'administrative',
-                          type: 'Administrative',
-                        });
-                      }
-                      const overview = await poeService.getByLearner(id);
-                      setPoeDocuments(
-                        (overview.data ?? []).map((d) => ({
-                          id: d.id,
-                          title: d.fileName || d.type,
-                          status: d.status === 'verified' ? 'verified' : 'pending',
-                          type: d.category,
-                          date: d.createdAt?.slice(0, 10),
-                          downloadId: d.id,
-                        })),
-                      );
-                      toast.success(
-                        `${files.length} document(s) uploaded for verification`,
-                      );
-                    } catch {
-                      toast.error('Could not upload documents');
+                  try {
+                    for (const file of files) {
+                      await poeService.upload(id, file, {
+                        category: 'administrative',
+                        type: 'Administrative',
+                      });
                     }
-                  })();
+                    const overview = await poeService.getByLearner(id);
+                    setPoeDocuments(
+                      (overview.data ?? []).map((d) => ({
+                        id: d.id,
+                        title: d.fileName || d.type,
+                        status: d.status === 'verified' ? 'verified' : 'pending',
+                        type: d.category,
+                        date: d.createdAt?.slice(0, 10),
+                        downloadId: d.id,
+                      })),
+                    );
+                    toast.success(`${files.length} document(s) uploaded and verified`);
+                  } catch (error) {
+                    toast.error('Could not upload documents');
+                    throw error;
+                  }
                 }}
               />
             </div>

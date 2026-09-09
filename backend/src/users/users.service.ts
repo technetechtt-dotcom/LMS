@@ -2,8 +2,8 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
-  Optional,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AddUserMembershipDto, CreateUserDto } from './users.dto';
@@ -14,16 +14,14 @@ import {
 } from '../common/tenant/tenant-scope';
 import * as bcrypt from 'bcrypt';
 import { MailService } from '../mail/mail.service';
-
-function generateTemporaryPassword(): string {
-  return `${randomBytes(18).toString('base64url')}Aa1!`.slice(0, 20);
-}
+import { generateOpaqueRefreshToken, hashOpaqueToken } from '../common/crypto/token-crypto';
 
 @Injectable()
 export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() private readonly mail?: MailService,
+    private readonly mail: MailService,
+    private readonly config: ConfigService,
   ) {}
 
   list(user?: AuthUser) {
@@ -88,30 +86,108 @@ export class UsersService {
     });
   }
 
-  async create(dto: CreateUserDto, _user?: AuthUser) {
-    const temporaryPassword =
-      dto.password?.trim() || generateTemporaryPassword();
-    const passwordHash = await bcrypt.hash(temporaryPassword, 10);
-    const created = await this.prisma.user.create({
-      data: {
-        email: dto.email.toLowerCase(),
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        passwordHash,
-        isActive: dto.isActive ?? true,
-      },
+  async create(dto: CreateUserDto, user?: AuthUser) {
+    const organisationId = isPlatformAdmin(user)
+      ? dto.organisationId
+      : requireOrganisationId(user);
+    if (!organisationId) {
+      throw new BadRequestException('organisationId is required');
+    }
+    if (!user?.userId) throw new ForbiddenException('Authentication required');
+
+    const email = dto.email.toLowerCase().trim();
+    const rawActivation = generateOpaqueRefreshToken();
+    const tokenHash = hashOpaqueToken(rawActivation);
+    const unusablePassword = randomBytes(48).toString('base64url');
+    const passwordHash = await bcrypt.hash(unusablePassword, 10);
+    const ttlHours = Math.max(
+      1,
+      Number(this.config.get<string>('ACTIVATION_TTL_HOURS') ?? '24') || 24,
+    );
+    const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const [role, organisation, existing, programme] = await Promise.all([
+        tx.role.findFirst({ where: { id: dto.roleId, deletedAt: null } }),
+        tx.organisation.findFirst({ where: { id: organisationId, deletedAt: null } }),
+        tx.user.findFirst({ where: { email, deletedAt: null } }),
+        dto.programmeId
+          ? tx.programme.findFirst({
+              where: { id: dto.programmeId, organisationId, deletedAt: null },
+            })
+          : Promise.resolve(null),
+      ]);
+      if (!role) throw new BadRequestException('Invalid roleId');
+      if (!organisation) throw new BadRequestException('Invalid organisationId');
+      if (existing) throw new BadRequestException('A user with this email already exists');
+      if (role.code === 'PLATFORM_ADMIN' && !isPlatformAdmin(user)) {
+        throw new ForbiddenException('Only platform admins may provision platform admins');
+      }
+      if (dto.programmeId && !programme) {
+        throw new BadRequestException('Programme not found in the organisation');
+      }
+      if (dto.programmeId && role.code !== 'LEARNER') {
+        throw new BadRequestException('Only learner accounts may be enrolled during provisioning');
+      }
+
+      const account = await tx.user.create({
+        data: {
+          email,
+          firstName: dto.firstName.trim(),
+          lastName: dto.lastName.trim(),
+          passwordHash,
+          passwordSetAt: null,
+          isActive: true,
+        },
+      });
+      await tx.userOrganisation.create({
+        data: {
+          userId: account.id,
+          roleId: role.id,
+          organisationId,
+          isPrimary: true,
+        },
+      });
+      if (programme) {
+        await tx.enrollment.create({
+          data: {
+            learnerId: account.id,
+            programmeId: programme.id,
+            sdioOrganisationId: organisationId,
+            status: 'ENROLLED',
+            startedAt: new Date(),
+            metadata: dto.enrollmentMetadata as object | undefined,
+          },
+        });
+      }
+      await tx.passwordResetToken.create({
+        data: {
+          userId: account.id,
+          tokenHash,
+          expiresAt,
+          purpose: 'ACTIVATION',
+        },
+      });
+      return account;
     });
+
+    const front =
+      this.config.get<string>('FRONTEND_ORIGIN')?.split(',')[0]?.trim() ??
+      'http://localhost:5173';
+    const activationUrl = `${front}/reset-password?token=${encodeURIComponent(rawActivation)}&activation=1`;
+    let mailStatus: 'SENT' | 'FAILED' = 'SENT';
     try {
-      await this.mail?.sendWelcome(
-        created.email,
-        created.firstName,
-        temporaryPassword,
-      );
+      await this.mail.sendActivation(created.email, activationUrl);
     } catch {
-      /* welcome mail is best-effort; password is returned once */
+      mailStatus = 'FAILED';
     }
     const { passwordHash: _omit, ...safe } = created;
-    return { ...safe, temporaryPassword };
+    return {
+      ...safe,
+      pendingActivation: true,
+      activationExpiresAt: expiresAt.toISOString(),
+      mailStatus,
+    };
   }
 
   async addMembership(dto: AddUserMembershipDto, user?: AuthUser) {

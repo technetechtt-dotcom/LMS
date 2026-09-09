@@ -25,9 +25,8 @@ export class CreateAssessmentDto {
   @IsUUID()
   assessorId?: string;
 
-  @IsOptional()
   @IsUUID()
-  moderatorId?: string;
+  moderatorId!: string;
 
   @IsOptional()
   @IsString()

@@ -39,10 +39,8 @@
     "zustand": "latest"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.51.0",
-    "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.0",
-    "@types/multer": "^1.4.12",
     "@types/node": "^20.11.18",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
@@ -51,18 +49,18 @@
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "latest",
     "concurrently": "^9.1.0",
-    "cors": "^2.8.5",
     "cross-env": "^7.0.3",
     "eslint": "^8.50.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.1",
-    "express": "^4.21.0",
-    "multer": "^1.4.5-lts.1",
     "playwright": "^1.51.0",
     "postcss": "latest",
     "tailwindcss": "3.4.17",
     "tsx": "^4.19.0",
     "typescript": "^5.5.4",
     "vite": "^7.3.6"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
   }
 }

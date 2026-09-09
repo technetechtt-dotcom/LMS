@@ -1,17 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import {
-  Shield,
-  Clock,
-  Download,
-  CheckCircle,
-  XCircle } from
-'lucide-react';
-import { Card } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
-import { Tabs } from '../components/ui/Tabs';
-import { DataTable } from '../components/ui/DataTable';
-import { Badge } from '../components/ui/Badge';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Download, Shield } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { Badge } from '../components/ui/Badge';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+import { DataTable } from '../components/ui/DataTable';
+import { Tabs } from '../components/ui/Tabs';
 import {
   assessmentService,
   attendanceService,
@@ -20,596 +15,317 @@ import {
   programmeService,
   userService,
 } from '../services/api';
-import { useNavigate } from 'react-router-dom';
 import { downloadJson } from '../utils/downloadJson';
-type AuditLearnerRecord = {
+
+type LearnerRow = {
   id: string;
   name: string;
-  idNo: string;
-  status: string;
-  poeStatus: string;
+  idNumber: string;
+  enrollmentStatus: string;
+  recordedProgress: string;
 };
-type AuditAttendanceRecord = {
-  id: number;
+
+type AttendanceRow = {
+  id: string;
   date: string;
   session: string;
-  facilitator: string;
   present: number;
+  late: number;
   absent: number;
-  signed: boolean;
+  excused: number;
 };
-type AuditAssessmentRecord = {
-  id: number;
+
+type AssessmentRow = {
+  id: string;
   learner: string;
   assessment: string;
   assessor: string;
-  score: string;
+  recordedResult: string;
   moderation: string;
   moderator: string;
 };
-type AuditFacilitatorRecord = {
-  id: number;
+
+type StaffRow = {
+  id: string;
   name: string;
-  qual: string;
-  regNo: string;
-  expiry: string;
-  status: string;
+  roles: string;
+  lastSignIn: string;
+  accountStatus: string;
 };
 
 export function AuditPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('learners');
-  const [auditRows, setAuditRows] = useState<
-    Array<Record<string, unknown>>
-  >([]);
-  const [timeLeft, setTimeLeft] = useState(14385); // ~4 hours in seconds
   const [findingNotes, setFindingNotes] = useState('');
-  const [learnerRecords, setLearnerRecords] = useState<AuditLearnerRecord[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<AuditAttendanceRecord[]>([]);
-  const [assessmentRecords, setAssessmentRecords] = useState<AuditAssessmentRecord[]>([]);
-  const [facilitatorRecords, setFacilitatorRecords] = useState<AuditFacilitatorRecord[]>([]);
+  const [auditEventCount, setAuditEventCount] = useState(0);
   const [programmes, setProgrammes] = useState<Array<{ id: string; title: string }>>([]);
   const [selectedProgrammeId, setSelectedProgrammeId] = useState('');
+  const [learners, setLearners] = useState<LearnerRow[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRow[]>([]);
+  const [assessments, setAssessments] = useState<AssessmentRow[]>([]);
+  const [staff, setStaff] = useState<StaffRow[]>([]);
 
   useEffect(() => {
-    programmeService
-      .getAll()
-      .then((res) => {
-        const list = (res.data ?? []).map((p) => ({ id: p.id, title: p.title }));
-        setProgrammes(list);
-        if (list.length > 0) setSelectedProgrammeId(list[0].id);
+    void Promise.all([programmeService.getAll(), userService.getAll(), auditService.list(200)])
+      .then(([programmeResponse, userResponse, auditEvents]) => {
+        const available = (programmeResponse.data ?? []).map((programme) => ({
+          id: programme.id,
+          title: programme.title,
+        }));
+        setProgrammes(available);
+        setSelectedProgrammeId((current) => current || available[0]?.id || '');
+        setStaff(
+          (userResponse.data ?? [])
+            .filter((account) =>
+              account.memberships.some((membership) =>
+                ['FACILITATOR', 'ASSESSOR', 'MODERATOR'].includes(membership.role.code),
+              ),
+            )
+            .map((account) => ({
+              id: account.id,
+              name: `${account.firstName} ${account.lastName}`.trim(),
+              roles: account.memberships.map((membership) => membership.role.name).join(', '),
+              lastSignIn: account.lastLoginAt
+                ? new Date(account.lastLoginAt).toISOString().slice(0, 10)
+                : 'Not recorded',
+              accountStatus: account.isActive ? 'Active' : 'Inactive',
+            })),
+        );
+        setAuditEventCount(auditEvents.length);
       })
-      .catch(() => toast.error('Could not load programmes'));
+      .catch(() => toast.error('Could not load the audit workspace'));
   }, []);
 
   useEffect(() => {
-    attendanceService
-      .list()
-      .then((res) => {
-        const grouped = new Map<
-          string,
-          { date: string; session: string; facilitator: string; present: number; absent: number; signed: boolean }
-        >();
-        for (const raw of res.data ?? []) {
-          const r = raw as {
+    void Promise.all([
+      learnerService.getAll({
+        programme: selectedProgrammeId || undefined,
+      }),
+      attendanceService.list(),
+      assessmentService.listInstances(),
+    ])
+      .then(([learnerResponse, attendanceResponse, assessmentResponse]) => {
+        setLearners(
+          (learnerResponse.data ?? []).map((learner) => ({
+            id: learner.id,
+            name: learner.name,
+            idNumber: learner.idNumber || 'Not recorded',
+            enrollmentStatus: learner.status,
+            recordedProgress: `${learner.progress}%`,
+          })),
+        );
+
+        const grouped = new Map<string, AttendanceRow>();
+        for (const raw of attendanceResponse.data ?? []) {
+          const record = raw as {
             sessionDate: string;
             status: string;
-            enrollment?: {
-              programme?: { title: string; id: string };
-            };
+            enrollment?: { programme?: { id?: string; title?: string } };
           };
-          const programmeId = r.enrollment?.programme?.id ?? '';
-          if (selectedProgrammeId && programmeId !== selectedProgrammeId) continue;
-          const date = r.sessionDate.slice(0, 10);
-          const session = r.enrollment?.programme?.title ?? 'Training session';
+          if (
+            selectedProgrammeId &&
+            record.enrollment?.programme?.id !== selectedProgrammeId
+          ) continue;
+          const date = record.sessionDate.slice(0, 10);
+          const session = record.enrollment?.programme?.title || 'Training session';
           const key = `${date}|${session}`;
           const row = grouped.get(key) ?? {
+            id: key,
             date,
             session,
-            facilitator: '—',
             present: 0,
+            late: 0,
             absent: 0,
-            signed: true,
+            excused: 0,
           };
-          if (r.status === 'PRESENT' || r.status === 'LATE') row.present += 1;
-          else row.absent += 1;
+          if (record.status === 'PRESENT') row.present += 1;
+          if (record.status === 'LATE') row.late += 1;
+          if (record.status === 'ABSENT') row.absent += 1;
+          if (record.status === 'EXCUSED') row.excused += 1;
           grouped.set(key, row);
         }
-        setAttendanceRecords(
-          Array.from(grouped.values()).map((row, i) => ({
-            id: i + 1,
-            ...row,
+        setAttendance([...grouped.values()]);
+
+        setAssessments(
+          (assessmentResponse.data ?? []).map((instance) => ({
+            id: instance.id,
+            learner: instance.learnerName,
+            assessment: instance.assessmentTitle,
+            assessor: instance.gradedBy || 'Not recorded',
+            recordedResult:
+              instance.percentage != null
+                ? `${Math.round(instance.percentage)}%`
+                : instance.score != null
+                  ? String(instance.score)
+                  : 'Not recorded',
+            moderation: instance.moderationRecord
+              ? 'Recorded'
+              : instance.status === 'moderation'
+                ? 'Pending'
+                : 'Not recorded',
+            moderator: instance.moderationRecord?.moderatorName || 'Not recorded',
           })),
         );
       })
-      .catch(() => toast.error('Could not load attendance records'));
+      .catch(() => toast.error('Could not load programme evidence'));
   }, [selectedProgrammeId]);
 
-  useEffect(() => {
-    assessmentService
-      .listInstances()
-      .then((res) => {
-        setAssessmentRecords(
-          (res.data ?? []).map((inst, i) => ({
-            id: i + 1,
-            learner: inst.learnerName,
-            assessment: inst.assessmentTitle,
-            assessor: inst.gradedBy ?? '—',
-            score:
-              inst.percentage != null
-                ? `${Math.round(inst.percentage)}%`
-                : inst.score != null
-                  ? String(inst.score)
-                  : '—',
-            moderation: inst.moderationRecord
-                ? 'Completed'
-                : inst.status === 'moderation'
-                  ? 'Pending'
-                  : inst.status === 'completed'
-                    ? 'Graded'
-                    : 'In progress',
-            moderator: inst.moderationRecord?.moderatorName ?? '—',
-          })),
-        );
-      })
-      .catch(() => toast.error('Could not load assessment records'));
-  }, []);
-
-  useEffect(() => {
-    userService
-      .getAll()
-      .then((res) => {
-        const staff = (res.data ?? []).filter((u) =>
-          u.memberships.some((m) =>
-            ['FACILITATOR', 'ASSESSOR', 'MODERATOR'].includes(m.role.code),
-          ),
-        );
-        setFacilitatorRecords(
-          staff.map((u, i) => {
-            const role = u.memberships[0]?.role.name ?? 'Staff';
-            const expiry = u.lastLoginAt
-              ? new Date(u.lastLoginAt).toISOString().slice(0, 10)
-              : '—';
-            return {
-              id: i + 1,
-              name: `${u.firstName} ${u.lastName}`.trim(),
-              qual: role,
-              regNo: u.id.slice(0, 8).toUpperCase(),
-              expiry,
-              status: u.isActive ? 'Valid' : 'Inactive',
-            };
-          }),
-        );
-      })
-      .catch(() => toast.error('Could not load facilitator records'));
-  }, []);
-
-  useEffect(() => {
-    learnerService
-      .getAll()
-      .then((res) => {
-        const rows = (res.data ?? []).filter(
-          (l) => !selectedProgrammeId || l.programmeId === selectedProgrammeId,
-        );
-        setLearnerRecords(
-          rows.map((l) => ({
-            id: l.id,
-            name: l.name,
-            idNo: l.idNumber,
-            status: l.status === 'active' ? 'Verified' : 'Pending',
-            poeStatus:
-              l.progress >= 80
-                ? 'Complete'
-                : l.progress >= 40
-                  ? 'In Progress'
-                  : 'Incomplete',
-          })),
-        );
-      })
-      .catch(() => toast.error('Could not load learner audit records'));
-  }, [selectedProgrammeId]);
-
-  useEffect(() => {
-    auditService
-      .list(200)
-      .then((rows) => setAuditRows(rows as Array<Record<string, unknown>>))
-      .catch(() => toast.error('Could not load audit log'));
-  }, []);
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => Math.max(0, prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-  const formatTime = (seconds: number) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor(seconds % 3600 / 60);
-    const s = seconds % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const enrolledCount = learnerRecords.length;
-  const completionRate =
-    enrolledCount > 0
-      ? Math.round(
-          (learnerRecords.filter((l) => l.poeStatus === 'Complete').length /
-            enrolledCount) *
-            100,
-        )
-      : 0;
-  const complianceScore =
-    assessmentRecords.length > 0
-      ? Math.round(
-          (assessmentRecords.filter((a) => a.moderation === 'Completed').length /
-            assessmentRecords.length) *
-            100,
-        )
-      : 0;
-  const assessedCount = assessmentRecords.filter((a) => a.score !== '—').length;
-  const competentRate =
-    assessedCount > 0
-      ? Math.round(
-          (assessmentRecords.filter((a) => {
-            const pct = parseInt(a.score, 10);
-            return !Number.isNaN(pct) && pct >= 50;
-          }).length /
-            assessedCount) *
-            100,
-        )
-      : 0;
-  const moderationComplete =
-    assessmentRecords.length > 0
-      ? Math.round(
-          (assessmentRecords.filter((a) => a.moderation === 'Completed').length /
-            assessmentRecords.length) *
-            100,
-        )
-      : 0;
+  const completedEnrollments = useMemo(
+    () => learners.filter((learner) => learner.enrollmentStatus.toLowerCase() === 'completed').length,
+    [learners],
+  );
 
   const learnerColumns = [
-  {
-    header: 'Learner Name',
-    accessorKey: 'name' as const
-  },
-  {
-    header: 'ID Number',
-    accessorKey: 'idNo' as const
-  },
-  {
-    header: 'ID Verification',
-    accessorKey: 'status' as const,
-    cell: (row: AuditLearnerRecord) =>
-    <Badge variant={row.status === 'Verified' ? 'success' : 'warning'}>
-          {row.status}
+    { header: 'Learner Name', accessorKey: 'name' as const },
+    { header: 'ID Number', accessorKey: 'idNumber' as const },
+    {
+      header: 'Enrollment Status',
+      accessorKey: 'enrollmentStatus' as const,
+      cell: (row: LearnerRow) => (
+        <Badge variant={row.enrollmentStatus.toLowerCase() === 'completed' ? 'success' : 'info'}>
+          {row.enrollmentStatus}
         </Badge>
-
-  },
-  {
-    header: 'POE Status',
-    accessorKey: 'poeStatus' as const,
-    cell: (row: AuditLearnerRecord) =>
-    <Badge variant={row.poeStatus === 'Complete' ? 'success' : 'warning'}>
-          {row.poeStatus}
-        </Badge>
-
-  },
-  {
-    header: 'Actions',
-    accessorKey: 'id' as const,
-    cell: (row: AuditLearnerRecord) =>
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={() => navigate(`/learner/${row.id}`)}>
-      
-          View POE
+      ),
+    },
+    { header: 'Recorded Progress', accessorKey: 'recordedProgress' as const },
+    {
+      header: 'Actions',
+      accessorKey: 'id' as const,
+      cell: (row: LearnerRow) => (
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/learner/${row.id}`)}>
+          View PoE
         </Button>
-
-  }];
+      ),
+    },
+  ];
 
   const attendanceColumns = [
-  {
-    header: 'Date',
-    accessorKey: 'date' as const
-  },
-  {
-    header: 'Session',
-    accessorKey: 'session' as const
-  },
-  {
-    header: 'Facilitator',
-    accessorKey: 'facilitator' as const
-  },
-  {
-    header: 'Present',
-    accessorKey: 'present' as const
-  },
-  {
-    header: 'Absent',
-    accessorKey: 'absent' as const
-  },
-  {
-    header: 'Signed',
-    accessorKey: 'signed' as const,
-    cell: (row: AuditAttendanceRecord) =>
-    row.signed ?
-    <CheckCircle className="h-4 w-4 text-green-500" /> :
-
-    <XCircle className="h-4 w-4 text-red-500" />
-
-  }];
+    { header: 'Date', accessorKey: 'date' as const },
+    { header: 'Session', accessorKey: 'session' as const },
+    { header: 'Present', accessorKey: 'present' as const },
+    { header: 'Late', accessorKey: 'late' as const },
+    { header: 'Absent', accessorKey: 'absent' as const },
+    { header: 'Excused', accessorKey: 'excused' as const },
+  ];
 
   const assessmentColumns = [
-  {
-    header: 'Learner',
-    accessorKey: 'learner' as const
-  },
-  {
-    header: 'Assessment',
-    accessorKey: 'assessment' as const
-  },
-  {
-    header: 'Assessor',
-    accessorKey: 'assessor' as const
-  },
-  {
-    header: 'Score',
-    accessorKey: 'score' as const
-  },
-  {
-    header: 'Moderation',
-    accessorKey: 'moderation' as const,
-    cell: (row: AuditAssessmentRecord) =>
-    <Badge variant={row.moderation === 'Completed' ? 'success' : 'warning'}>
-          {row.moderation}
-        </Badge>
+    { header: 'Learner', accessorKey: 'learner' as const },
+    { header: 'Assessment', accessorKey: 'assessment' as const },
+    { header: 'Assessor', accessorKey: 'assessor' as const },
+    { header: 'Recorded Result', accessorKey: 'recordedResult' as const },
+    { header: 'Moderation Record', accessorKey: 'moderation' as const },
+    { header: 'Moderator', accessorKey: 'moderator' as const },
+  ];
 
-  },
-  {
-    header: 'Moderator',
-    accessorKey: 'moderator' as const
-  }];
-
-  const facilitatorColumns = [
-  {
-    header: 'Name',
-    accessorKey: 'name' as const
-  },
-  {
-    header: 'Qualification',
-    accessorKey: 'qual' as const
-  },
-  {
-    header: 'Reg No.',
-    accessorKey: 'regNo' as const
-  },
-  {
-    header: 'Expiry',
-    accessorKey: 'expiry' as const
-  },
-  {
-    header: 'Status',
-    accessorKey: 'status' as const,
-    cell: (row: AuditFacilitatorRecord) =>
-    <Badge
-      variant={
-      row.status === 'Valid' ?
-      'success' :
-      row.status === 'Expiring Soon' ?
-      'warning' :
-      'danger'
-      }>
-      
-          {row.status}
-        </Badge>
-
-  }];
+  const staffColumns = [
+    { header: 'Name', accessorKey: 'name' as const },
+    { header: 'System Roles', accessorKey: 'roles' as const },
+    { header: 'Last Sign In', accessorKey: 'lastSignIn' as const },
+    { header: 'Account Status', accessorKey: 'accountStatus' as const },
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Audit Header Banner */}
-      <div className="bg-brand-navy text-white px-6 py-4 shadow-md">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center space-x-3">
-            <Shield className="h-8 w-8 text-brand-teal" />
-            <div>
-              <h1 className="text-xl font-bold">External Audit Mode</h1>
-              <p className="text-xs text-blue-200">
-                Restricted Read-Only Access for SETA/QCTO Officials
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-4 bg-blue-900/50 px-4 py-2 rounded-lg border border-blue-800">
-            <Clock className="h-5 w-5 text-brand-teal" />
-            <div className="text-right">
-              <p className="text-xs text-blue-200">Session Expires In</p>
-              <p className="font-mono font-bold">{formatTime(timeLeft)}</p>
-            </div>
+      <div className="bg-brand-navy px-6 py-4 text-white shadow-md">
+        <div className="mx-auto flex max-w-7xl items-center space-x-3">
+          <Shield className="h-8 w-8 text-brand-teal" />
+          <div>
+            <h1 className="text-xl font-bold">Audit Evidence Workspace</h1>
+            <p className="text-xs text-blue-200">
+              Internal operational records; not a SETA/QCTO certification
+            </p>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
-        {/* Programme Context */}
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center">
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
           <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
-              Selected Programme for Audit
+            <label htmlFor="audit-programme" className="block text-xs font-medium uppercase tracking-wider text-gray-500">
+              Programme evidence scope
             </label>
             <select
-              className="block w-full pl-0 pr-10 py-2 text-base border-none focus:ring-0 font-bold text-gray-900 bg-transparent cursor-pointer hover:bg-gray-50 rounded"
+              id="audit-programme"
+              className="mt-1 rounded border-gray-300 font-medium"
               value={selectedProgrammeId}
-              onChange={(e) => setSelectedProgrammeId(e.target.value)}>
-              {programmes.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.title}
-                </option>
+              onChange={(event) => setSelectedProgrammeId(event.target.value)}
+            >
+              <option value="">All available programmes</option>
+              {programmes.map((programme) => (
+                <option key={programme.id} value={programme.id}>{programme.title}</option>
               ))}
             </select>
           </div>
           <Button
             variant="outline"
             leftIcon={<Download className="h-4 w-4" />}
-            onClick={async () => {
-              if (!selectedProgrammeId) {
-                toast.error('Select a programme first');
-                return;
-              }
-              try {
-                const res = await learnerService.getAll({
-                  programme: selectedProgrammeId,
-                });
-                const learners = res.data ?? [];
-                downloadJson(`poe-batch-${selectedProgrammeId}.json`, {
-                  exportedAt: new Date().toISOString(),
-                  programmeId: selectedProgrammeId,
-                  learnerCount: learners.length,
-                  learners: learners.map((l) => ({
-                    id: l.id,
-                    name: l.name,
-                    status: l.status,
-                    programme: l.programmeName,
-                  })),
-                });
-                toast.success(
-                  `POE batch index exported for ${learners.length} learner(s)`,
-                );
-              } catch {
-                toast.error('Could not export POE batch index');
-              }
-            }}>
-            
-            Download Batch POE
+            onClick={() => {
+              downloadJson(`operational-evidence-${selectedProgrammeId || 'all'}.json`, {
+                exportedAt: new Date().toISOString(),
+                programmeId: selectedProgrammeId || null,
+                learners,
+                attendance,
+                assessments,
+              });
+              toast.success('Operational evidence index downloaded');
+            }}
+          >
+            Download Evidence Index
           </Button>
         </div>
 
-        {/* Audit Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card>
-            <div className="text-center">
-              <p className="text-sm text-gray-500">Enrolled Learners</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">{enrolledCount}</p>
-            </div>
-          </Card>
-          <Card>
-            <div className="text-center">
-              <p className="text-sm text-gray-500">Completion Rate</p>
-              <p className="text-3xl font-bold text-brand-blue mt-1">{completionRate}%</p>
-            </div>
-          </Card>
-          <Card>
-            <div className="text-center">
-              <p className="text-sm text-gray-500">Compliance Score</p>
-              <p className="text-3xl font-bold text-green-600 mt-1">{complianceScore}%</p>
-            </div>
-          </Card>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          <Card><div className="text-center"><p className="text-sm text-gray-500">Enrollment Records</p><p className="mt-1 text-3xl font-bold">{learners.length}</p></div></Card>
+          <Card><div className="text-center"><p className="text-sm text-gray-500">Completed Enrollments</p><p className="mt-1 text-3xl font-bold text-brand-blue">{completedEnrollments}</p></div></Card>
+          <Card><div className="text-center"><p className="text-sm text-gray-500">Audit Events Loaded</p><p className="mt-1 text-3xl font-bold text-green-600">{auditEventCount}</p></div></Card>
         </div>
 
-        {/* Main Data View */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 min-h-[500px]">
+        <div className="min-h-[500px] rounded-lg border border-gray-200 bg-white shadow-sm">
           <div className="px-6 pt-6">
             <Tabs
               tabs={[
-              {
-                id: 'learners',
-                label: 'Learner Records'
-              },
-              {
-                id: 'attendance',
-                label: 'Attendance Registers'
-              },
-              {
-                id: 'assessments',
-                label: 'Assessment & Moderation'
-              },
-              {
-                id: 'facilitators',
-                label: 'Facilitator Qualifications'
-              }]
-              }
+                { id: 'learners', label: 'Learner Records' },
+                { id: 'attendance', label: 'Attendance Records' },
+                { id: 'assessments', label: 'Assessment & Moderation' },
+                { id: 'staff', label: 'Staff Accounts' },
+              ]}
               activeTab={activeTab}
-              onChange={setActiveTab} />
-            
+              onChange={setActiveTab}
+            />
           </div>
-
           <div className="p-6">
-            {activeTab === 'learners' &&
-            <DataTable
-              data={learnerRecords}
-              columns={learnerColumns}
-              keyField="id" />
-
-            }
-            {activeTab === 'attendance' &&
-            <DataTable
-              data={attendanceRecords}
-              columns={attendanceColumns}
-              keyField="id" />
-
-            }
-            {activeTab === 'assessments' &&
-            <div className="space-y-4">
-                <div className="flex space-x-4 text-sm text-gray-500 mb-2">
-                  <span>
-                    Total Assessed: <strong>{assessedCount}</strong>
-                  </span>
-                  <span>
-                    Competent Rate: <strong>{competentRate}%</strong>
-                  </span>
-                  <span>
-                    Moderation Complete: <strong>{moderationComplete}%</strong>
-                  </span>
-                </div>
-                <DataTable
-                data={assessmentRecords}
-                columns={assessmentColumns}
-                keyField="id" />
-              
-              </div>
-            }
-            {activeTab === 'facilitators' &&
-            <DataTable
-              data={facilitatorRecords}
-              columns={facilitatorColumns}
-              keyField="id" />
-
-            }
+            {activeTab === 'learners' && <DataTable data={learners} columns={learnerColumns} keyField="id" />}
+            {activeTab === 'attendance' && <DataTable data={attendance} columns={attendanceColumns} keyField="id" />}
+            {activeTab === 'assessments' && <DataTable data={assessments} columns={assessmentColumns} keyField="id" />}
+            {activeTab === 'staff' && <DataTable data={staff} columns={staffColumns} keyField="id" />}
           </div>
         </div>
 
-        {/* Auditor Notes */}
         <Card title="Auditor Notes & Findings">
           <div className="space-y-4">
             <textarea
-              className="w-full border-gray-300 rounded-md shadow-sm focus:ring-brand-navy focus:border-brand-navy"
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-brand-navy focus:ring-brand-navy"
               rows={4}
-              placeholder="Enter audit findings, non-compliance issues, or general comments here..."
+              placeholder="Enter an evidence-based finding or comment"
               value={findingNotes}
-              onChange={(e) => setFindingNotes(e.target.value)} />
-            
+              onChange={(event) => setFindingNotes(event.target.value)}
+            />
             <div className="flex justify-end">
               <Button
                 onClick={async () => {
-                  if (!findingNotes.trim()) {
-                    toast.error('Enter findings before saving');
-                    return;
-                  }
-                  await auditService.log(
-                    'AUDIT_FINDING',
-                    'audit_session',
-                    'current',
-                    findingNotes.trim(),
-                  );
-                  toast.success('Finding saved successfully');
+                  if (!findingNotes.trim()) return toast.error('Enter findings before saving');
+                  await auditService.log('AUDIT_FINDING', 'audit_session', selectedProgrammeId || 'all', findingNotes.trim());
                   setFindingNotes('');
-                }}>
-                
+                  setAuditEventCount((count) => count + 1);
+                  toast.success('Finding persisted in the audit trail');
+                }}
+              >
                 Save Finding
               </Button>
             </div>
           </div>
         </Card>
       </div>
-    </div>);
-
+    </div>
+  );
 }

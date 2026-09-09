@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  ShieldCheck,
   AlertTriangle,
   Download,
   CheckSquare } from
@@ -19,27 +18,27 @@ export function CompliancePage() {
   const [exporting, setExporting] = useState(false);
   const [checklist, setChecklist] = useState([
   {
-    id: 1,
+    id: 'learner-registration',
     label: 'Learner Registration Data (NLRD Format)',
     checked: false
   },
   {
-    id: 2,
+    id: 'assessment-instruments',
     label: 'Assessment Guides & Instruments Approved',
     checked: false
   },
   {
-    id: 3,
+    id: 'moderation-reports',
     label: 'Moderation Reports Signed',
     checked: false
   },
   {
-    id: 4,
+    id: 'workplace-logbooks',
     label: 'Workplace Logbooks Up to Date',
     checked: false
   },
   {
-    id: 5,
+    id: 'health-safety',
     label: 'Health & Safety Compliance Certificate',
     checked: false
   }]
@@ -52,22 +51,20 @@ export function CompliancePage() {
     Promise.all([
       complianceService.getDocuments(),
       complianceService.getSubmissions(),
+      complianceService.getDecisions(),
     ])
-      .then(([docs, subs]) => {
+      .then(([docs, subs, decisions]) => {
         const documents = docs.data ?? [];
         const submissions = subs.data ?? [];
         setDocCount(documents.length);
+        const statusByControl = new Map(
+          (decisions.data ?? []).map((decision) => [decision.controlKey, decision.status]),
+        );
         setChecklist((prev) =>
-          prev.map((item) => {
-            if (item.id === 1) return { ...item, checked: submissions.length > 0 };
-            if (item.id === 2)
-              return { ...item, checked: documents.some((d) => /instrument|guide/i.test(d.category + d.name)) };
-            if (item.id === 3)
-              return { ...item, checked: documents.some((d) => /moderat/i.test(d.name + d.category)) };
-            if (item.id === 5)
-              return { ...item, checked: documents.some((d) => /health|safety/i.test(d.name + d.category)) };
-            return item;
-          }),
+          prev.map((item) => ({
+            ...item,
+            checked: statusByControl.get(item.id) === 'SATISFIED',
+          })),
         );
         const nextAlerts = [
           ...documents
@@ -94,27 +91,30 @@ export function CompliancePage() {
 
   const resolveAlert = (id: string) => {
     setAlerts((prev) => prev.filter((alert) => alert.id !== id));
-    toast.success('Alert marked as resolved');
+    toast.info('Alert hidden for this view; the source record was not changed');
   };
 
-  const toggleChecklist = (id: number) => {
-    setChecklist(
-      checklist.map((item) =>
-      item.id === id ?
-      {
-        ...item,
-        checked: !item.checked
-      } :
-      item
-      )
-    );
+  const toggleChecklist = async (id: string) => {
+    const current = checklist.find((item) => item.id === id);
+    if (!current) return;
+    const checked = !current.checked;
+    try {
+      await complianceService.recordDecision(
+        id,
+        checked ? 'SATISFIED' : 'NOT_REVIEWED',
+      );
+      setChecklist((items) =>
+        items.map((item) => (item.id === id ? { ...item, checked } : item)),
+      );
+    } catch {
+      toast.error('Could not save compliance decision');
+    }
   };
   const allChecked = checklist.every((item) => item.checked);
   const complianceScore = Math.round(
     (checklist.filter((item) => item.checked).length / checklist.length) * 100,
   );
-  const docScore = docCount > 0 ? Math.min(100, 60 + docCount * 5) : 40;
-  const overallScore = Math.round((complianceScore + docScore) / 2);
+  const overallScore = complianceScore;
 
   return (
     <div className="space-y-6">
@@ -124,8 +124,8 @@ export function CompliancePage() {
             Compliance & Quality Assurance
           </h1>
           <p className="text-sm text-gray-500">
-            Monitor adherence to SETA regulations. {docCount} compliance
-            documents on file.
+            Record internal review decisions. {docCount} compliance documents
+            are on file; this view is not regulator certification.
           </p>
         </div>
         <Button
@@ -144,13 +144,13 @@ export function CompliancePage() {
                 setaSnapshot: snap.data,
                 exportedAt: new Date().toISOString(),
               });
-              toast.success('Compliance report exported');
+              toast.success('Internal compliance evidence exported');
             } catch {
               toast.error('Export failed');
             }
           }}>
           
-          Export Compliance Report
+          Export Internal Evidence
         </Button>
       </div>
 
@@ -159,12 +159,12 @@ export function CompliancePage() {
         <Card className="lg:col-span-1 flex flex-col justify-center items-center p-8">
           <ComplianceGauge
             score={overallScore}
-            label="Overall Compliance Health"
+            label="Controls reviewed as satisfactory"
             size="lg" />
           
           <div className="mt-6 text-center">
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-              <ShieldCheck className="h-4 w-4 mr-1" /> Audit Ready
+            <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${allChecked ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+              {allChecked ? 'All controls marked satisfactory' : 'Compliance review incomplete'}
             </span>
           </div>
         </Card>
@@ -178,24 +178,11 @@ export function CompliancePage() {
               variant="success" />
             
             <ProgressBar
-              value={docScore}
-              label="Document repository"
-              variant="success" />
-            
-            <ProgressBar
-              value={Math.max(0, complianceScore - 15)}
-              label="Moderation Reports"
-              variant="warning" />
-            
-            <ProgressBar
-              value={Math.max(0, complianceScore - 25)}
-              label="Workplace Experience Logs"
-              variant="warning" />
-            
-            <ProgressBar
-              value={docCount > 0 ? 100 : 50}
-              label="Facilitator Qualifications"
-              variant="success" />
+              value={docCount}
+              max={Math.max(docCount, 1)}
+              label={`${docCount} documents on file (count only, not a decision)`}
+              showValue={false}
+              variant="brand" />
             
           </div>
         </Card>
@@ -245,13 +232,13 @@ export function CompliancePage() {
         </Card>
 
         {/* Submission Readiness */}
-        <Card title="SETA/QCTO Submission Readiness">
+        <Card title="Internal Submission Readiness Review">
           <div className="space-y-3">
             {checklist.map((item) =>
             <div
               key={item.id}
               className="flex items-center p-3 hover:bg-gray-50 rounded-md transition-colors cursor-pointer"
-              onClick={() => toggleChecklist(item.id)}>
+              onClick={() => void toggleChecklist(item.id)}>
               
                 <div
                 className={`flex-shrink-0 h-5 w-5 rounded border flex items-center justify-center mr-3 ${item.checked ? 'bg-brand-navy border-brand-navy' : 'border-gray-300'}`}>
@@ -280,10 +267,10 @@ export function CompliancePage() {
                   try {
                     const res = await complianceService.exportSETA('seta', 'pdf');
                     if (res.data?.url) {
-                      openFileUrl(res.data.url, 'SETA submission package');
-                      toast.success('Submission package generated');
+                      openFileUrl(res.data.url, 'internal submission package');
+                      toast.success('Internal package generated');
                     } else {
-                      toast.success('Submission package generated');
+                      toast.success('Internal package generated');
                     }
                   } catch {
                     toast.error('Could not generate submission package');
@@ -292,10 +279,10 @@ export function CompliancePage() {
                   }
                 }}>
                 
-                {exporting ? 'Generating…' : 'Generate Submission Package'}
+                {exporting ? 'Generating…' : 'Generate Internal Package'}
               </Button>
               <p className="text-xs text-center text-gray-500 mt-2">
-                Complete all items to enable submission.
+                Reviewer decisions are persisted, but do not constitute SETA/QCTO approval.
               </p>
             </div>
           </div>

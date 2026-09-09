@@ -154,7 +154,6 @@ function toSubmissionRow(sub: SETASubmission): SubmissionRow {
 
 export function FacilitatorSETACompliancePage() {
   const [activeTab, setActiveTab] = useState('overview');
-  const [showFilters, setShowFilters] = useState(false);
   const [showDocFilters, setShowDocFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [docCategoryFilter, setDocCategoryFilter] = useState('all');
@@ -258,14 +257,12 @@ export function FacilitatorSETACompliancePage() {
 
   const stats = [
     {
-      label: 'Overall Compliance',
+      label: 'Document Review Ratio',
       value: `${compliancePct}%`,
       sub:
         documents.length === 0
           ? 'No documents yet'
-          : compliancePct >= 80
-            ? 'Good Standing'
-            : 'Needs Attention',
+          : `${verifiedDocs} of ${documents.length} records marked verified`,
       subColor: compliancePct >= 80 ? 'text-green-600' : 'text-amber-600',
       icon: <ShieldCheck className="h-5 w-5 text-green-600" />,
     },
@@ -295,9 +292,9 @@ export function FacilitatorSETACompliancePage() {
   ];
 
   const compliancePieData = [
-    { name: 'Compliant', value: verifiedDocs || (documents.length === 0 ? 1 : 0), color: '#10b981' },
-    { name: 'Pending', value: pendingDocs, color: '#f59e0b' },
-    { name: 'Non-Compliant', value: gapDocs, color: '#ef4444' },
+    { name: 'Marked verified', value: verifiedDocs, color: '#10b981' },
+    { name: 'Pending review', value: pendingDocs, color: '#f59e0b' },
+    { name: 'Flagged records', value: gapDocs, color: '#ef4444' },
   ].filter((d) => d.value > 0);
   const pieData =
     compliancePieData.length > 0
@@ -383,19 +380,19 @@ export function FacilitatorSETACompliancePage() {
   const verificationReqs = [
     {
       label: 'Compliance documents on file',
-      status: documents.length > 0 ? 'Complete' : 'Partial',
+      status: documents.length > 0 ? 'Recorded' : 'No records',
     },
     {
       label: 'SETA / NLRD submissions',
-      status: submissions.length > 0 ? 'Complete' : 'Partial',
+      status: submissions.length > 0 ? 'Recorded' : 'No records',
     },
     {
       label: 'Verified documents',
-      status: verifiedDocs > 0 ? 'Complete' : 'Partial',
+      status: verifiedDocs > 0 ? 'Recorded' : 'No records',
     },
     {
       label: 'Pending document reviews',
-      status: pendingDocs === 0 && documents.length > 0 ? 'Complete' : 'Partial',
+      status: String(pendingDocs),
     },
   ];
 
@@ -409,14 +406,11 @@ export function FacilitatorSETACompliancePage() {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const res = await complianceService.exportSETA('mict-seta', 'pdf');
-      toast.success(
-        res.data?.url
-          ? `SETA export ready: ${res.data.url}`
-          : 'SETA export generated',
-      );
+      const res = await complianceService.exportSETA('mict-seta', 'xml');
+      if (res.data?.url) window.open(res.data.url, '_blank', 'noopener,noreferrer');
+      toast.success('Internal, non-certified export generated');
     } catch {
-      toast.error('SETA export failed');
+      toast.error('Internal export failed');
     } finally {
       setExporting(false);
     }
@@ -490,10 +484,10 @@ export function FacilitatorSETACompliancePage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-lg font-bold text-gray-900">
-            SETA Compliance Management
+            Internal compliance evidence
           </h2>
           <p className="text-sm text-brand-blue">
-            IT Skills Development Program (MICT SETA)
+            Operational records only; not certified regulator approval
           </p>
         </div>
         <div className="flex space-x-3">
@@ -507,92 +501,14 @@ export function FacilitatorSETACompliancePage() {
             
           </div>
           <Button
-            variant="outline"
-            leftIcon={<Filter className="h-4 w-4" />}
-            onClick={() => setShowFilters(!showFilters)}
-            className={showFilters ? 'bg-gray-100' : ''}>
-            
-            Filter
-          </Button>
-          <Button
             leftIcon={<Download className="h-4 w-4" />}
             onClick={() => void handleExport()}
             isLoading={exporting}>
             
-            Export Report
+            Export Internal XML
           </Button>
         </div>
       </div>
-
-      {showFilters &&
-      <Card className="bg-gray-50 border-dashed">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-sm font-medium text-gray-900">
-              Filter Compliance Data
-            </h3>
-            <button
-            className="text-sm text-brand-blue hover:underline"
-            onClick={() => {
-              toast.success('Filters cleared');
-              setShowFilters(false);
-            }}>
-            
-              Clear all
-            </button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Select
-            options={[
-            {
-              value: 'all',
-              label: 'All Programs'
-            },
-            {
-              value: 'it',
-              label: 'IT Skills Program'
-            }]
-            } />
-          
-            <Select
-            options={[
-            {
-              value: 'all',
-              label: 'All Statuses'
-            },
-            {
-              value: 'compliant',
-              label: 'Compliant'
-            },
-            {
-              value: 'non-compliant',
-              label: 'Non-Compliant'
-            }]
-            } />
-          
-            <Select
-            options={[
-            {
-              value: 'all',
-              label: 'All SETAs'
-            },
-            {
-              value: 'mict',
-              label: 'MICT SETA'
-            }]
-            } />
-          
-            <Button
-            className="w-full"
-            onClick={() => {
-              toast.success('Filters applied');
-              setShowFilters(false);
-            }}>
-            
-              Apply Filters
-            </Button>
-          </div>
-        </Card>
-      }
 
       <div className="border-b border-gray-200">
         <div className="flex space-x-6">
@@ -628,7 +544,7 @@ export function FacilitatorSETACompliancePage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
               <h3 className="text-lg font-bold text-gray-900 mb-4">
-                Compliance Status
+                Recorded document statuses
               </h3>
               <ResponsiveContainer width="100%" height={250}>
                 <PieChart>
@@ -673,7 +589,7 @@ export function FacilitatorSETACompliancePage() {
                   <Bar
                   dataKey="compliant"
                   fill="#10b981"
-                  name="Compliant"
+                  name="Recorded complete"
                   radius={[2, 2, 0, 0]} />
                 
                   <Bar
@@ -690,9 +606,9 @@ export function FacilitatorSETACompliancePage() {
           <Card>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-900">
-                SETA Compliance Status
+                Evidence Review Status
               </h3>
-              <Badge variant="success">94% Compliant</Badge>
+              <Badge variant="info">{verifiedDocs} marked verified</Badge>
             </div>
             <div className="space-y-4">
               {complianceItems.map((item, i) =>
@@ -1312,6 +1228,7 @@ export function FacilitatorSETACompliancePage() {
           />
           <FileUpload
             multiple={false}
+            selectionOnly
             maxSizeMB={25}
             accept=".pdf,.doc,.docx,.jpg,.png"
             onUpload={(files) => setUploadFile(files[0] ?? null)}

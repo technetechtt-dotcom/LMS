@@ -326,7 +326,7 @@ export function LearnersPage() {
         phone: addForm.phone.trim() || undefined,
         programmeId: addForm.programmeId,
       });
-      toast.success('Learner added successfully');
+      toast.success('Learner provisioned; an expiring activation link was sent');
       setShowAddLearner(false);
       setAddForm({ name: '', email: '', idNumber: '', phone: '', programmeId: '' });
       await reloadLearners();

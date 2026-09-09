@@ -199,7 +199,10 @@ export class PoeService {
   private artifactSubmission(
     a: PoeLearningArtifact,
   ): 'missing' | 'submitted' | 'verified' {
-    if (a.status === 'MODERATION_COMPLETE' || a.moderatorId) return 'verified';
+    if (
+      a.status === 'MODERATION_COMPLETE' &&
+      a.moderationOutcome === 'APPROVED'
+    ) return 'verified';
     if (
       [
         'LEARNER_SUBMITTED',
@@ -269,13 +272,10 @@ export class PoeService {
       title,
       category,
       submission: artifact ? this.artifactSubmission(artifact) : 'missing',
-      facilitatorMarkedSigned: Boolean(artifact?.facilitatorMarkedAt),
-      assessorMarkedSigned: Boolean(artifact?.assessorMarkedAt),
-      moderatorMarkedSigned: artifact?.moderationOutcome === 'APPROVED'
-        ? true
-        : artifact?.moderatorId
-          ? false
-          : ('na' as const),
+      // Workflow timestamps prove an action occurred, not that a signature exists.
+      facilitatorMarkedSigned: false,
+      assessorMarkedSigned: false,
+      moderatorMarkedSigned: artifact?.moderatorId ? false : ('na' as const),
     });
 
     const rows = [

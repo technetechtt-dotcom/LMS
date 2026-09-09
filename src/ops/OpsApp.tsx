@@ -1,15 +1,16 @@
-import React from 'react';
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { OpsLayout } from '../components/layout/OpsLayout';
 import { ProtectedRoute } from '../components/layout/ProtectedRoute';
-import { OpsLoginPage } from './OpsLoginPage';
-import { OpsDashboardPage } from '../pages/ops/OpsDashboardPage';
-import { OpsUsersPage } from '../pages/ops/OpsUsersPage';
-import { OpsOrganisationsPage } from '../pages/ops/OpsOrganisationsPage';
-import { OpsProgrammesPage } from '../pages/ops/OpsProgrammesPage';
-import { OpsMaterialsPage } from '../pages/ops/OpsMaterialsPage';
-import { OpsInvitationsPage } from '../pages/ops/OpsInvitationsPage';
 import { OPS_ROLES } from '../config/authPortal';
+
+const OpsLoginPage = lazy(() => import('./OpsLoginPage').then(({ OpsLoginPage }) => ({ default: OpsLoginPage })));
+const OpsDashboardPage = lazy(() => import('../pages/ops/OpsDashboardPage').then(({ OpsDashboardPage }) => ({ default: OpsDashboardPage })));
+const OpsUsersPage = lazy(() => import('../pages/ops/OpsUsersPage').then(({ OpsUsersPage }) => ({ default: OpsUsersPage })));
+const OpsOrganisationsPage = lazy(() => import('../pages/ops/OpsOrganisationsPage').then(({ OpsOrganisationsPage }) => ({ default: OpsOrganisationsPage })));
+const OpsProgrammesPage = lazy(() => import('../pages/ops/OpsProgrammesPage').then(({ OpsProgrammesPage }) => ({ default: OpsProgrammesPage })));
+const OpsMaterialsPage = lazy(() => import('../pages/ops/OpsMaterialsPage').then(({ OpsMaterialsPage }) => ({ default: OpsMaterialsPage })));
+const OpsInvitationsPage = lazy(() => import('../pages/ops/OpsInvitationsPage').then(({ OpsInvitationsPage }) => ({ default: OpsInvitationsPage })));
 
 function OpsHomeRedirect() {
   return <OpsDashboardPage />;
@@ -18,6 +19,13 @@ function OpsHomeRedirect() {
 export function OpsApp() {
   return (
     <BrowserRouter>
+      <Suspense
+        fallback={
+          <div className="flex min-h-screen items-center justify-center" role="status" aria-live="polite">
+            <span>Loading Ops Console</span>
+          </div>
+        }
+      >
       <Routes>
         <Route path="/login" element={<OpsLoginPage />} />
         <Route
@@ -36,6 +44,7 @@ export function OpsApp() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

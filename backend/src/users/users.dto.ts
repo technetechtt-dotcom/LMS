@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
+import { IsEmail, IsObject, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class CreateUserDto {
   @IsEmail()
@@ -10,14 +10,20 @@ export class CreateUserDto {
   @IsString()
   lastName!: string;
 
-  @IsOptional()
-  @IsString()
-  @MinLength(8)
-  password?: string;
+  @IsUUID()
+  roleId!: string;
 
   @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
+  @IsUUID()
+  organisationId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  programmeId?: string;
+
+  @IsOptional()
+  @IsObject()
+  enrollmentMetadata?: Record<string, unknown>;
 }
 
 export class AddUserMembershipDto {

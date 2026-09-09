@@ -40,11 +40,6 @@ export class CreateLearnerDto {
   phone?: string;
 
   @IsOptional()
-  @IsString()
-  @MinLength(8)
-  password?: string;
-
-  @IsOptional()
   @IsNumber()
   progress?: number;
 }

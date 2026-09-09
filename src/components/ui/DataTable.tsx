@@ -271,6 +271,7 @@ function DataTableComponent<T, K extends keyof T>({
                   <Button
                   variant="outline"
                   size="sm"
+                  aria-label="Previous page"
                   className="rounded-l-md rounded-r-none border-r-0"
                   disabled={currentPage === 1}
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}>
@@ -294,6 +295,7 @@ function DataTableComponent<T, K extends keyof T>({
                   <Button
                   variant="outline"
                   size="sm"
+                  aria-label="Next page"
                   className="rounded-r-md rounded-l-none"
                   disabled={currentPage === totalPages}
                   onClick={() =>

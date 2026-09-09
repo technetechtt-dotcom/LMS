@@ -460,7 +460,7 @@ export function Sidebar({
         {navGroups.map((group, idx) =>
       <div key={idx}>
             {group.section !== 'MAIN' && (!isCollapsed || isMobile) &&
-        <div className="px-2 mb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+        <div className="px-2 mb-2 text-xs font-semibold text-gray-600 uppercase tracking-wider">
                 {group.section}
               </div>
         }

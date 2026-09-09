@@ -2,76 +2,53 @@
 
 ## Architecture
 
-- **SPA**: Vite + React (`npm run build` → static assets).
-- **API**: NestJS in `backend/` (`npm run build` in backend → `node dist/src/main.js`).
-- **Database**: PostgreSQL via Prisma ([Neon](https://neon.com/); see **[NEON.md](./NEON.md)**).
-- **Files**: local disk on the API host (Render persistent disk in production).
+- **Portals:** Vite + React learner/staff and Ops static sites.
+- **API:** NestJS in `backend/`.
+- **Database:** PostgreSQL via Prisma.
+- **Evidence:** a private S3-compatible bucket with quarantine, malware scanning, checksums, verified state, and retention metadata.
 
-## Environment
+## Required production configuration
 
-### Backend (`backend/.env`)
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL`, `DIRECT_URL` | Pooled runtime and direct migration PostgreSQL URLs. |
+| `JWT_SECRET` | Unique secret of at least 32 characters. |
+| `FRONTEND_ORIGIN`, `OPS_ORIGIN` | Exact browser origins allowed by CORS. |
+| `ADMIN_ENDPOINTS_ENABLED=true` | Keeps authorised provisioning available; role and tenant guards remain enforced. |
+| `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_REGION` | Private S3-compatible object store. |
+| `OBJECT_STORAGE_ACCESS_KEY_ID`, `OBJECT_STORAGE_SECRET_ACCESS_KEY` | Least-privilege object-store credentials. |
+| `MALWARE_SCAN_URL` | HTTPS scanner webhook. It must return `{ "clean": true }` only after scanning the quarantined object. |
+| `MALWARE_SCAN_TOKEN` | Scanner bearer credential, when required. |
+| `MAIL_DELIVERY_URL` | HTTPS delivery webhook for activation and reset mail. |
+| `MAIL_DELIVERY_TOKEN` | Mail provider bearer credential, when required. |
+| `UPLOAD_RETENTION_DAYS` | Retention deadline recorded per upload; default is 2555 days. |
 
-| Variable | Required in production | Notes |
-|----------|------------------------|--------|
-| `NODE_ENV` | Recommended | `production` enables stricter config validation. |
-| `DATABASE_URL` | Yes | PostgreSQL connection string (Neon **pooled** URL in production). |
-| `DIRECT_URL` | Yes | Direct Postgres URL for Prisma migrations (Neon **direct** URL; for local dev, same as `DATABASE_URL`). |
-| `JWT_SECRET` | Yes | Min 32 characters; must not be a placeholder. |
-| `JWT_EXPIRES_IN` | No | Access token TTL (e.g. `15m`, `1h`). |
-| `FRONTEND_ORIGIN` | Yes | Comma-separated browser origins for CORS. |
-| `OPS_ORIGIN` | When deploying the ops portal | Ops portal origin for CORS. |
-| `PORT` | No | Default `8787`. |
-| `REFRESH_TOKEN_TTL_DAYS` | No | Default `7`. |
-| `PASSWORD_RESET_TTL_MINUTES` | No | Default `60`. |
-| `ADMIN_ENDPOINTS_ENABLED` | No | Defaults to `false` in production. Set `true` only for a controlled maintenance window. |
-| `UPLOAD_DIR` | No | Local folder for uploads. Render disk is `/var/data/uploads`. Defaults to `uploads`. |
-| `UPLOAD_MAX_MB` | No | Max upload size in megabytes (default `25`). |
-| `API_PUBLIC_URL` | No | Public API origin used in download links. On Render this is `RENDER_EXTERNAL_URL`. |
-
-### Frontend (`VITE_API_URL`)
-
-Set to the **public HTTPS URL** of the API (no trailing slash). Built assets embed this value at compile time.
+`UPLOAD_DIR` is for local development only. The API fails closed in production if durable storage, the scanner, or the mail delivery endpoint is absent. The object bucket must not be public.
 
 ## Database migrations
-
-**Greenfield:**
 
 ```bash
 cd backend
 npm ci
 npm run prisma:migrate:deploy
-npm run seed
 ```
 
-**Brownfield:** If you already ran `prisma db push` against an older copy of the schema, align with your DBA team before applying `migrate deploy`. The baseline migration is `backend/prisma/migrations/20260204210000_initial_schema/`.
+Never run the development seed in production. The seed refuses to run with `NODE_ENV=production`, and the release-hardening migration deactivates the known development accounts.
 
-## Runtime hardening
+## Render and protected releases
 
-- **Swagger** is mounted only when `NODE_ENV !== 'production'`.
-- **CORS** uses `FRONTEND_ORIGIN` in production (comma-separated list).
-- **Global exception filter** returns JSON `{ success: false, statusCode, message }` without leaking stack traces in production.
-- **Throttling** protects auth endpoints (`@nestjs/throttler`).
+The root `render.yaml` defines `lms-api`, `lms-web`, and `lms-ops`. All three have Render auto-deploy disabled. After applying the Blueprint, enter every `sync: false` value manually in Render; adding such a key to an existing Blueprint does not prompt automatically.
 
-## Render Blueprint + Neon
+`.github/workflows/release.yml` runs only for a successful `CI` workflow on `main`. It deploys the staging services, waits for health, runs browser acceptance against the deployed portals, and only then enters the protected `production` GitHub environment before invoking production deploy hooks.
 
-The root [`render.yaml`](./render.yaml) creates three services:
+Configure these repository controls:
 
-- `lms-api`: paid Render web service in Ohio with a persistent disk for uploads
-- `lms-web`: learner/staff Vite static site
-- `lms-ops`: operations Vite static site
+1. Protect `main`; disallow direct pushes and force-pushes.
+2. Require pull requests and the `frontend`, `backend`, `e2e-playwright`, and `security` checks.
+3. Configure `staging` URLs/Render hooks in the GitHub staging environment.
+4. Configure production Render hooks in the GitHub production environment and require independent reviewers.
+5. Rotate JWT, object-store, mail/scanner, database, and deploy-hook secrets on schedule.
 
-Click **Apply** on the YAML preview. Then open **lms-api → Environment** and add Neon **LMS** `DATABASE_URL` (pooled) and `DIRECT_URL` (direct), then **Manual Deploy**. Migrations run on API start. Health returns `503` until Neon is connected.
+## Operational acceptance
 
-The Blueprint uses **Neon** for Postgres and a **Render persistent disk** (`/var/data`) for uploads. There is no AWS, SMTP, or antivirus dependency.
-
-## Railway (managed Postgres + API)
-
-See **[RAILWAY.md](./RAILWAY.md)** for step-by-step: Postgres plugin, `DATABASE_URL` reference, `backend/` root directory, and deploy commands.
-
-## Operational checklist
-
-1. Rotate `JWT_SECRET` and refresh tokens periodically.
-2. Confirm the Render disk is mounted at `/var/data` before accepting learner evidence.
-3. Read password-reset and invite links from Render API logs (no SMTP).
-4. Run `npm test` in `backend/` in CI.
-5. Terminate TLS at your edge (load balancer / reverse proxy); do not expose Postgres to the public internet.
+Before releasing, verify activation/reset delivery, cross-portal concurrent sessions, evidence quarantine and scanner promotion, migrations, tenant isolation, and role-complete assessment/moderation/attendance workflows. Test object-version recovery and database restore quarterly; record the observed RPO/RTO rather than presenting targets as completed tests.

@@ -89,6 +89,8 @@ model User {
   /// SDP-assigned facilitator job capacity (optional).
   facilitatorRole FacilitatorRole?
   lastLoginAt  DateTime?
+  /// Null until an activation link has been used to set the first password.
+  passwordSetAt DateTime?          @default(now())
   totpEnabled  Boolean            @default(false)
   totpSecret   String?
   createdAt    DateTime           @default(now())
@@ -114,6 +116,9 @@ model User {
   credentialsIssued             Credential[]           @relation("CredentialIssuedBy")
   invitationsSent               Invitation[]           @relation("InvitationInvitedBy")
   dataSubjectRequests           DataSubjectRequest[]
+  preference                    UserPreference?
+  complianceDecisions           ComplianceDecision[] @relation("ComplianceDecisionActor")
+  generatedReports              GeneratedReport[]     @relation("GeneratedReportActor")
 }
 
 model Role {
@@ -149,6 +154,9 @@ model Organisation {
   attendanceSessions AttendanceSession[]
   assessmentInstruments AssessmentInstrument[]
   setaGatewaySubmissions SetaGatewaySubmission[]
+  complianceDecisions ComplianceDecision[]
+  generatedReports GeneratedReport[]
+  uploads         UploadRecord[]
 }
 
 model UserOrganisation {
@@ -661,6 +669,8 @@ model RefreshToken {
   tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
+  portal    String    @default("lms")
+  lastUsedAt DateTime?
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -673,10 +683,80 @@ model PasswordResetToken {
   tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
+  purpose   String    @default("PASSWORD_RESET")
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// Server-persisted user settings; browsers are not the source of truth.
+model UserPreference {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @db.Uuid
+  value     Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Human compliance decisions. No readiness state is inferred from filenames.
+model ComplianceDecision {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @db.Uuid
+  controlKey     String
+  status         String       @default("NOT_REVIEWED")
+  notes          String?
+  decidedById    String       @db.Uuid
+  decidedAt      DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  decidedBy      User         @relation("ComplianceDecisionActor", fields: [decidedById], references: [id])
+
+  @@unique([organisationId, controlKey])
+  @@index([organisationId, status])
+}
+
+/// Persisted report metadata and the exact tenant-scoped filters used to produce it.
+model GeneratedReport {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @db.Uuid
+  reportType     String
+  format         String
+  name           String
+  status         String       @default("COMPLETED")
+  filters        Json         @default("{}")
+  snapshot       Json
+  generatedById  String       @db.Uuid
+  createdAt      DateTime     @default(now())
+  deletedAt      DateTime?
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  generatedBy    User         @relation("GeneratedReportActor", fields: [generatedById], references: [id])
+
+  @@index([organisationId, createdAt])
+}
+
+/// Durable upload lifecycle: a file is never reported usable before verification.
+model UploadRecord {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String?      @db.Uuid
+  storageKey     String?      @unique
+  quarantineKey  String?
+  originalName   String
+  mimeType       String
+  size           Int
+  sha256         String?
+  provider       String
+  status         String       @default("QUARANTINED")
+  failureReason  String?
+  verifiedAt     DateTime?
+  retentionUntil DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+
+  @@index([organisationId, status, createdAt])
 }
 
 model InAppNotification {
@@ -852,4 +932,3 @@ model SetaGatewaySubmission {
 
   @@index([organisationId, batchId])
 }
-

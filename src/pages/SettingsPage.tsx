@@ -37,19 +37,6 @@ const DEFAULT_PREFS: UserPrefs = {
   timezone: 'sa',
 };
 
-function prefsKey(userId?: string) {
-  return userId ? `sf-prefs:${userId}` : 'sf-prefs:anon';
-}
-
-function loadPrefs(userId?: string): UserPrefs {
-  try {
-    const raw = localStorage.getItem(prefsKey(userId));
-    return raw ? { ...DEFAULT_PREFS, ...(JSON.parse(raw) as UserPrefs) } : DEFAULT_PREFS;
-  } catch {
-    return DEFAULT_PREFS;
-  }
-}
-
 type AuditLogRow = {
   id: string;
   timestamp: string;
@@ -85,7 +72,8 @@ export function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
-  const [prefs, setPrefs] = useState<UserPrefs>(() => loadPrefs(user?.id));
+  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [prefs, setPrefs] = useState<UserPrefs>(DEFAULT_PREFS);
   const [logFrom, setLogFrom] = useState('');
   const [logTo, setLogTo] = useState('');
 
@@ -98,7 +86,11 @@ export function SettingsPage() {
   }, [user?.name, user?.email, user?.phone, user?.jobTitle, user?.hasSignature]);
 
   useEffect(() => {
-    setPrefs(loadPrefs(user?.id));
+    if (!user?.id) return;
+    authService
+      .getPreferences<UserPrefs>()
+      .then((res) => setPrefs({ ...DEFAULT_PREFS, ...res.data }))
+      .catch(() => toast.error('Could not load saved preferences'));
   }, [user?.id]);
 
   useEffect(() => {
@@ -183,9 +175,16 @@ export function SettingsPage() {
     }
   };
 
-  const persistPrefs = () => {
-    localStorage.setItem(prefsKey(user?.id), JSON.stringify(prefs));
-    toast.success('Preferences saved');
+  const persistPrefs = async () => {
+    setSavingPrefs(true);
+    try {
+      await authService.updatePreferences(prefs);
+      toast.success('Preferences saved');
+    } catch {
+      toast.error('Could not save preferences');
+    } finally {
+      setSavingPrefs(false);
+    }
   };
 
   const handleExportLogs = () => {
@@ -525,7 +524,7 @@ export function SettingsPage() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                persistPrefs();
+                void persistPrefs();
               }}
               className="space-y-6">
               <div className="space-y-4">
@@ -605,7 +604,7 @@ export function SettingsPage() {
               </div>
 
               <div className="flex justify-end pt-4">
-                <Button type="submit">Save Preferences</Button>
+                <Button type="submit" isLoading={savingPrefs}>Save Preferences</Button>
               </div>
             </form>
           </Card>

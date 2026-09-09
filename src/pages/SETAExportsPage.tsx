@@ -1,17 +1,18 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Download, FileText, Settings } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Select';
+import { Input } from '../components/ui/Input';
 import { DataTable } from '../components/ui/DataTable';
 import { Badge } from '../components/ui/Badge';
-import { reportsService } from '../services/api';
+import { learnerService, programmeService, reportsService } from '../services/api';
 import { downloadJson } from '../utils/downloadJson';
 
 type SetaExportPreviewRow = {
-  id: number;
+  id: string;
   name: string;
   idNo: string;
   program: string;
@@ -21,47 +22,47 @@ type SetaExportPreviewRow = {
 
 export function SETAExportsPage() {
   const navigate = useNavigate();
-  const previewData = [
-  {
-    id: 1,
-    name: 'Liam Johnson',
-    idNo: '9203015002083',
-    program: 'Business Administration',
-    status: 'Completed',
-    date: '2024-05-15'
-  },
-  {
-    id: 2,
-    name: 'Olivia Smith',
-    idNo: '9508120001082',
-    program: 'IT Support',
-    status: 'In Progress',
-    date: '2024-12-31'
-  },
-  {
-    id: 3,
-    name: 'Noah Williams',
-    idNo: '9001155003081',
-    program: 'Marketing',
-    status: 'Completed',
-    date: '2024-06-20'
-  },
-  {
-    id: 4,
-    name: 'Ava Brown',
-    idNo: '9307220004080',
-    program: 'Finance',
-    status: 'Completed',
-    date: '2024-07-10'
-  },
-  {
-    id: 5,
-    name: 'Ethan Davis',
-    idNo: '9105055005079',
-    program: 'Human Resources',
-    status: 'In Progress',
-    date: '2024-11-15'
-  }];
+  const [previewData, setPreviewData] = useState<SetaExportPreviewRow[]>([]);
+  const [programmes, setProgrammes] = useState<Array<{ id: string; title: string }>>([]);
+  const [programmeId, setProgrammeId] = useState('all');
+  const [asOf, setAsOf] = useState('');
+
+  useEffect(() => {
+    learnerService
+      .getAll({
+        programme: programmeId === 'all' ? undefined : programmeId,
+        dateTo: asOf || undefined,
+      })
+      .then((res) =>
+        setPreviewData(
+          (res.data ?? []).map((learner) => ({
+            id: learner.id,
+            name: learner.name,
+            idNo: learner.idNumber || 'Missing',
+            program: learner.programmeName,
+            status: learner.status === 'completed' ? 'Completed' : 'In Progress',
+            date: learner.status === 'completed'
+              ? learner.updatedAt.slice(0, 10)
+              : learner.expectedCompletionDate,
+          })),
+        ),
+      )
+      .catch(() => toast.error('Could not load tenant learner preview'));
+  }, [programmeId, asOf]);
+
+  useEffect(() => {
+    programmeService
+      .getAll()
+      .then((response) =>
+        setProgrammes(
+          (response.data ?? []).map((programme) => ({
+            id: programme.id,
+            title: programme.title,
+          })),
+        ),
+      )
+      .catch(() => setProgrammes([]));
+  }, []);
 
   const columns = [
   {
@@ -96,7 +97,7 @@ export function SETAExportsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">SETA Exports</h1>
           <p className="text-sm text-gray-500">
-            Generate and export data in formats required by various SETAs.
+            Generate a tenant-scoped internal data extract for regulator review.
           </p>
         </div>
       </div>
@@ -107,55 +108,25 @@ export function SETAExportsPage() {
           <Card title="Export Options">
             <div className="space-y-4">
               <Select
-                label="Select SETA"
+                label="Programme"
+                value={programmeId}
+                onChange={(event) => setProgrammeId(event.target.value)}
                 options={[
                 {
-                  value: 'mict',
-                  label: 'MICT SETA'
+                  value: 'all',
+                  label: 'All programmes'
                 },
-                {
-                  value: 'services',
-                  label: 'Services SETA'
-                },
-                {
-                  value: 'merse',
-                  label: 'merSETA'
-                }]
+                ...programmes.map((programme) => ({
+                  value: programme.id,
+                  label: programme.title,
+                }))]
                 } />
-              
-              <Select
-                label="Select Program Type"
-                options={[
-                {
-                  value: 'learnership',
-                  label: 'Learnership'
-                },
-                {
-                  value: 'skills',
-                  label: 'Skills Program'
-                }]
-                } />
-              
-              <Select
-                label="Select Reporting Period"
-                options={[
-                {
-                  value: 'q1',
-                  label: 'Q1 (Jan - Mar)'
-                },
-                {
-                  value: 'q2',
-                  label: 'Q2 (Apr - Jun)'
-                },
-                {
-                  value: 'q3',
-                  label: 'Q3 (Jul - Sep)'
-                },
-                {
-                  value: 'q4',
-                  label: 'Q4 (Oct - Dec)'
-                }]
-                } />
+
+              <Input
+                label="Data as at"
+                type="date"
+                value={asOf}
+                onChange={(event) => setAsOf(event.target.value)} />
               
 
               <div className="pt-4">
@@ -164,22 +135,25 @@ export function SETAExportsPage() {
                   leftIcon={<Download className="h-4 w-4" />}
                   onClick={async () => {
                     try {
-                      const [snap, progress] = await Promise.all([
-                        reportsService.getSetaSnapshot(),
-                        reportsService.getProgress(),
-                      ]);
-                      downloadJson('seta-export.json', {
+                      const filters = {
+                        programmeId: programmeId === 'all' ? undefined : programmeId,
+                        asOf: asOf || undefined,
+                      };
+                      const snap = await reportsService.getSetaSnapshot(filters);
+                      downloadJson('internal-regulatory-export.json', {
                         snapshot: snap.data,
-                        progress: progress.data,
+                        filters,
+                        learners: previewData,
+                        certification: 'internal-not-seta-certified',
                         exportedAt: new Date().toISOString(),
                       });
-                      toast.success('SETA export downloaded');
+                      toast.success('Internal export downloaded');
                     } catch {
                       toast.error('Export failed');
                     }
                   }}>
                   
-                  Export Data
+                  Export Internal Data
                 </Button>
               </div>
             </div>
@@ -209,7 +183,8 @@ export function SETAExportsPage() {
             <DataTable data={previewData} columns={columns} keyField="id" />
             <div className="p-4 border-t border-gray-100 text-right">
               <span className="text-xs text-gray-500">
-                Showing 5 of 128 records
+                Showing {previewData.length} tenant-scoped records. Internal export;
+                regulator acceptance is not implied.
               </span>
             </div>
           </Card>
