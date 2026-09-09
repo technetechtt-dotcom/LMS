@@ -5,8 +5,11 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser = require('cookie-parser');
 import helmet from 'helmet';
-import type { Express } from 'express';
+import type { Express, NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
+import { enforceMultipartRequestSize } from './common/quarantine-upload';
+import { randomUUID } from 'crypto';
+import { telemetry } from './common/telemetry';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: false });
@@ -34,6 +37,44 @@ async function bootstrap() {
   }
 
   app.use(cookieParser());
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const supplied = req.headers['x-request-id'] ?? req.headers['x-correlation-id'];
+    const candidate = Array.isArray(supplied) ? supplied[0] : supplied;
+    const requestId = typeof candidate === 'string' && /^[a-zA-Z0-9._:-]{8,128}$/.test(candidate)
+      ? candidate
+      : randomUUID();
+    req.headers['x-request-id'] = requestId;
+    res.setHeader('X-Request-Id', requestId);
+    const started = process.hrtime.bigint();
+    res.once('finish', () => {
+      const durationMs = Number(process.hrtime.bigint() - started) / 1_000_000;
+      telemetry.observe(req.method, res.statusCode, durationMs);
+      process.stdout.write(`${JSON.stringify({
+        level: 'info',
+        event: 'http_request',
+        requestId,
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode,
+        durationMs: Math.round(durationMs * 100) / 100,
+        revision: config.get<string>('APP_VERSION')
+          || config.get<string>('RENDER_GIT_COMMIT')
+          || 'development',
+      })}\n`);
+    });
+    next();
+  });
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    try {
+      enforceMultipartRequestSize(
+        req.headers['content-type'],
+        req.headers['content-length'],
+      );
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.enableCors({
     origin: nodeEnv === 'production' ? origins : true,
@@ -48,6 +89,7 @@ async function bootstrap() {
       'X-Tenant-ID',
       'X-Correlation-Id',
       'X-Request-Id',
+      'traceparent',
     ],
   });
 

@@ -1,4 +1,4 @@
-import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 
 export class LoginDto {
   @IsEmail()
@@ -12,6 +12,11 @@ export class LoginDto {
   @IsOptional()
   @IsIn(['lms', 'ops'])
   portal?: 'lms' | 'ops';
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  totpCode?: string;
 }
 
 export class RegisterDto {
@@ -89,4 +94,16 @@ export class ChangePasswordDto {
   @IsString()
   @MinLength(8)
   newPassword!: string;
+}
+
+export class MfaCodeDto {
+  @IsString()
+  @Matches(/^\d{6}$/)
+  code!: string;
+}
+
+export class DisableMfaDto extends MfaCodeDto {
+  @IsString()
+  @MinLength(8)
+  password!: string;
 }

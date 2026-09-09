@@ -1,5 +1,5 @@
 import { ModerationDecision } from '@prisma/client';
-import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsEnum, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateModerationDto {
   @IsUUID()
@@ -10,7 +10,13 @@ export class CreateModerationDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(8000)
   feedback?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  sampledRecordIds?: string[];
 }
 
 export class AllocateModeratorDto {

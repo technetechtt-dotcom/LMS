@@ -448,7 +448,7 @@ export function FacilitatorSETACompliancePage() {
   };
 
   const openDocUrl = (url?: string, label = 'document') => {
-    if (!url || url === '/materials/placeholder') {
+    if (!url) {
       toast.info(`No file URL available for this ${label}`);
       return;
     }

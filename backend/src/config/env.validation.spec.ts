@@ -3,6 +3,9 @@ import { validateEnv } from './env.validation';
 const productionConfig = (overrides: Record<string, unknown> = {}) => ({
   NODE_ENV: 'production',
   JWT_SECRET: 'a-production-secret-that-is-at-least-32-characters',
+  FILE_SIGNING_SECRET: 'a-separate-file-secret-that-is-at-least-32-characters',
+  JOB_ENCRYPTION_KEY: 'a-separate-queue-secret-that-is-at-least-32-characters',
+  MFA_ENCRYPTION_KEY: 'a-separate-mfa-secret-that-is-at-least-32-characters',
   FRONTEND_ORIGIN: 'https://lms.example.com',
   DATABASE_URL: 'postgresql://runtime.example/db',
   ADMIN_ENDPOINTS_ENABLED: 'true',
@@ -36,6 +39,7 @@ describe('validateEnv', () => {
       validateEnv(
         productionConfig({
           MAIL_DELIVERY_URL: 'http://mail.example.com/deliver',
+          MAIL_DELIVERY_HEALTH_URL: 'https://mail.example.com/health',
           MALWARE_SCAN_URL: 'http://scanner.example.com/scan',
         }),
       ),
@@ -52,6 +56,7 @@ describe('validateEnv', () => {
           OBJECT_STORAGE_ACCESS_KEY_ID: 'access-key',
           OBJECT_STORAGE_SECRET_ACCESS_KEY: 'secret-key',
           MAIL_DELIVERY_URL: 'https://mail.example.com/deliver',
+          MAIL_DELIVERY_HEALTH_URL: 'https://mail.example.com/health',
           MALWARE_SCAN_URL: 'https://scanner.example.com/scan',
         }),
       ),

@@ -1,4 +1,5 @@
 import { ReportsService } from './reports.service';
+import { createHash } from 'crypto';
 
 describe('ReportsService tenant filters and persistence', () => {
   const user = {
@@ -78,5 +79,132 @@ describe('ReportsService tenant filters and persistence', () => {
     await expect(service.deleteGenerated('foreign-report', user)).rejects.toThrow(
       'Generated report not found',
     );
+  });
+
+  it('creates a generated report with the requested filters and a stable display name', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'report-1' });
+    const service = new ReportsService({
+      enrollment: { count: jest.fn().mockResolvedValue(1) },
+      document: { count: jest.fn().mockResolvedValue(2) },
+      assessment: { count: jest.fn().mockResolvedValue(3) },
+      generatedReport: { create },
+    } as never);
+    const filters = { qualificationId: 'qualification-1', employerOrganisationId: 'employer-1' };
+
+    await service.createGenerated({ reportType: 'learner_progress', format: 'pdf', filters }, user);
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organisationId: user.organisationId,
+        generatedById: user.userId,
+        reportType: 'learner_progress',
+        format: 'pdf',
+        name: 'learner progress report',
+        filters,
+        snapshot: expect.objectContaining({ enrollments: 1, docs: 2, assessments: 3 }),
+      }),
+      include: { generatedBy: { select: { firstName: true, lastName: true } } },
+    });
+  });
+
+  it('returns exact CSV content and records a checksum-bound download audit event', async () => {
+    const snapshot = {
+      enrollments: 12,
+      docs: 8,
+      assessments: 5,
+      generatedAt: '2026-06-30T12:00:00.000Z',
+    };
+    const filters = { programmeId: 'programme-1', asOf: '2026-06-30' };
+    const create = jest.fn().mockResolvedValue({ id: 'download-1' });
+    const service = new ReportsService({
+      generatedReport: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'report-1',
+          reportType: 'seta-snapshot',
+          format: 'csv',
+          filters,
+          snapshot,
+        }),
+      },
+      reportDownload: { create },
+    } as never);
+
+    const file = await service.generatedFile('report-1', user);
+    const expected = [
+      'Internal draft - Not submitted to SETA',
+      'metric,value',
+      'enrollments,12',
+      'documents,8',
+      'assessments,5',
+      'generatedAt,2026-06-30T12:00:00.000Z',
+    ].join('\n');
+
+    expect(file).toEqual({
+      bytes: Buffer.from(expected),
+      type: 'text/csv; charset=utf-8',
+      filename: 'report-report-1.csv',
+    });
+    expect(create).toHaveBeenCalledWith({
+      data: {
+        reportId: 'report-1',
+        organisationId: user.organisationId,
+        requestedById: user.userId,
+        requesterRole: 'ADMIN',
+        reportType: 'seta-snapshot',
+        format: 'csv',
+        filters,
+        fileSha256: createHash('sha256').update(expected).digest('hex'),
+      },
+    });
+  });
+
+  it('renders a PDF download and audits the exact returned bytes', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'download-2' });
+    const service = new ReportsService({
+      generatedReport: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'report-2',
+          reportType: 'seta-snapshot',
+          format: 'pdf',
+          filters: {},
+          snapshot: {
+            enrollments: 2,
+            docs: 1,
+            assessments: 1,
+            generatedAt: '2026-06-30T12:00:00.000Z',
+          },
+        }),
+      },
+      reportDownload: { create },
+    } as never);
+
+    const file = await service.generatedFile('report-2', user);
+
+    expect(file.type).toBe('application/pdf');
+    expect(file.filename).toBe('report-report-2.pdf');
+    expect(file.bytes.subarray(0, 4).toString('ascii')).toBe('%PDF');
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        reportId: 'report-2',
+        format: 'pdf',
+        fileSha256: createHash('sha256').update(file.bytes).digest('hex'),
+      }),
+    });
+  });
+
+  it('limits a SETA official to reports they generated', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const service = new ReportsService({ generatedReport: { findMany } } as never);
+    const seta = { ...user, userId: 'seta-1', roleCodes: ['SETA'] };
+
+    await service.listGenerated(seta);
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        organisationId: user.organisationId,
+        deletedAt: null,
+        generatedById: 'seta-1',
+      },
+    }));
   });
 });

@@ -13,6 +13,7 @@ export function OpsLoginPage() {
   const { login, logout, isLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [totpCode, setTotpCode] = useState('');
   const [errors, setErrors] = useState({ email: '', password: '' });
 
   const validate = () => {
@@ -34,7 +35,7 @@ export function OpsLoginPage() {
     e.preventDefault();
     if (!validate()) return;
     try {
-      const profile = await login({ email, password });
+      const profile = await login({ email, password, totpCode: totpCode.trim() || undefined });
       if (!OPS_ROLES.includes(profile.role as (typeof OPS_ROLES)[number])) {
         toast.error('Use the LMS login for learners and staff (port 5176).');
         await logout();
@@ -83,6 +84,14 @@ export function OpsLoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               error={errors.password}
               autoComplete="current-password"
+            />
+            <Input
+              label="Authenticator code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="6 digits (if MFA is enabled)"
+              value={totpCode}
+              onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
             />
             <Button type="submit" className="w-full" disabled={isLoading}>
               Sign in to Ops Console

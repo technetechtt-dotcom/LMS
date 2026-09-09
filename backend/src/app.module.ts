@@ -39,6 +39,8 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { FileStorageModule } from './common/file-storage.module';
 import { validateEnv } from './config/env.validation';
 import { HealthController } from './health/health.controller';
+import { DirectoryModule } from './directory/directory.module';
+import { MailModule } from './mail/mail.module';
 
 @Module({
   imports: [
@@ -80,6 +82,8 @@ import { HealthController } from './health/health.controller';
     EnterpriseModule,
     QaOfficerModule,
     OpsModule,
+    DirectoryModule,
+    MailModule,
   ],
   controllers: [HealthController],
   providers: [

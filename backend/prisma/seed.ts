@@ -151,6 +151,17 @@ async function main() {
     },
   });
 
+  const setaOfficial = await prisma.user.upsert({
+    where: { email: 'seta@skillforge.co.za' },
+    update: {},
+    create: {
+      email: 'seta@skillforge.co.za',
+      passwordHash,
+      firstName: 'Thandi',
+      lastName: 'Maseko',
+    },
+  });
+
   const platformAdmin = await prisma.user.upsert({
     where: { email: 'platform@skillforge.co.za' },
     update: {},
@@ -175,6 +186,7 @@ async function main() {
           'facilitator@skillforge.co.za',
           'mentor@skillforge.co.za',
           'qa@skillforge.co.za',
+          'seta@skillforge.co.za',
           'platform@skillforge.co.za',
         ],
       },
@@ -214,6 +226,7 @@ async function main() {
       },
       { userId: mentor.id, organisationId: sdio.id, roleId: mentorRole.id, isPrimary: true },
       { userId: qaOfficer.id, organisationId: sdio.id, roleId: qaRole.id, isPrimary: true },
+      { userId: setaOfficial.id, organisationId: sdio.id, roleId: setaRole.id, isPrimary: true },
       {
         userId: platformAdmin.id,
         organisationId: sdio.id,
@@ -268,6 +281,15 @@ async function main() {
       code: 'ITS-NQF5',
       title: 'IT Systems Development Learnership',
       programmeKind: ProgrammeKind.OCCUPATIONAL_PROGRAMME,
+    },
+  });
+  await prisma.programme.update({
+    where: { id: programme.id },
+    data: {
+      metadata: {
+        ...((programme.metadata as Record<string, unknown> | null) ?? {}),
+        setaOfficialIds: [setaOfficial.id],
+      },
     },
   });
 
@@ -373,10 +395,11 @@ async function main() {
   }
 
   await prisma.moderation.upsert({
-    where: { assessmentId: assessment.id },
+    where: { assessmentId_round: { assessmentId: assessment.id, round: 1 } },
     update: {
       decision: ModerationDecision.APPROVED,
       feedback: 'Assessment aligns with moderation policy',
+      moderatedAt: new Date(),
     },
     create: {
       assessmentId: assessment.id,
@@ -394,6 +417,24 @@ async function main() {
     },
   });
   if (!evidenceExists) {
+    const seededUpload = await prisma.uploadRecord.upsert({
+      where: { storageKey: 'poe/seed/network-installation-video.mp4' },
+      update: {},
+      create: {
+        organisationId: sdio.id,
+        uploadedById: learner.id,
+        storageKey: 'poe/seed/network-installation-video.mp4',
+        originalName: 'network-installation-video.mp4',
+        mimeType: 'video/mp4',
+        size: 4021044,
+        sha256: 'seed-only-object-not-for-production',
+        provider: 'seed',
+        status: 'VERIFIED',
+        scanResult: 'SEED_FIXTURE',
+        scannedAt: new Date(),
+        verifiedAt: new Date(),
+      },
+    });
     await prisma.evidence.create({
       data: {
         enrollmentId: enrollment.id,
@@ -402,7 +443,8 @@ async function main() {
         fileName: 'network-installation-video.mp4',
         fileType: 'video/mp4',
         fileSize: 4021044,
-        storageKey: 'evidence/network-installation-video.mp4',
+        uploadId: seededUpload.id,
+        storageKey: seededUpload.storageKey!,
         url: 'https://mock-s3/evidence/network-installation-video.mp4',
         uploadedById: learner.id,
       },

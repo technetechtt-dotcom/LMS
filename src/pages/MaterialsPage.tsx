@@ -508,12 +508,12 @@ export function MaterialsPage() {
             : 'pdf',
     };
     const file = uploadFiles[0] ?? null;
+    if (!file) {
+      toast.error('Select a material file before uploading');
+      return;
+    }
     try {
-      if (file) {
-        await materialService.upload(file, meta);
-      } else {
-        await materialService.createRecord(meta);
-      }
+      await materialService.upload(file, meta);
       toast.success('Material saved to library');
       setShowUploadMaterial(false);
       resetUploadForm();
@@ -1050,10 +1050,10 @@ export function MaterialsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Upload file (optional)
+                Upload file (required)
               </label>
               <p className="text-xs text-gray-500 mb-2">
-                If you skip the file, a catalogue entry with metadata only is saved (ideal for KM placeholders).
+                Materials are scanned and verified before they become available.
               </p>
               <FileUpload
                 multiple={false}
@@ -1072,7 +1072,7 @@ export function MaterialsPage() {
                 Cancel
               </Button>
               <Button
-              disabled={!uploadProgrammeId || uploadProgrammeOptions.length === 0}
+              disabled={!uploadProgrammeId || uploadProgrammeOptions.length === 0 || uploadFiles.length === 0}
               onClick={() => void handleUpload()}>
               
                 Upload

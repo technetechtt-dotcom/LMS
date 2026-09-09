@@ -15,7 +15,7 @@ services:
     buildCommand: npm ci --include=dev && npm run build
     preDeployCommand: npm run prisma:migrate:deploy:retry
     startCommand: npm run start:prod
-    healthCheckPath: /health
+    healthCheckPath: /health/ready
     buildFilter:
       paths:
         - backend/**
@@ -26,6 +26,14 @@ services:
         value: "22"
       - key: JWT_SECRET
         generateValue: true
+      - key: FILE_SIGNING_SECRET
+        generateValue: true
+      - key: JOB_ENCRYPTION_KEY
+        generateValue: true
+      - key: MFA_ENCRYPTION_KEY
+        generateValue: true
+      - key: MFA_ISSUER
+        value: SkillForge LMS
       - key: JWT_EXPIRES_IN
         value: 1d
       - key: REFRESH_TOKEN_TTL_DAYS
@@ -64,12 +72,18 @@ services:
         value: "true"
       - key: MALWARE_SCAN_URL
         sync: false
+      - key: MALWARE_SCAN_HEALTH_URL
+        sync: false
       - key: MALWARE_SCAN_TOKEN
         sync: false
       - key: MAIL_DELIVERY_URL
         sync: false
+      - key: MAIL_DELIVERY_HEALTH_URL
+        sync: false
       - key: MAIL_DELIVERY_TOKEN
         sync: false
+      - key: MAIL_RETRY_WORKER_ENABLED
+        value: "true"
       - key: PUBLIC_REGISTRATION
         value: "false"
       - key: ADMIN_ENDPOINTS_ENABLED
@@ -88,6 +102,7 @@ services:
         - public/**
         - index.html
         - vite.config.ts
+        - build-version-plugin.ts
         - package.json
         - package-lock.json
         - tailwind.config.js
@@ -146,6 +161,7 @@ services:
         - ops-portal/**
         - public/**
         - vite.ops.config.ts
+        - build-version-plugin.ts
         - package.json
         - package-lock.json
         - tailwind.config.js

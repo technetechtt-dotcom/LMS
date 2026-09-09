@@ -3,7 +3,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LearnersService } from '../learners/learners.service';
 import type { AuthUser } from '../common/types/request-with-user';
@@ -19,6 +18,8 @@ import {
   RegisterContractDto,
   SignContractDto,
 } from './qa-officer.dto';
+import { FileStorageService } from '../common/file-storage.service';
+import type { StagedUploadFile } from '../common/quarantine-upload';
 
 const CONTRACT_CATEGORY: Record<QaContractType, string> = {
   [QaContractType.SETA]: 'qa-contract-seta',
@@ -35,6 +36,7 @@ export class QaOfficerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly learners: LearnersService,
+    private readonly files: FileStorageService,
   ) {}
 
   async overview(user?: AuthUser) {
@@ -116,17 +118,24 @@ export class QaOfficerService {
     });
   }
 
-  async registerContract(dto: RegisterContractDto, user?: AuthUser) {
+  async registerContract(dto: RegisterContractDto, file: StagedUploadFile | undefined, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     if (!user?.userId) throw new BadRequestException('Authentication required');
 
+    if (!file) throw new BadRequestException('A contract file is required');
+    const stored = await this.files.uploadStaged(file, {
+      prefix: 'compliance/contracts',
+      organisationId,
+      uploadedById: user.userId,
+    });
     const doc = await this.prisma.document.create({
       data: {
         organisationId,
+        uploadId: stored.uploadId,
         category: CONTRACT_CATEGORY[dto.contractType],
         name: dto.name,
-        storageKey: `qa-contracts/${randomUUID()}`,
-        url: '/documents/placeholder',
+        storageKey: stored.key,
+        url: stored.url,
         metadata: {
           contractType: dto.contractType,
           counterparty: dto.counterparty,
@@ -136,6 +145,8 @@ export class QaOfficerService {
           status: 'pending_signature',
           registeredById: user.userId,
           registeredAt: new Date().toISOString(),
+          checksum: stored.sha256,
+          scanResult: stored.status,
         },
       },
     });

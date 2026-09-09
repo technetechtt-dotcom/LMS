@@ -20,6 +20,8 @@ jobs:
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     environment: staging
+    env:
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,13 +42,23 @@ jobs:
           curl --fail --silent --show-error --request POST "$OPS_HOOK"
       - name: Wait for deployed revision
         env:
-          HEALTH_URL: ${{ vars.STAGING_API_URL }}/health
+          API_URL: ${{ vars.STAGING_API_URL }}
+          WEB_URL: ${{ vars.STAGING_WEB_URL }}
+          OPS_URL: ${{ vars.STAGING_OPS_URL }}
         run: |
+          check_revision() {
+            body="$(curl --fail --silent --show-error "$1")" || return 1
+            ACTUAL_JSON="$body" node -e "const b=JSON.parse(process.env.ACTUAL_JSON); if(b.revision!==process.env.EXPECTED_SHA) process.exit(1)"
+          }
           for attempt in $(seq 1 60); do
-            if curl --fail --silent "$HEALTH_URL" >/dev/null; then exit 0; fi
+            if check_revision "$API_URL/health/ready" \
+              && check_revision "$WEB_URL/version.json" \
+              && check_revision "$OPS_URL/version.json"; then
+              exit 0
+            fi
             sleep 10
           done
-          echo "Staging API did not become healthy" >&2
+          echo "Staging did not become ready at exact revision $EXPECTED_SHA" >&2
           exit 1
       - run: npm ci
       - run: npx playwright install --with-deps chromium
@@ -56,14 +68,44 @@ jobs:
           PLAYWRIGHT_BASE_URL: ${{ vars.STAGING_WEB_URL }}
           PLAYWRIGHT_API_URL: ${{ vars.STAGING_API_URL }}
           PLAYWRIGHT_OPS_URL: ${{ vars.STAGING_OPS_URL }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: npx playwright test -c e2e/playwright.config.ts staging-acceptance.spec.ts
+      - name: Roll back staging on acceptance failure
+        if: failure()
+        env:
+          API_ROLLBACK_HOOK: ${{ secrets.RENDER_STAGING_API_ROLLBACK_HOOK }}
+          WEB_ROLLBACK_HOOK: ${{ secrets.RENDER_STAGING_WEB_ROLLBACK_HOOK }}
+          OPS_ROLLBACK_HOOK: ${{ secrets.RENDER_STAGING_OPS_ROLLBACK_HOOK }}
+        run: |
+          for hook in "$API_ROLLBACK_HOOK" "$WEB_ROLLBACK_HOOK" "$OPS_ROLLBACK_HOOK"; do
+            if [ -n "$hook" ]; then curl --fail --silent --show-error --request POST "$hook"; fi
+          done
 
   production:
     name: deploy-production
     needs: staging
     runs-on: ubuntu-latest
     environment: production
+    env:
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Enforce operational launch approvals
+        env:
+          RESTORE_DRILL_AT: ${{ vars.RESTORE_DRILL_AT }}
+          RESTORE_DRILL_RESULT: ${{ vars.RESTORE_DRILL_RESULT }}
+          EIGHT_ROLE_SIGNOFF: ${{ vars.STAGING_EIGHT_ROLE_SIGNOFF }}
+          SECURITY_PRIVACY_SIGNOFF: ${{ vars.SECURITY_PRIVACY_SIGNOFF }}
+          MONITORING_HEALTHCHECK_URL: ${{ secrets.MONITORING_HEALTHCHECK_URL }}
+        run: |
+          test "$RESTORE_DRILL_RESULT" = "passed"
+          test "$EIGHT_ROLE_SIGNOFF" = "approved"
+          test "$SECURITY_PRIVACY_SIGNOFF" = "approved"
+          test -n "$MONITORING_HEALTHCHECK_URL"
+          node -e "const t=Date.parse(process.env.RESTORE_DRILL_AT||''); const age=Date.now()-t; if(!Number.isFinite(t)||age<0||age>90*86400000) process.exit(1)"
+          curl --fail --silent --show-error "$MONITORING_HEALTHCHECK_URL" >/dev/null
       - name: Trigger production services after approval
         env:
           API_HOOK: ${{ secrets.RENDER_PRODUCTION_API_DEPLOY_HOOK }}
@@ -74,3 +116,42 @@ jobs:
           curl --fail --silent --show-error --request POST "$API_HOOK"
           curl --fail --silent --show-error --request POST "$WEB_HOOK"
           curl --fail --silent --show-error --request POST "$OPS_HOOK"
+      - name: Wait for exact production revision and readiness
+        env:
+          API_URL: ${{ vars.PRODUCTION_API_URL }}
+          WEB_URL: ${{ vars.PRODUCTION_WEB_URL }}
+          OPS_URL: ${{ vars.PRODUCTION_OPS_URL }}
+        run: |
+          check_revision() {
+            body="$(curl --fail --silent --show-error "$1")" || return 1
+            ACTUAL_JSON="$body" node -e "const b=JSON.parse(process.env.ACTUAL_JSON); if(b.revision!==process.env.EXPECTED_SHA) process.exit(1)"
+          }
+          for attempt in $(seq 1 60); do
+            if check_revision "$API_URL/health/ready" \
+              && check_revision "$WEB_URL/version.json" \
+              && check_revision "$OPS_URL/version.json"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Production did not become ready at exact revision $EXPECTED_SHA" >&2
+          exit 1
+      - name: Production smoke test
+        env:
+          API_URL: ${{ vars.PRODUCTION_API_URL }}
+          WEB_URL: ${{ vars.PRODUCTION_WEB_URL }}
+          OPS_URL: ${{ vars.PRODUCTION_OPS_URL }}
+        run: |
+          curl --fail --silent --show-error "$API_URL/health/ready" >/dev/null
+          curl --fail --silent --show-error "$WEB_URL/login" | grep -qi '<html'
+          curl --fail --silent --show-error "$OPS_URL/login" | grep -qi '<html'
+      - name: Roll back production on verification failure
+        if: failure()
+        env:
+          API_ROLLBACK_HOOK: ${{ secrets.RENDER_PRODUCTION_API_ROLLBACK_HOOK }}
+          WEB_ROLLBACK_HOOK: ${{ secrets.RENDER_PRODUCTION_WEB_ROLLBACK_HOOK }}
+          OPS_ROLLBACK_HOOK: ${{ secrets.RENDER_PRODUCTION_OPS_ROLLBACK_HOOK }}
+        run: |
+          for hook in "$API_ROLLBACK_HOOK" "$WEB_ROLLBACK_HOOK" "$OPS_ROLLBACK_HOOK"; do
+            if [ -n "$hook" ]; then curl --fail --silent --show-error --request POST "$hook"; fi
+          done

@@ -121,6 +121,9 @@ export class WorkplaceLogsService {
   ) {
     const organisationId = requireOrganisationId(user);
     if (!user?.userId) throw new BadRequestException('Authentication required');
+    if (!user.roleCodes.includes('MENTOR')) {
+      throw new BadRequestException('Only the allocated workplace mentor may verify logs');
+    }
     if (body.decision !== 'approve' && body.decision !== 'reject') {
       throw new BadRequestException('decision must be approve or reject');
     }
@@ -131,7 +134,10 @@ export class WorkplaceLogsService {
         deletedAt: null,
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
-          ...mentorEnrollmentWhere(user),
+          metadata: {
+            path: ['workplaceMentorId'],
+            equals: user.userId,
+          },
         },
       },
       include: { enrollment: { select: { learnerId: true } } },

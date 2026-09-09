@@ -16,7 +16,7 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { Avatar } from '../components/ui/Avatar';
-import { assessmentService, moderationService, userService } from '../services/api';
+import { assessmentService, directoryService, moderationService } from '../services/api';
 import type { Assessment, Question, QuestionResponse } from '../types';
 import { competencyFromScore, formatAnswerDisplay } from '../utils/grading';
 import {
@@ -89,17 +89,13 @@ export function SubmissionReviewPage() {
 
   useEffect(() => {
     if (userRole !== 'SDP Admin' && userRole !== 'Facilitator') return;
-    userService
-      .getAll()
+    directoryService
+      .staff({ roles: ['MODERATOR'], pageSize: 50 })
       .then((res) => {
         setModeratorOptions(
-          (res.data ?? [])
-            .filter((u) =>
-              u.memberships.some((m) => m.role.code === 'MODERATOR'),
-            )
-            .map((u) => ({
+          (res.data?.items ?? []).map((u) => ({
               value: u.id,
-              label: `${u.firstName} ${u.lastName}`.trim(),
+              label: u.name,
             })),
         );
       })

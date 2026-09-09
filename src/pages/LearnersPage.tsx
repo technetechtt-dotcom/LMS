@@ -319,14 +319,18 @@ export function LearnersPage() {
     }
     setSavingLearner(true);
     try {
-      await learnerService.create({
+      const result = await learnerService.create({
         name: addForm.name.trim(),
         email: addForm.email.trim(),
         idNumber: addForm.idNumber.trim() || undefined,
         phone: addForm.phone.trim() || undefined,
         programmeId: addForm.programmeId,
       });
-      toast.success('Learner provisioned; an expiring activation link was sent');
+      toast[result.data.mailStatus === 'SENT' ? 'success' : 'error'](
+        result.data.mailStatus === 'SENT'
+          ? 'Learner provisioned; an expiring activation link was sent.'
+          : 'Learner provisioned, but activation delivery failed and was queued for retry.',
+      );
       setShowAddLearner(false);
       setAddForm({ name: '', email: '', idNumber: '', phone: '', programmeId: '' });
       await reloadLearners();

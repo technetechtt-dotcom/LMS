@@ -13,7 +13,7 @@ import {
   auditService,
   learnerService,
   programmeService,
-  userService,
+  directoryService,
 } from '../services/api';
 import { downloadJson } from '../utils/downloadJson';
 
@@ -66,7 +66,11 @@ export function AuditPage() {
   const [staff, setStaff] = useState<StaffRow[]>([]);
 
   useEffect(() => {
-    void Promise.all([programmeService.getAll(), userService.getAll(), auditService.list(200)])
+    void Promise.all([
+      programmeService.getAll(),
+      directoryService.staff({ roles: ['FACILITATOR', 'ASSESSOR', 'MODERATOR'], pageSize: 50 }),
+      auditService.list(200),
+    ])
       .then(([programmeResponse, userResponse, auditEvents]) => {
         const available = (programmeResponse.data ?? []).map((programme) => ({
           id: programme.id,
@@ -75,20 +79,13 @@ export function AuditPage() {
         setProgrammes(available);
         setSelectedProgrammeId((current) => current || available[0]?.id || '');
         setStaff(
-          (userResponse.data ?? [])
-            .filter((account) =>
-              account.memberships.some((membership) =>
-                ['FACILITATOR', 'ASSESSOR', 'MODERATOR'].includes(membership.role.code),
-              ),
-            )
+          (userResponse.data?.items ?? [])
             .map((account) => ({
               id: account.id,
-              name: `${account.firstName} ${account.lastName}`.trim(),
-              roles: account.memberships.map((membership) => membership.role.name).join(', '),
-              lastSignIn: account.lastLoginAt
-                ? new Date(account.lastLoginAt).toISOString().slice(0, 10)
-                : 'Not recorded',
-              accountStatus: account.isActive ? 'Active' : 'Inactive',
+              name: account.name,
+              roles: account.role,
+              lastSignIn: 'Restricted',
+              accountStatus: account.status,
             })),
         );
         setAuditEventCount(auditEvents.length);

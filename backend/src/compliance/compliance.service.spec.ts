@@ -70,13 +70,20 @@ describe('ComplianceService persisted decisions and internal exports', () => {
       status: 'SATISFIED',
     });
     const service = new ComplianceService(
-      { complianceDecision: { upsert } } as never,
+      {
+        complianceDecision: { upsert },
+        document: { count: jest.fn().mockResolvedValue(1) },
+      } as never,
       {} as never,
       {} as never,
     );
 
     await expect(
-      service.recordDecision('HEALTH-SAFETY', { status: 'satisfied' }, admin),
+      service.recordDecision(
+        'HEALTH-SAFETY',
+        { status: 'satisfied', evidenceDocumentIds: ['document-1'] },
+        admin,
+      ),
     ).resolves.toEqual(expect.objectContaining({ status: 'SATISFIED' }));
     expect(upsert).toHaveBeenCalledWith(
       expect.objectContaining({

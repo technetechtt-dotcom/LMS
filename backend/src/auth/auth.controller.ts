@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Patch,
   Post,
@@ -11,7 +12,6 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
@@ -26,6 +26,8 @@ import {
   ResetPasswordDto,
   UpdateProfileDto,
   ChangePasswordDto,
+  DisableMfaDto,
+  MfaCodeDto,
 } from './auth.dto';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
@@ -35,6 +37,8 @@ import {
   readRefreshFromRequest,
   setRefreshCookie,
 } from './auth-cookies';
+import { quarantineUploadOptions } from '../common/quarantine-upload';
+import { FileStorageService } from '../common/file-storage.service';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -42,6 +46,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly config: ConfigService,
+    private readonly files: FileStorageService,
   ) {}
 
   private nodeEnv() {
@@ -224,18 +229,19 @@ export class AuthController {
   @Post('me/signature')
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: { fileSize: 5 * 1024 * 1024 },
-    }),
+    FileInterceptor('file', quarantineUploadOptions({ maxMb: 5, maxFiles: 1, maxFields: 0 })),
   )
-  uploadSignature(
+  async uploadSignature(
     @Req() req: Request & { user?: AuthUser },
     @UploadedFile() file: Express.Multer.File,
   ) {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedException('Invalid session');
-    return this.auth.uploadSignature(userId, file, req.user?.organisationId);
+    try {
+      return await this.auth.uploadSignature(userId, file as never, req.user?.organisationId);
+    } finally {
+      await this.files.discardStaged(file as never);
+    }
   }
 
   @ApiBearerAuth()
@@ -250,13 +256,36 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('mfa/enroll')
-  mfaEnroll() {
-    return {
-      enabled: false,
-      message:
-        'TOTP MFA enrollment is provisioned (User.totpEnabled) but authenticator pairing is not yet live',
-    };
+  mfaEnroll(@Req() req: Request & { user?: AuthUser }) {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Invalid session');
+    return this.auth.beginMfaEnrollment(userId);
+  }
+
+  @ApiBearerAuth()
+  @Throttle({ default: { ttl: 60_000, limit: 8 } })
+  @Post('mfa/verify')
+  mfaVerify(
+    @Req() req: Request & { user?: AuthUser },
+    @Body() dto: MfaCodeDto,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Invalid session');
+    return this.auth.confirmMfaEnrollment(userId, dto.code);
+  }
+
+  @ApiBearerAuth()
+  @Throttle({ default: { ttl: 300_000, limit: 3 } })
+  @Delete('mfa')
+  mfaDisable(
+    @Req() req: Request & { user?: AuthUser },
+    @Body() dto: DisableMfaDto,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Invalid session');
+    return this.auth.disableMfa(userId, dto.password, dto.code);
   }
 
   @Public()

@@ -2,7 +2,11 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import PDFDocument = require('pdfkit');
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
-import { requireOrganisationId } from '../common/tenant/tenant-scope';
+import {
+  enrollmentActorWhere,
+  requireOrganisationId,
+} from '../common/tenant/tenant-scope';
+import { createHash } from 'crypto';
 
 export type SetaSnapshot = {
   enrollments: number;
@@ -22,7 +26,11 @@ export type ReportFilters = {
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private orgEnrollmentWhere(organisationId: string, filters: ReportFilters = {}) {
+  private orgEnrollmentWhere(
+    organisationId: string,
+    filters: ReportFilters = {},
+    user?: AuthUser,
+  ) {
     const asOf = filters.asOf ? new Date(`${filters.asOf}T23:59:59.999Z`) : null;
     if (asOf && Number.isNaN(asOf.getTime())) {
       throw new BadRequestException('asOf must be a valid date');
@@ -37,6 +45,7 @@ export class ReportsService {
         ? { programme: { qualificationId: filters.qualificationId } }
         : {}),
       ...(asOf ? { createdAt: { lte: asOf } } : {}),
+      ...enrollmentActorWhere(user),
       OR: [
         { sdioOrganisationId: organisationId },
         { employerOrganisationId: organisationId },
@@ -49,7 +58,7 @@ export class ReportsService {
     const organisationId = requireOrganisationId(user);
     const grouped = await this.prisma.enrollment.groupBy({
       by: ['status'],
-      where: this.orgEnrollmentWhere(organisationId),
+      where: this.orgEnrollmentWhere(organisationId, {}, user),
       _count: { status: true },
     });
     return grouped;
@@ -60,7 +69,7 @@ export class ReportsService {
     const enrollment = await this.prisma.enrollment.findFirst({
       where: {
         id: enrollmentId,
-        ...this.orgEnrollmentWhere(organisationId),
+        ...this.orgEnrollmentWhere(organisationId, {}, user),
       },
       select: { id: true },
     });
@@ -74,12 +83,16 @@ export class ReportsService {
   async setaSnapshot(user?: AuthUser, filters: ReportFilters = {}): Promise<SetaSnapshot> {
     const organisationId = requireOrganisationId(user);
     const asOf = filters.asOf ? new Date(`${filters.asOf}T23:59:59.999Z`) : null;
-    const enrollmentFiltered = Boolean(
+    const responsibilityScoped = Boolean(
+      user?.roleCodes.includes('SETA')
+        && !user.roleCodes.some((role) => ['ADMIN', 'PLATFORM_ADMIN', 'QA_OFFICER'].includes(role)),
+    );
+    const enrollmentFiltered = responsibilityScoped || Boolean(
       filters.programmeId || filters.qualificationId || filters.employerOrganisationId,
     );
     const [enrollments, docs, assessments] = await Promise.all([
       this.prisma.enrollment.count({
-        where: this.orgEnrollmentWhere(organisationId, filters),
+        where: this.orgEnrollmentWhere(organisationId, filters, user),
       }),
       this.prisma.document.count({
         where: {
@@ -87,14 +100,14 @@ export class ReportsService {
           organisationId,
           ...(asOf ? { createdAt: { lte: asOf } } : {}),
           ...(enrollmentFiltered
-            ? { enrollment: this.orgEnrollmentWhere(organisationId, filters) }
+            ? { enrollment: this.orgEnrollmentWhere(organisationId, filters, user) }
             : {}),
         },
       }),
       this.prisma.assessment.count({
         where: {
           deletedAt: null,
-          enrollment: this.orgEnrollmentWhere(organisationId, filters),
+          enrollment: this.orgEnrollmentWhere(organisationId, filters, user),
         },
       }),
     ]);
@@ -108,8 +121,14 @@ export class ReportsService {
 
   async listGenerated(user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
+    const ownOnly = user?.roleCodes.includes('SETA')
+      && !user.roleCodes.some((role) => ['ADMIN', 'PLATFORM_ADMIN', 'QA_OFFICER'].includes(role));
     return this.prisma.generatedReport.findMany({
-      where: { organisationId, deletedAt: null },
+      where: {
+        organisationId,
+        deletedAt: null,
+        ...(ownOnly ? { generatedById: user!.userId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         generatedBy: { select: { firstName: true, lastName: true } },
@@ -148,8 +167,15 @@ export class ReportsService {
 
   async deleteGenerated(id: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
+    const ownOnly = user?.roleCodes.includes('SETA')
+      && !user.roleCodes.some((role) => ['ADMIN', 'PLATFORM_ADMIN', 'QA_OFFICER'].includes(role));
     const row = await this.prisma.generatedReport.findFirst({
-      where: { id, organisationId, deletedAt: null },
+      where: {
+        id,
+        organisationId,
+        deletedAt: null,
+        ...(ownOnly ? { generatedById: user!.userId } : {}),
+      },
       select: { id: true },
     });
     if (!row) throw new NotFoundException('Generated report not found');
@@ -162,26 +188,52 @@ export class ReportsService {
 
   async generatedFile(id: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
+    const ownOnly = user?.roleCodes.includes('SETA')
+      && !user.roleCodes.some((role) => ['ADMIN', 'PLATFORM_ADMIN', 'QA_OFFICER'].includes(role));
     const row = await this.prisma.generatedReport.findFirst({
-      where: { id, organisationId, deletedAt: null },
+      where: {
+        id,
+        organisationId,
+        deletedAt: null,
+        ...(ownOnly ? { generatedById: user!.userId } : {}),
+      },
     });
     if (!row) throw new NotFoundException('Generated report not found');
     const snapshot = row.snapshot as unknown as SetaSnapshot;
-    return row.format === 'pdf'
-      ? {
-          bytes: await this.snapshotToPdf(snapshot),
-          type: 'application/pdf',
-          filename: `report-${row.id}.pdf`,
-        }
-      : {
-          bytes: Buffer.from(this.snapshotToCsv(snapshot), 'utf8'),
-          type: 'text/csv; charset=utf-8',
-          filename: `report-${row.id}.csv`,
-        };
+    const file = row.format === 'pdf'
+      ? { bytes: await this.snapshotToPdf(snapshot), type: 'application/pdf', filename: `report-${row.id}.pdf` }
+      : { bytes: Buffer.from(this.snapshotToCsv(snapshot), 'utf8'), type: 'text/csv; charset=utf-8', filename: `report-${row.id}.csv` };
+    await this.recordDownload(file.bytes, row.reportType, row.format, row.filters as ReportFilters, user, row.id);
+    return file;
+  }
+
+  async recordDownload(
+    bytes: Buffer,
+    reportType: string,
+    format: string,
+    filters: ReportFilters,
+    user?: AuthUser,
+    reportId?: string,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    if (!user?.userId) throw new BadRequestException('Authentication required');
+    return this.prisma.reportDownload.create({
+      data: {
+        reportId,
+        organisationId,
+        requestedById: user.userId,
+        requesterRole: user.roleCodes.join(','),
+        reportType,
+        format,
+        filters: filters as object,
+        fileSha256: createHash('sha256').update(bytes).digest('hex'),
+      },
+    });
   }
 
   snapshotToCsv(snapshot: SetaSnapshot): string {
     const lines = [
+      'Internal draft - Not submitted to SETA',
       'metric,value',
       `enrollments,${snapshot.enrollments}`,
       `documents,${snapshot.docs}`,
@@ -195,7 +247,7 @@ export class ReportsService {
     rows: Array<{ status: string; _count: { status: number } }>,
   ): string {
     const lines = ['status,count', ...rows.map((r) => `${r.status},${r._count.status}`)];
-    return lines.join('\n');
+    return ['Internal draft - Not submitted to SETA', ...lines].join('\n');
   }
 
   async snapshotToPdf(snapshot: SetaSnapshot): Promise<Buffer> {
@@ -206,6 +258,8 @@ export class ReportsService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
       doc.fontSize(18).text('SETA operational snapshot', { align: 'center' });
+      doc.fontSize(10).fillColor('#9a3412').text('Internal draft - Not submitted to SETA', { align: 'center' });
+      doc.fillColor('#000000');
       doc.moveDown();
       doc.fontSize(11).text(`Generated: ${snapshot.generatedAt}`);
       doc.moveDown();

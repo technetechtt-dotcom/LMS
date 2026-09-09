@@ -21,7 +21,7 @@ import {
   organisationService,
   programmeService,
   qaOfficerService,
-  userService,
+  directoryService,
 } from '../services/api';
 
 type ContractRow = {
@@ -90,7 +90,7 @@ export function QaOfficerDashboardPage() {
       qaOfficerService.placementQueue(),
       programmeService.getAll(),
       organisationService.list(),
-      userService.getAll(),
+      directoryService.mentors({ pageSize: 50 }),
     ]);
     setOverview(ov.data);
     setContracts((c.data ?? []) as ContractRow[]);
@@ -103,14 +103,7 @@ export function QaOfficerDashboardPage() {
         .map((o) => ({ id: o.id, name: o.name })),
     );
     setMentors(
-      (users.data ?? [])
-        .filter((u) =>
-          u.memberships.some((m) => m.role.code === 'MENTOR'),
-        )
-        .map((u) => ({
-          id: u.id,
-          name: `${u.firstName} ${u.lastName}`.trim(),
-        })),
+      (users.data?.items ?? []).map((u) => ({ id: u.id, name: u.name })),
     );
   }, []);
 
@@ -131,6 +124,11 @@ export function QaOfficerDashboardPage() {
   const handleRegisterContract = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const file = fd.get('file');
+    if (!(file instanceof File) || file.size === 0) {
+      toast.error('A contract file is required');
+      return;
+    }
     try {
       await qaOfficerService.registerContract({
         contractType: fd.get('contractType') as 'SETA' | 'SDP' | 'IMPLEMENTATION',
@@ -139,7 +137,7 @@ export function QaOfficerDashboardPage() {
         effectiveDate: String(fd.get('effectiveDate') || '') || undefined,
         expiryDate: String(fd.get('expiryDate') || '') || undefined,
         notes: String(fd.get('notes') || '') || undefined,
-      });
+      }, file);
       toast.success('Contract registered — ready for signature');
       setShowContractModal(false);
       await reload();
@@ -411,6 +409,13 @@ export function QaOfficerDashboardPage() {
           <Input name="effectiveDate" label="Effective date" type="date" />
           <Input name="expiryDate" label="Expiry date" type="date" />
           <Input name="notes" label="Notes" />
+          <Input
+            name="file"
+            label="Signed or draft contract file"
+            type="file"
+            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            required
+          />
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setShowContractModal(false)}>
               Cancel

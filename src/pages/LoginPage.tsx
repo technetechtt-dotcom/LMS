@@ -14,6 +14,7 @@ export function LoginPage() {
   const { login, logout, isLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [totpCode, setTotpCode] = useState('');
   const [errors, setErrors] = useState({
     email: '',
     password: '',
@@ -41,7 +42,7 @@ export function LoginPage() {
     e.preventDefault();
     if (!validate()) return;
     try {
-      const profile = await login({ email, password });
+      const profile = await login({ email, password, totpCode: totpCode.trim() || undefined });
       if (profile.role === 'Platform Admin') {
         toast.error('Platform operators must use the Ops Console.');
         await logout();
@@ -92,6 +93,16 @@ export function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               error={errors.password}
               required
+            />
+
+            <Input
+              label="Authenticator code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="6 digits (if MFA is enabled)"
+              value={totpCode}
+              onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
             />
 
             <div className="flex items-center justify-between">

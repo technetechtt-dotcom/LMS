@@ -1,4 +1,5 @@
 import { ForbiddenException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import type { AuthUser } from '../types/request-with-user';
 
 /** Canonical organisation header (also accepts aliases). */
@@ -76,7 +77,9 @@ export function isMentorOnly(user?: AuthUser | null): boolean {
 }
 
 /** Actor-specific enrollment scope layered on top of the active tenant. */
-export function enrollmentActorWhere(user?: AuthUser | null) {
+export function enrollmentActorWhere(
+  user?: AuthUser | null,
+): Prisma.EnrollmentWhereInput {
   if (isLearnerOnly(user)) return { learnerId: user!.userId };
   if (isMentorOnly(user)) {
     return {
@@ -86,7 +89,87 @@ export function enrollmentActorWhere(user?: AuthUser | null) {
       },
     };
   }
+  if (!user?.userId) return { id: '__no_authenticated_actor__' };
+  if (isPlatformAdmin(user) || user.roleCodes.some((code) =>
+    ['ADMIN', 'FACILITATOR', 'QA_OFFICER'].includes(code))) {
+    return {};
+  }
+  const scopes: Prisma.EnrollmentWhereInput[] = [];
+  if (user.roleCodes.includes('ASSESSOR')) {
+    scopes.push(
+      { assessments: { some: { assessorId: user.userId, deletedAt: null } } },
+      { poeLearningArtifacts: { some: { assessorId: user.userId, deletedAt: null } } },
+    );
+  }
+  if (user.roleCodes.includes('MODERATOR')) {
+    scopes.push(
+      { assessments: { some: { moderatorId: user.userId, deletedAt: null } } },
+      { poeLearningArtifacts: { some: { moderatorId: user.userId, deletedAt: null } } },
+    );
+  }
+  if (user.roleCodes.includes('SETA')) {
+    scopes.push({
+      programme: {
+        metadata: { path: ['setaOfficialIds'], array_contains: user.userId },
+      },
+    });
+  }
+  if (scopes.length) return { AND: [{ OR: scopes }] };
   return {};
+}
+
+/** Scope an Assessment itself, so one allocated item does not reveal siblings. */
+export function assessmentActorWhere(
+  user?: AuthUser | null,
+): Prisma.AssessmentWhereInput {
+  if (!user?.userId || isLearnerOnly(user)) return {};
+  if (isPlatformAdmin(user) || user.roleCodes.some((code) =>
+    ['ADMIN', 'FACILITATOR', 'QA_OFFICER'].includes(code))) {
+    return {};
+  }
+  const scopes: Prisma.AssessmentWhereInput[] = [];
+  if (user.roleCodes.includes('ASSESSOR')) scopes.push({ assessorId: user.userId });
+  if (user.roleCodes.includes('MODERATOR')) scopes.push({ moderatorId: user.userId });
+  if (user.roleCodes.includes('SETA')) {
+    scopes.push({
+      enrollment: {
+        programme: {
+          metadata: { path: ['setaOfficialIds'], array_contains: user.userId },
+        },
+      },
+    });
+  }
+  return scopes.length ? { AND: [{ OR: scopes }] } : {};
+}
+
+export function poeArtifactActorWhere(
+  user?: AuthUser | null,
+): Prisma.PoeLearningArtifactWhereInput {
+  if (!user?.userId || isLearnerOnly(user)) return {};
+  if (isPlatformAdmin(user) || user.roleCodes.some((code) =>
+    ['ADMIN', 'FACILITATOR', 'QA_OFFICER'].includes(code))) {
+    return {};
+  }
+  const scopes: Prisma.PoeLearningArtifactWhereInput[] = [];
+  if (user.roleCodes.includes('ASSESSOR')) scopes.push({ assessorId: user.userId });
+  if (user.roleCodes.includes('MODERATOR')) scopes.push({ moderatorId: user.userId });
+  if (user.roleCodes.includes('MENTOR')) {
+    scopes.push({
+      enrollment: {
+        metadata: { path: ['workplaceMentorId'], equals: user.userId },
+      },
+    });
+  }
+  if (user.roleCodes.includes('SETA')) {
+    scopes.push({
+      enrollment: {
+        programme: {
+          metadata: { path: ['setaOfficialIds'], array_contains: user.userId },
+        },
+      },
+    });
+  }
+  return scopes.length ? { AND: [{ OR: scopes }] } : {};
 }
 
 /** Prisma filter: enrollment belongs to organisation. */

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
@@ -15,6 +16,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { MailService } from '../mail/mail.service';
 import { generateOpaqueRefreshToken, hashOpaqueToken } from '../common/crypto/token-crypto';
+import { MailDeliveryQueueService } from '../mail/mail-delivery-queue.service';
 
 @Injectable()
 export class UsersService {
@@ -22,7 +24,54 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    @Optional() private readonly mailQueue?: MailDeliveryQueueService,
   ) {}
+
+  private activationUrl(rawToken: string) {
+    const front =
+      this.config.get<string>('FRONTEND_ORIGIN')?.split(',')[0]?.trim() ??
+      'http://localhost:5173';
+    return `${front}/reset-password?token=${encodeURIComponent(rawToken)}&activation=1`;
+  }
+
+  private async deliverActivation(input: {
+    organisationId: string;
+    userId: string;
+    email: string;
+    rawToken: string;
+  }): Promise<'SENT' | 'FAILED'> {
+    const actionUrl = this.activationUrl(input.rawToken);
+    try {
+      const receipt = await this.mail.sendActivation(input.email, actionUrl);
+      await this.mailQueue?.recordAttempt({
+        organisationId: input.organisationId,
+        userId: input.userId,
+        recipient: input.email,
+        template: 'account-activation',
+        status: 'SENT',
+        providerMessageId: receipt?.providerMessageId,
+      });
+      return 'SENT';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.mailQueue?.recordAttempt({
+        organisationId: input.organisationId,
+        userId: input.userId,
+        recipient: input.email,
+        template: 'account-activation',
+        status: 'FAILED',
+        error: message,
+      });
+      await this.mailQueue?.enqueue({
+        organisationId: input.organisationId,
+        userId: input.userId,
+        recipient: input.email,
+        template: 'account-activation',
+        actionUrl,
+      });
+      return 'FAILED';
+    }
+  }
 
   list(user?: AuthUser) {
     if (isPlatformAdmin(user)) {
@@ -171,16 +220,12 @@ export class UsersService {
       return account;
     });
 
-    const front =
-      this.config.get<string>('FRONTEND_ORIGIN')?.split(',')[0]?.trim() ??
-      'http://localhost:5173';
-    const activationUrl = `${front}/reset-password?token=${encodeURIComponent(rawActivation)}&activation=1`;
-    let mailStatus: 'SENT' | 'FAILED' = 'SENT';
-    try {
-      await this.mail.sendActivation(created.email, activationUrl);
-    } catch {
-      mailStatus = 'FAILED';
-    }
+    const mailStatus = await this.deliverActivation({
+      organisationId,
+      userId: created.id,
+      email: created.email,
+      rawToken: rawActivation,
+    });
     const { passwordHash: _omit, ...safe } = created;
     return {
       ...safe,
@@ -188,6 +233,62 @@ export class UsersService {
       activationExpiresAt: expiresAt.toISOString(),
       mailStatus,
     };
+  }
+
+  async resendActivation(targetUserId: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const target = await this.prisma.user.findFirst({
+      where: {
+        id: targetUserId,
+        deletedAt: null,
+        memberships: { some: { organisationId, deletedAt: null } },
+      },
+      select: { id: true, email: true, passwordSetAt: true, isActive: true },
+    });
+    if (!target || !target.isActive) throw new BadRequestException('User not found');
+    if (target.passwordSetAt) throw new BadRequestException('Account is already activated');
+    const recentAttempts = await this.prisma.mailDeliveryAttempt.count({
+      where: {
+        userId: target.id,
+        template: 'account-activation',
+        attemptedAt: { gte: new Date(Date.now() - 15 * 60_000) },
+      },
+    });
+    if (recentAttempts >= 3) {
+      throw new BadRequestException('Activation resend rate limit reached; try again later');
+    }
+    const rawToken = generateOpaqueRefreshToken();
+    const tokenHash = hashOpaqueToken(rawToken);
+    const ttlHours = Math.max(
+      1,
+      Number(this.config.get<string>('ACTIVATION_TTL_HOURS') ?? '24') || 24,
+    );
+    const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.passwordResetToken.updateMany({
+        where: { userId: target.id, purpose: 'ACTIVATION', usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      await tx.passwordResetToken.create({
+        data: { userId: target.id, tokenHash, expiresAt, purpose: 'ACTIVATION' },
+      });
+      await tx.auditLog.create({
+        data: {
+          organisationId,
+          actorId: user?.userId,
+          entityType: 'User',
+          entityId: target.id,
+          action: 'ACTIVATION_REISSUED',
+        },
+      });
+    });
+    const mailStatus = await this.deliverActivation({
+      organisationId,
+      userId: target.id,
+      email: target.email,
+      rawToken,
+    });
+    return { id: target.id, mailStatus, activationExpiresAt: expiresAt.toISOString() };
   }
 
   async addMembership(dto: AddUserMembershipDto, user?: AuthUser) {

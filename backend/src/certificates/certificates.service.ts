@@ -5,13 +5,16 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import PDFDocument = require('pdfkit');
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../common/file-storage.service';
 import type { AuthUser } from '../common/types/request-with-user';
-import { requireOrganisationId, isLearnerOnly } from '../common/tenant/tenant-scope';
+import {
+  enrollmentActorWhere,
+  requireOrganisationId,
+} from '../common/tenant/tenant-scope';
 import { PoeWorkflowService } from '../poe/poe-workflow.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -24,6 +27,30 @@ export class CertificatesService {
     private readonly config: ConfigService,
     @Optional() private readonly notifications?: NotificationsService,
   ) {}
+
+  private credentialSignature(input: {
+    certificateNumber: string;
+    enrollmentId: string;
+    learnerName: string;
+    programmeName: string;
+    issuedAt: Date;
+    pdfSha256: string;
+  }) {
+    const secret = this.config.get<string>('CREDENTIAL_SIGNING_SECRET')?.trim()
+      || this.config.get<string>('FILE_SIGNING_SECRET')?.trim()
+      || this.config.get<string>('JWT_SECRET')?.trim()
+      || 'development-credential-signing-key';
+    const canonical = [
+      'credential-signature-v1',
+      input.certificateNumber,
+      input.enrollmentId,
+      input.learnerName,
+      input.programmeName,
+      input.issuedAt.toISOString(),
+      input.pdfSha256,
+    ].join('\n');
+    return createHmac('sha256', secret).update(canonical).digest('base64url');
+  }
 
   private mapCredential(row: {
     id: string;
@@ -62,9 +89,7 @@ export class CertificatesService {
       where: {
         organisationId,
         ...(enrollmentId ? { enrollmentId } : {}),
-        ...(isLearnerOnly(user)
-          ? { enrollment: { learnerId: user!.userId } }
-          : {}),
+        enrollment: enrollmentActorWhere(user),
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -114,7 +139,11 @@ export class CertificatesService {
     });
   }
 
-  async issue(body: { enrollmentId: string }, user?: AuthUser) {
+  async issue(
+    body: { enrollmentId: string },
+    user?: AuthUser,
+    supersedingCredentialId?: string,
+  ) {
     const organisationId = requireOrganisationId(user);
     const gate = await this.poeWorkflow.enrollmentReadyForCertificate(
       body.enrollmentId,
@@ -142,6 +171,19 @@ export class CertificatesService {
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
 
+    const existingActive = await this.prisma.credential.findFirst({
+      where: {
+        enrollmentId: enrollment.id,
+        organisationId,
+        status: 'ISSUED',
+        ...(supersedingCredentialId ? { id: { not: supersedingCredentialId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (existingActive) {
+      throw new BadRequestException('An active credential already exists for this enrollment');
+    }
+
     const learnerName =
       `${enrollment.learner.firstName} ${enrollment.learner.lastName}`.trim();
     const programmeName = enrollment.programme.title;
@@ -166,6 +208,14 @@ export class CertificatesService {
       verifyUrl,
     });
     const pdfSha256 = createHash('sha256').update(pdf).digest('hex');
+    const credentialSignature = this.credentialSignature({
+      certificateNumber: certNo,
+      enrollmentId: enrollment.id,
+      learnerName,
+      programmeName,
+      issuedAt,
+      pdfSha256,
+    });
 
     const stored = await this.files.upload(
       `${certNo}.pdf`,
@@ -173,41 +223,77 @@ export class CertificatesService {
       'application/pdf',
       { prefix: 'certificates', organisationId },
     );
+    await this.files.assertUploadAvailable(stored.uploadId, organisationId);
 
     const locator = this.files.storageLocator(stored.key, stored.bucket);
 
-    const doc = await this.prisma.document.create({
-      data: {
-        organisationId,
-        enrollmentId: enrollment.id,
-        category: 'certificate',
-        name: title,
-        storageKey: stored.key,
-        url: locator,
-        metadata: {
+    const credential = await this.prisma.$transaction(async (tx) => {
+      const active = await tx.credential.findFirst({
+        where: {
+          enrollmentId: enrollment.id,
+          organisationId,
+          status: 'ISSUED',
+          ...(supersedingCredentialId ? { id: { not: supersedingCredentialId } } : {}),
+        },
+        select: { id: true },
+      });
+      if (active) throw new BadRequestException('An active credential already exists for this enrollment');
+      if (supersedingCredentialId) {
+        await tx.credential.update({
+          where: { id: supersedingCredentialId },
+          data: { status: 'SUPERSEDED' },
+        });
+      }
+      const doc = await tx.document.create({
+        data: {
+          organisationId,
+          enrollmentId: enrollment.id,
+          uploadId: stored.uploadId,
+          category: 'certificate',
+          name: title,
+          storageKey: stored.key,
+          url: locator,
+          metadata: { certificateNumber: certNo, verificationCode, checksum: pdfSha256 },
+        },
+      });
+      const created = await tx.credential.create({
+        data: {
+          organisationId,
+          enrollmentId: enrollment.id,
           certificateNumber: certNo,
           verificationCode,
+          title,
+          learnerName,
+          programmeName,
+          status: 'ISSUED',
+          issuedAt,
+          issuedById: user?.userId,
+          supersedesId: supersedingCredentialId,
+          pdfStorageKey: stored.key,
+          pdfSha256,
+          documentId: doc.id,
+          metadata: {
+            verifyUrl,
+            signature: credentialSignature,
+            signatureAlgorithm: 'HMAC-SHA256',
+            signedPayloadVersion: 1,
+          },
         },
-      },
-    });
-
-    const credential = await this.prisma.credential.create({
-      data: {
-        organisationId,
-        enrollmentId: enrollment.id,
-        certificateNumber: certNo,
-        verificationCode,
-        title,
-        learnerName,
-        programmeName,
-        status: 'ISSUED',
-        issuedAt,
-        issuedById: user?.userId,
-        pdfStorageKey: stored.key,
-        pdfSha256,
-        documentId: doc.id,
-        metadata: { verifyUrl },
-      },
+      });
+      if (supersedingCredentialId) {
+        await tx.credential.update({
+          where: { id: supersedingCredentialId },
+          data: {
+            metadata: {
+              ...((await tx.credential.findUnique({ where: { id: supersedingCredentialId } }))?.metadata as object ?? {}),
+              supersededAt: new Date().toISOString(),
+              supersededByActor: user?.userId,
+              replacementId: created.id,
+            },
+          },
+        });
+      }
+      return created;
     });
 
     await this.notifications?.notify(
@@ -265,26 +351,9 @@ export class CertificatesService {
     const replacement = await this.issue(
       { enrollmentId: prior.enrollmentId },
       user,
+      prior.id,
     );
 
-    await this.prisma.$transaction([
-      this.prisma.credential.update({
-        where: { id: prior.id },
-        data: {
-          status: 'SUPERSEDED',
-          metadata: {
-            ...((prior.metadata as object) ?? {}),
-            supersededAt: new Date().toISOString(),
-            supersededByActor: user?.userId,
-            replacementId: replacement.id,
-          },
-        },
-      }),
-      this.prisma.credential.update({
-        where: { id: replacement.id },
-        data: { supersedesId: prior.id },
-      }),
-    ]);
     return { priorId: prior.id, replacement };
   }
 
@@ -294,9 +363,7 @@ export class CertificatesService {
       where: {
         id,
         organisationId,
-        ...(isLearnerOnly(user)
-          ? { enrollment: { learnerId: user!.userId } }
-          : {}),
+        enrollment: enrollmentActorWhere(user),
       },
     });
     if (!row) throw new NotFoundException('Credential not found');
@@ -317,6 +384,26 @@ export class CertificatesService {
       where: { verificationCode: code },
     });
     if (!row) throw new NotFoundException('Certificate not found');
+    const metadata = (row.metadata as Record<string, unknown> | null) ?? {};
+    const suppliedSignature = typeof metadata.signature === 'string'
+      ? metadata.signature
+      : '';
+    const expectedSignature = row.pdfSha256
+      ? this.credentialSignature({
+          certificateNumber: row.certificateNumber,
+          enrollmentId: row.enrollmentId,
+          learnerName: row.learnerName,
+          programmeName: row.programmeName,
+          issuedAt: row.issuedAt,
+          pdfSha256: row.pdfSha256,
+        })
+      : '';
+    const signatureValid = Boolean(
+      suppliedSignature
+        && expectedSignature
+        && suppliedSignature.length === expectedSignature.length
+        && timingSafeEqual(Buffer.from(suppliedSignature), Buffer.from(expectedSignature)),
+    );
     const learnerInitials = row.learnerName
       .split(/\s+/)
       .filter(Boolean)
@@ -325,7 +412,9 @@ export class CertificatesService {
       .slice(0, 2)
       .toUpperCase();
     return {
-      valid: row.status === 'ISSUED',
+      valid: row.status === 'ISSUED' && signatureValid,
+      signatureValid,
+      signatureAlgorithm: metadata.signatureAlgorithm ?? null,
       credentialStatus: row.status,
       certificateNumber: row.certificateNumber,
       title: row.title,

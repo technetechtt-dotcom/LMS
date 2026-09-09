@@ -11,11 +11,37 @@ export class MailService {
 
   constructor(private readonly config: ConfigService) {}
 
+  configurationStatus(): { ok: boolean; provider: string } {
+    const endpoint = this.config.get<string>('MAIL_DELIVERY_URL')?.trim();
+    const healthEndpoint = this.config.get<string>('MAIL_DELIVERY_HEALTH_URL')?.trim();
+    if ((!endpoint || !healthEndpoint) && this.config.get<string>('NODE_ENV') === 'production') {
+      return { ok: false, provider: 'unconfigured' };
+    }
+    return { ok: true, provider: endpoint ? 'https-webhook' : 'development-suppressed' };
+  }
+
+  async availabilityStatus(): Promise<{ ok: boolean; provider: string }> {
+    const configured = this.configurationStatus();
+    if (!configured.ok) return configured;
+    const endpoint = this.config.get<string>('MAIL_DELIVERY_HEALTH_URL')?.trim();
+    if (!endpoint) return configured;
+    const token = this.config.get<string>('MAIL_DELIVERY_TOKEN')?.trim();
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      throw new ServiceUnavailableException(`Mail provider health returned ${response.status}`);
+    }
+    return { ok: true, provider: 'https-webhook' };
+  }
+
   private async deliver(
     to: string,
     template: 'password-reset' | 'account-activation',
     actionUrl: string,
-  ): Promise<void> {
+  ): Promise<{ providerMessageId?: string }> {
     const endpoint = this.config.get<string>('MAIL_DELIVERY_URL')?.trim();
     const token = this.config.get<string>('MAIL_DELIVERY_TOKEN')?.trim();
     if (!endpoint) {
@@ -23,7 +49,7 @@ export class MailService {
         throw new ServiceUnavailableException('Outbound mail is not configured');
       }
       this.logger.log(`[mail] ${template} delivery suppressed for ${to}`);
-      return;
+      return { providerMessageId: 'development-suppressed' };
     }
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -38,13 +64,24 @@ export class MailService {
       throw new ServiceUnavailableException('Outbound mail delivery failed');
     }
     this.logger.log(`[mail] ${template} delivered to ${to}`);
+    let providerMessageId = response.headers.get('x-message-id') ?? undefined;
+    if (!providerMessageId) {
+      try {
+        const body = (await response.json()) as { id?: unknown; messageId?: unknown };
+        const candidate = body.messageId ?? body.id;
+        if (typeof candidate === 'string') providerMessageId = candidate.slice(0, 255);
+      } catch {
+        // A successful provider is not required to return JSON.
+      }
+    }
+    return { providerMessageId };
   }
 
-  async sendPasswordReset(to: string, resetUrl: string): Promise<void> {
-    await this.deliver(to, 'password-reset', resetUrl);
+  async sendPasswordReset(to: string, resetUrl: string) {
+    return this.deliver(to, 'password-reset', resetUrl);
   }
 
-  async sendActivation(to: string, activationUrl: string): Promise<void> {
-    await this.deliver(to, 'account-activation', activationUrl);
+  async sendActivation(to: string, activationUrl: string) {
+    return this.deliver(to, 'account-activation', activationUrl);
   }
 }

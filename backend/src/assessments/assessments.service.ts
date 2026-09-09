@@ -1,6 +1,7 @@
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   assertAllocatedAssessor,
+  assessmentActorWhere,
   assertEnrollmentAccess,
   isLearnerOnly,
   isStaffUser,
@@ -16,6 +17,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { competencyFromPercentage } from '../common/grading/competency';
 import { PrismaService } from '../prisma/prisma.service';
+import { assessmentAttemptWindow } from '../assessment-instances/attempt-window';
 import { CreateAssessmentDto, UpdateAssessmentDto } from './assessments.dto';
 import {
   mapAssessmentToApi,
@@ -120,6 +122,7 @@ export class AssessmentsService {
       .findMany({
         where: {
           deletedAt: null,
+          ...assessmentActorWhere(user),
           enrollment: {
             ...enrollmentOrgWhere(organisationId),
             ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
@@ -130,7 +133,7 @@ export class AssessmentsService {
             include: { programme: true, learner: true },
           },
           unitStandard: true,
-          moderation: true,
+          moderation: { where: { deletedAt: null }, orderBy: { round: 'desc' }, take: 1 },
           submissions: {
             orderBy: { submittedAt: 'desc' },
             take: 1,
@@ -149,6 +152,7 @@ export class AssessmentsService {
       where: {
         id,
         deletedAt: null,
+        ...assessmentActorWhere(user),
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
           ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
@@ -159,7 +163,7 @@ export class AssessmentsService {
           include: { programme: true, learner: true },
         },
         unitStandard: true,
-        moderation: true,
+        moderation: { where: { deletedAt: null }, orderBy: { round: 'desc' }, take: 1 },
         submissions: {
           orderBy: { submittedAt: 'desc' },
           take: 1,
@@ -179,6 +183,7 @@ export class AssessmentsService {
       where: {
         id: assessmentId,
         deletedAt: null,
+        ...assessmentActorWhere(user),
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
           ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
@@ -247,6 +252,7 @@ export class AssessmentsService {
       where: {
         id: assessmentId,
         deletedAt: null,
+        ...assessmentActorWhere(user),
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
           ...(isLearnerOnly(user) ? { learnerId: user.userId } : {}),
@@ -317,16 +323,9 @@ export class AssessmentsService {
     row: T,
     timeLimitMinutes?: number | null,
   ) {
-    const minutes = timeLimitMinutes && timeLimitMinutes > 0 ? timeLimitMinutes : 0;
-    const startedAt = row.createdAt;
-    const expiresAt =
-      minutes > 0 ? new Date(startedAt.getTime() + minutes * 60_000) : null;
     return {
       ...row,
-      startedAt: startedAt.toISOString(),
-      expiresAt: expiresAt?.toISOString() ?? null,
-      timeLimitMinutes: minutes || null,
-      expired: expiresAt ? expiresAt.getTime() <= Date.now() : false,
+      ...assessmentAttemptWindow(row.createdAt, timeLimitMinutes),
     };
   }
 

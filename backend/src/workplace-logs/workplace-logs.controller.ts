@@ -36,7 +36,7 @@ export class WorkplaceLogsController {
     return this.logs.create(dto, req.user);
   }
 
-  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'MENTOR')
+  @Roles('MENTOR')
   @Post(':id/mentor-verify')
   mentorVerify(
     @Param('id') id: string,

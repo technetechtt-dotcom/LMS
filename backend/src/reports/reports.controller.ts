@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Req, StreamableFile } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
@@ -8,6 +9,7 @@ import { ReportsService, type ReportFilters } from './reports.service';
 @ApiTags('Reports')
 @ApiBearerAuth()
 @Controller('reports')
+@Throttle({ default: { ttl: 60_000, limit: 20 } })
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
@@ -19,7 +21,9 @@ export class ReportsController {
   ) {
     const data = await this.reports.learnershipProgress(req.user);
     if (format === 'csv') {
-      return new StreamableFile(Buffer.from(this.reports.progressToCsv(data), 'utf8'), {
+      const bytes = Buffer.from(this.reports.progressToCsv(data), 'utf8');
+      await this.reports.recordDownload(bytes, 'learnership-progress', 'csv', {}, req.user);
+      return new StreamableFile(bytes, {
         type: 'text/csv; charset=utf-8',
         disposition: 'attachment; filename="learnership-progress.csv"',
       });
@@ -45,13 +49,16 @@ export class ReportsController {
   ) {
     const data = await this.reports.setaSnapshot(req.user, this.filters(query ?? {}));
     if (format === 'csv') {
-      return new StreamableFile(Buffer.from(this.reports.snapshotToCsv(data), 'utf8'), {
+      const bytes = Buffer.from(this.reports.snapshotToCsv(data), 'utf8');
+      await this.reports.recordDownload(bytes, 'seta-snapshot', 'csv', this.filters(query ?? {}), req.user);
+      return new StreamableFile(bytes, {
         type: 'text/csv; charset=utf-8',
         disposition: 'attachment; filename="seta-snapshot.csv"',
       });
     }
     if (format === 'pdf') {
       const pdf = await this.reports.snapshotToPdf(data);
+      await this.reports.recordDownload(pdf, 'seta-snapshot', 'pdf', this.filters(query ?? {}), req.user);
       return new StreamableFile(pdf, {
         type: 'application/pdf',
         disposition: 'attachment; filename="seta-snapshot.pdf"',

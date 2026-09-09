@@ -43,14 +43,22 @@ export class HttpExceptionFilter implements ExceptionFilter {
       success: false,
       statusCode: status,
       message,
-      ...(isProd
-        ? {}
-        : {
-            path: req.url,
-            correlationId:
-              req.headers['x-request-id'] ?? req.headers['x-correlation-id'],
-          }),
+      correlationId:
+        req.headers['x-request-id'] ?? req.headers['x-correlation-id'],
+      ...(isProd ? {} : { path: req.url }),
     };
+
+    if (status >= 500) {
+      process.stderr.write(`${JSON.stringify({
+        level: 'error',
+        event: 'http_exception',
+        statusCode: status,
+        method: req.method,
+        path: req.path,
+        correlationId: payload.correlationId,
+        error: exception instanceof Error ? exception.name : 'UnknownError',
+      })}\n`);
+    }
 
     res.status(status).json(payload);
   }

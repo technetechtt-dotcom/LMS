@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import {
   isLearnerOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
+import type { StagedUploadFile } from '../common/quarantine-upload';
 
 @Injectable()
 export class EvidenceService {
@@ -48,7 +50,11 @@ export class EvidenceService {
     });
   }
 
-  async create(dto: CreateEvidenceDto, user?: AuthUser) {
+  async create(
+    dto: CreateEvidenceDto,
+    file: StagedUploadFile | undefined,
+    user?: AuthUser,
+  ) {
     const organisationId = requireOrganisationId(user);
     const uploadedById = user?.userId;
     if (!uploadedById) throw new NotFoundException('Authentication required');
@@ -64,15 +70,25 @@ export class EvidenceService {
     if (!enrollment) throw new NotFoundException('Enrollment not found');
     assertEnrollmentAccess(user, enrollment, 'Evidence');
 
-    const storageKey = await this.files.assertValidStorageKey(
-      dto.storageKey,
+    if (!file) throw new BadRequestException('An evidence file is required');
+    const stored = await this.files.uploadStaged(file, {
+      prefix: 'evidence',
       organisationId,
-    );
+      uploadedById,
+    });
     return this.prisma.evidence.create({
       data: {
         ...dto,
-        storageKey,
-        url: this.files.storageLocator(storageKey),
+        uploadId: stored.uploadId,
+        fileName: file.originalname,
+        fileType: stored.mimeType,
+        fileSize: stored.size,
+        storageKey: stored.key,
+        url: stored.url,
+        metadata: {
+          checksum: stored.sha256,
+          scanResult: stored.status,
+        },
         uploadedById,
       },
     });

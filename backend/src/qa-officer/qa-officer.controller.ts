@@ -1,5 +1,7 @@
-import { Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Patch, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
@@ -11,12 +13,17 @@ import {
   SignContractDto,
 } from './qa-officer.dto';
 import { QaOfficerService } from './qa-officer.service';
+import { quarantineUploadOptions } from '../common/quarantine-upload';
+import { FileStorageService } from '../common/file-storage.service';
 
 @ApiTags('QA Officer')
 @ApiBearerAuth()
 @Controller('qa-officer')
 export class QaOfficerController {
-  constructor(private readonly qa: QaOfficerService) {}
+  constructor(
+    private readonly qa: QaOfficerService,
+    private readonly files: FileStorageService,
+  ) {}
 
   @Roles('ADMIN', 'QA_OFFICER')
   @Get('overview')
@@ -32,11 +39,19 @@ export class QaOfficerController {
 
   @Roles('ADMIN', 'QA_OFFICER')
   @Post('contracts')
-  registerContract(
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', quarantineUploadOptions({ maxFiles: 1, maxFields: 8 })))
+  async registerContract(
     @Body() dto: RegisterContractDto,
+    @UploadedFile() file: Express.Multer.File | undefined,
     @Req() req: Request & { user?: AuthUser },
   ) {
-    return this.qa.registerContract(dto, req.user);
+    try {
+      return await this.qa.registerContract(dto, file as never, req.user);
+    } finally {
+      await this.files.discardStaged(file as never);
+    }
   }
 
   @Roles('ADMIN', 'QA_OFFICER')

@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { createHmac } from 'crypto';
 import { FileStorageService } from './file-storage.service';
 
 describe('FileStorageService verified local lifecycle', () => {
@@ -12,6 +13,7 @@ describe('FileStorageService verified local lifecycle', () => {
       update: jest.Mock;
       findUnique: jest.Mock;
       findFirst: jest.Mock;
+      findMany: jest.Mock;
     };
   };
   let service: FileStorageService;
@@ -34,6 +36,7 @@ describe('FileStorageService verified local lifecycle', () => {
           if (query?.select?.status) return current;
           return current?.status === 'VERIFIED' ? { id: 'upload-1' } : null;
         }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
     };
     const values: Record<string, string> = {
@@ -156,5 +159,96 @@ describe('FileStorageService verified local lifecycle', () => {
     await expect(service.getUploadState('missing', 'organisation-1')).rejects.toThrow(
       'Upload not found',
     );
+  });
+
+  it('accepts only server-issued keys owned by the active organisation', async () => {
+    current = { id: 'upload-1', status: 'VERIFIED' };
+    await expect(service.assertValidStorageKey(
+      'storage://local/poe/organisation-1/generated.pdf',
+      'organisation-1',
+    )).resolves.toBe('poe/organisation-1/generated.pdf');
+
+    const production = new FileStorageService(
+      { get: jest.fn((key: string) => key === 'NODE_ENV' ? 'production' : undefined) } as never,
+      prisma as never,
+    );
+    await expect(production.assertValidStorageKey(
+      'poe/another-organisation/generated.pdf',
+      'organisation-1',
+    )).rejects.toThrow('active organisation');
+  });
+
+  it('rejects missing, absent and empty staged upload parts', async () => {
+    await expect(service.uploadStaged(undefined)).rejects.toThrow('A file is required');
+    await expect(service.uploadStaged({
+      path: join(root, 'quarantine', 'incoming', 'missing'),
+      originalname: 'missing.pdf',
+      mimetype: 'application/pdf',
+    } as never)).rejects.toThrow('Empty files');
+    const empty = join(root, 'quarantine', 'incoming', 'empty');
+    await mkdir(join(root, 'quarantine', 'incoming'), { recursive: true });
+    await writeFile(empty, Buffer.alloc(0));
+    await expect(service.uploadStaged({
+      path: empty, originalname: 'empty.pdf', mimetype: 'application/pdf',
+    } as never)).rejects.toThrow('Empty files');
+    await expect(service.discardStaged(undefined)).resolves.toBeUndefined();
+    await expect(service.discardStaged({
+      path: join(root, 'outside'), originalname: 'bad.pdf', mimetype: 'application/pdf',
+    } as never)).resolves.toBeUndefined();
+  });
+
+  it('proves local read/write/delete readiness outside production', async () => {
+    await expect(service.readinessProbe()).resolves.toEqual({
+      ok: true, provider: 'local', versionRecovery: false,
+    });
+    await expect(service.scannerAvailability()).resolves.toEqual({
+      ok: true, mode: 'development-signature-scan',
+    });
+  });
+
+  it('fails closed for every malformed, expired and unavailable local download token', async () => {
+    const sign = (body: string) => `${body}.${createHmac('sha256', 'unit-test-storage-secret')
+      .update(body).digest('base64url')}`;
+    const encoded = (payload: unknown) => Buffer.from(JSON.stringify(payload)).toString('base64url');
+
+    await expect(service.openDownload('a.b')).rejects.toThrow('Invalid download token');
+    await expect(service.openDownload(sign(Buffer.from('not-json').toString('base64url'))))
+      .rejects.toThrow('Invalid download token');
+    await expect(service.openDownload(sign(encoded({ k: 'poe/file.pdf' }))))
+      .rejects.toThrow('Invalid download token');
+    await expect(service.openDownload(sign(encoded({
+      k: 'poe/file.pdf', exp: Math.floor(Date.now() / 1000) - 1,
+    })))).rejects.toThrow('Download link expired');
+
+    current = { status: 'REJECTED' };
+    await expect(service.openDownload(sign(encoded({
+      k: 'poe/file.pdf', exp: Math.floor(Date.now() / 1000) + 60,
+    })))).rejects.toThrow('Upload is not verified');
+    current = null;
+    await expect(service.openDownload(sign(encoded({
+      k: 'poe/missing.pdf', exp: Math.floor(Date.now() / 1000) + 60,
+    })))).rejects.toThrow('File not found');
+  });
+
+  it('purges expired local objects and retains an auditable failure state', async () => {
+    const stored = await service.upload(
+      'expired.txt', Buffer.from('old evidence'), 'text/plain',
+      { prefix: 'poe', organisationId: 'organisation-1' },
+    );
+    prisma.uploadRecord.findMany.mockResolvedValueOnce([{
+      id: 'upload-1', storageKey: stored.key, quarantineKey: null,
+    }]);
+    await expect(service.purgeExpired(0, 'organisation-1')).resolves.toEqual({
+      examined: 1, purged: 1,
+    });
+    expect(prisma.uploadRecord.update).toHaveBeenLastCalledWith({
+      where: { id: 'upload-1' },
+      data: { status: 'PURGED', storageKey: null, quarantineKey: null, failureReason: null },
+    });
+
+    prisma.uploadRecord.findMany.mockResolvedValueOnce([{
+      id: 'failed-purge', storageKey: '../outside', quarantineKey: null,
+    }]);
+    await expect(service.purgeExpired()).resolves.toEqual({ examined: 1, purged: 0 });
   });
 });

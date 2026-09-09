@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Req, Res, StreamableFile } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, Res, StreamableFile, UnauthorizedException } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import type { Request } from 'express';
@@ -31,6 +31,21 @@ export class StorageController {
       ? undefined
       : requireOrganisationId(req.user);
     return this.files.purgeExpired(200, organisationId);
+  }
+
+  @Post('uploads/:id/recover')
+  @Roles('ADMIN', 'PLATFORM_ADMIN')
+  recoverVersion(
+    @Param('id') id: string,
+    @Body() body: { versionId?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const actorId = req.user?.userId;
+    if (!actorId) throw new UnauthorizedException('Invalid session');
+    const organisationId = isPlatformAdmin(req.user)
+      ? undefined
+      : requireOrganisationId(req.user);
+    return this.files.recoverObjectVersion(id, organisationId, actorId, body.versionId);
   }
 
   @Public()

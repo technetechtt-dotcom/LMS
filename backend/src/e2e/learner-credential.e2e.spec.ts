@@ -33,14 +33,12 @@ describe('learner → credential E2E', () => {
       programme: { title: 'IT Systems NQF5' },
     };
     const created: Record<string, unknown>[] = [];
-    const prisma = {
-      enrollment: {
-        findFirst: jest.fn().mockResolvedValue(enrollment),
-      },
+    const transactionClient = {
       document: {
         create: jest.fn().mockResolvedValue({ id: 'doc1' }),
       },
       credential: {
+        findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockImplementation(({ data }) => {
           created.push(data);
           return Promise.resolve({
@@ -53,6 +51,14 @@ describe('learner → credential E2E', () => {
         }),
       },
     };
+    const prisma = {
+      ...transactionClient,
+      enrollment: {
+        findFirst: jest.fn().mockResolvedValue(enrollment),
+      },
+      $transaction: jest.fn((fn: (tx: unknown) => Promise<unknown>) =>
+        fn(transactionClient as never)),
+    };
     const poe = {
       enrollmentReadyForCertificate: jest.fn().mockResolvedValue({
         ready: true,
@@ -62,7 +68,14 @@ describe('learner → credential E2E', () => {
     const files = {
       upload: jest
         .fn()
-        .mockResolvedValue({ key: 'k', bucket: 'b', url: 'storage://b/k' }),
+        .mockResolvedValue({
+          key: 'k',
+          bucket: 'b',
+          url: 'storage://b/k',
+          uploadId: 'upload-1',
+          sha256: 'checksum',
+        }),
+      assertUploadAvailable: jest.fn().mockResolvedValue(undefined),
       storageLocator: jest.fn().mockReturnValue('storage://b/k'),
     };
     const config = { get: jest.fn().mockReturnValue('http://localhost:5173') };
@@ -84,5 +97,27 @@ describe('learner → credential E2E', () => {
     expect(result.learnerName).toBe('Ada Lovelace');
     expect(result.programmeName).toBe('IT Systems NQF5');
     expect(created[0].learnerName).toBe('Ada Lovelace');
+    expect(created[0].metadata).toEqual(expect.objectContaining({
+      signature: expect.any(String),
+      signatureAlgorithm: 'HMAC-SHA256',
+    }));
+
+    const persisted = {
+      ...created[0],
+      id: 'cred1',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    transactionClient.credential.findFirst.mockResolvedValue(persisted);
+    await expect(svc.verify(String(created[0].verificationCode))).resolves.toEqual(
+      expect.objectContaining({ valid: true, signatureValid: true }),
+    );
+    transactionClient.credential.findFirst.mockResolvedValue({
+      ...persisted,
+      learnerName: 'Tampered Name',
+    });
+    await expect(svc.verify(String(created[0].verificationCode))).resolves.toEqual(
+      expect.objectContaining({ valid: false, signatureValid: false }),
+    );
   });
 });

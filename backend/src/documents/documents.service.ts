@@ -25,6 +25,7 @@ export class DocumentsService {
 
   async list(user?: AuthUser, enrollmentId?: string) {
     const organisationId = requireOrganisationId(user);
+    const actorScope = enrollmentActorWhere(user);
     if (enrollmentId) {
       const enrollment = await this.prisma.enrollment.findFirst({
         where: {
@@ -42,9 +43,7 @@ export class DocumentsService {
         deletedAt: null,
         organisationId,
         ...(enrollmentId ? { enrollmentId } : {}),
-        ...(isLearnerOnly(user) || isMentorOnly(user)
-          ? { enrollment: enrollmentActorWhere(user) }
-          : {}),
+        ...(Object.keys(actorScope).length ? { enrollment: actorScope } : {}),
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -88,14 +87,13 @@ export class DocumentsService {
 
   async getDownloadUrl(id: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
+    const actorScope = enrollmentActorWhere(user);
     const doc = await this.prisma.document.findFirst({
       where: {
         id,
         deletedAt: null,
         organisationId,
-        ...(isLearnerOnly(user) || isMentorOnly(user)
-          ? { enrollment: enrollmentActorWhere(user) }
-          : {}),
+        ...(Object.keys(actorScope).length ? { enrollment: actorScope } : {}),
       },
       include: { enrollment: { select: { learnerId: true, metadata: true } } },
     });

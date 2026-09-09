@@ -9,10 +9,22 @@ test.describe('deployed staging acceptance', () => {
   }) => {
     const apiUrl = process.env.PLAYWRIGHT_API_URL;
     const opsUrl = process.env.PLAYWRIGHT_OPS_URL;
-    if (!apiUrl || !opsUrl) throw new Error('Staging URLs are required');
+    const expectedSha = process.env.EXPECTED_SHA;
+    if (!apiUrl || !opsUrl || !expectedSha) {
+      throw new Error('Staging URLs and EXPECTED_SHA are required');
+    }
 
-    const health = await request.get(`${apiUrl}/health`);
+    const health = await request.get(`${apiUrl}/health/ready`);
     expect(health.ok()).toBeTruthy();
+    expect((await health.json()).revision).toBe(expectedSha);
+
+    const webVersion = await request.get('/version.json');
+    expect(webVersion.ok()).toBeTruthy();
+    expect((await webVersion.json()).revision).toBe(expectedSha);
+
+    const opsVersion = await request.get(`${opsUrl.replace(/\/$/, '')}/version.json`);
+    expect(opsVersion.ok()).toBeTruthy();
+    expect((await opsVersion.json()).revision).toBe(expectedSha);
 
     await page.goto('/login');
     await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible();

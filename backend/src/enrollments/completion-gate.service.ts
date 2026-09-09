@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkplaceLogsService } from '../workplace-logs/workplace-logs.service';
 import { enrollmentOrgWhere } from '../common/tenant/tenant-scope';
+import { FileStorageService } from '../common/file-storage.service';
 
 export type CompletionCheck = {
   ready: boolean;
@@ -18,6 +19,7 @@ export class CompletionGateService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly workplace: WorkplaceLogsService,
+    @Optional() private readonly files?: FileStorageService,
   ) {}
 
   async evaluate(
@@ -30,7 +32,7 @@ export class CompletionGateService {
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
       },
-      include: { programme: true },
+      include: { programme: true, learner: true },
     });
     if (!enrollment) {
       return { ready: false, reasons: ['Enrollment not found'], checks: {} };
@@ -50,6 +52,13 @@ export class CompletionGateService {
 
     const reasons: string[] = [];
     const checks: Record<string, boolean> = {};
+
+    const validRecords =
+      enrollment.learner.deletedAt == null &&
+      enrollment.learner.isActive &&
+      enrollment.programme.deletedAt == null;
+    checks.learnerAndProgrammeValid = validRecords;
+    if (!validRecords) reasons.push('Learner or programme record is inactive');
 
     if (requireAllAssessmentsC) {
       const assessments = await this.prisma.assessment.findMany({
@@ -79,13 +88,61 @@ export class CompletionGateService {
           status: 'MODERATION_COMPLETE',
           moderationOutcome: 'APPROVED',
         },
+        include: {
+          uploads: {
+            where: {
+              upload: {
+                organisationId,
+                status: 'VERIFIED',
+                storageKey: { not: null },
+                OR: [{ retentionUntil: null }, { retentionUntil: { gt: new Date() } }],
+              },
+            },
+            select: { uploadId: true },
+          },
+        },
       });
       const key = `poe_${kind.toLowerCase()}_approved`;
-      checks[key] = Boolean(approved);
-      if (!approved) {
+      const hasEvidence = Boolean(approved?.uploads.length);
+      checks[key] = Boolean(approved) && hasEvidence;
+      if (!approved || !hasEvidence) {
         reasons.push(`Missing approved ${kind} PoE artefact`);
+      } else {
+        for (const link of approved.uploads) {
+          try {
+            await this.files?.assertUploadAvailable(link.uploadId, organisationId);
+          } catch {
+            checks[key] = false;
+            reasons.push(`${kind} PoE evidence object is unavailable`);
+            break;
+          }
+        }
       }
     }
+
+    const assessmentsForModeration = await this.prisma.assessment.findMany({
+      where: { enrollmentId, deletedAt: null },
+      select: {
+        id: true,
+        moderation: {
+          where: { deletedAt: null },
+          orderBy: { round: 'desc' },
+          take: 1,
+          select: { decision: true },
+        },
+      },
+    });
+    const moderationApproved = assessmentsForModeration.every(
+      (assessment) => assessment.moderation[0]?.decision === 'APPROVED',
+    );
+    checks.requiredModerationApproved = moderationApproved;
+    if (!moderationApproved) reasons.push('Required assessment moderation is not approved');
+
+    const blockingCompliance = await this.prisma.complianceDecision.count({
+      where: { organisationId, status: 'ACTION_REQUIRED' },
+    });
+    checks.noBlockingComplianceDecision = blockingCompliance === 0;
+    if (blockingCompliance > 0) reasons.push('A blocking compliance decision is unresolved');
 
     if (minVerifiedHours > 0) {
       const hours = await this.workplace.verifiedHours(enrollmentId);
@@ -99,6 +156,15 @@ export class CompletionGateService {
     }
 
     if (minAttendanceRate > 0) {
+      const openMandatory = await this.prisma.attendanceSession.count({
+        where: {
+          programmeId: enrollment.programmeId,
+          scheduledAt: { lte: new Date() },
+          closedAt: null,
+        },
+      });
+      checks.mandatoryAttendanceSessionsClosed = openMandatory === 0;
+      if (openMandatory > 0) reasons.push('Mandatory attendance sessions remain open');
       const scheduledSessions = await this.prisma.attendanceSession.count({
         where: {
           programmeId: enrollment.programmeId,

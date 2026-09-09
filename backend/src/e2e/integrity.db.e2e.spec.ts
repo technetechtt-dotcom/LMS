@@ -12,6 +12,7 @@ import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { InvitationsService } from '../invitations/invitations.service';
 import { WorkplaceLogsService } from '../workplace-logs/workplace-logs.service';
 import { UsersService } from '../users/users.service';
+import { PoeWorkflowService } from '../poe/poe-workflow.service';
 import {
   generateOpaqueRefreshToken,
   hashOpaqueToken,
@@ -37,6 +38,11 @@ describe('integrity DB E2E', () => {
   const workplace = new WorkplaceLogsService(prisma);
   const completion = new CompletionGateService(prisma, workplace);
   const enrollments = new EnrollmentsService(prisma, completion);
+  const poeWorkflow = new PoeWorkflowService(
+    prisma,
+    completion,
+    { assertUploadAvailable: jest.fn().mockResolvedValue(undefined) } as never,
+  );
   const invitations = new InvitationsService(
     prisma,
     { sendPasswordReset: jest.fn() } as never,
@@ -420,10 +426,95 @@ describe('integrity DB E2E', () => {
     });
     expect(after.result).toBe('NYC');
     expect(after.assessorId).toBe(assessorId);
-    const mod = await prisma.moderation.findUnique({
+    const mod = await prisma.moderation.findFirst({
       where: { assessmentId },
+      orderBy: { round: 'desc' },
     });
     expect(mod?.decision).toBe('REJECTED');
+  });
+
+  it('starts, saves, resumes and submits the same persisted learner attempt', async () => {
+    const started = await assessments.startAttempt(assessmentId, asLearner());
+    expect(started.status).toBe('in_progress');
+    expect(started.attemptNumber).toBe(3);
+
+    const saved = await instances.saveProgress(
+      started.id,
+      [{ questionId, questionType: 'long_answer', answer: 'saved draft', score: 999 }],
+      asLearner(),
+    );
+    expect(saved.responses).toEqual([{
+      questionId,
+      questionType: 'long_answer',
+      answer: 'saved draft',
+    }]);
+
+    const resumed = await assessments.startAttempt(assessmentId, asLearner());
+    expect(resumed.id).toBe(started.id);
+    expect(resumed.responses).toEqual(saved.responses);
+
+    const submitted = await instances.submit({
+      assessmentId,
+      enrollmentId,
+      responses: [{ questionId, questionType: 'long_answer', answer: 'final answer' }],
+    }, asLearner());
+    expect(submitted.id).toBe(started.id);
+    expect(submitted.status).toBe('submitted');
+    const stored = await prisma.assessmentSubmission.findUniqueOrThrow({
+      where: { id: started.id },
+    });
+    expect(stored.submittedAt).toBeInstanceOf(Date);
+  });
+
+  it('persists the complete evidence-backed PoE role workflow and hides it from another tenant', async () => {
+    const artifact = await poeWorkflow.create({
+      enrollmentId,
+      kind: 'WORKBOOK',
+      title: 'E2E verified workbook',
+    }, asFacilitator());
+    const upload = await prisma.uploadRecord.create({
+      data: {
+        organisationId: orgA,
+        uploadedById: learnerId,
+        storageKey: `poe/${orgA}/${randomUUID()}.pdf`,
+        originalName: 'workbook.pdf',
+        mimeType: 'application/pdf',
+        size: 100,
+        sha256: 'a'.repeat(64),
+        provider: 'e2e',
+        status: 'VERIFIED',
+        scanResult: 'e2e-clean',
+        scannedAt: new Date(),
+        verifiedAt: new Date(),
+        retentionUntil: new Date(Date.now() + 86_400_000),
+      },
+    });
+    await prisma.poeArtifactUpload.create({
+      data: { artifactId: artifact.id, uploadId: upload.id, linkedById: learnerId },
+    });
+
+    await poeWorkflow.transition(artifact.id, 'issue', {}, asFacilitator());
+    await poeWorkflow.transition(artifact.id, 'submit', {}, asLearner());
+    await poeWorkflow.transition(
+      artifact.id, 'facilitator_mark', { feedback: 'complete' }, asFacilitator(),
+    );
+    await poeWorkflow.transition(
+      artifact.id, 'allocate_assessor', { assessorId }, asFacilitator(),
+    );
+    await poeWorkflow.transition(
+      artifact.id, 'assessor_mark', { feedback: 'satisfactory' }, asAssessor(),
+    );
+    await poeWorkflow.transition(
+      artifact.id, 'submit_moderation', { moderatorId }, asAssessor(),
+    );
+    const final = await poeWorkflow.transition(
+      artifact.id, 'moderate_approve', { feedback: 'approved sample' }, asModerator(),
+    );
+    expect(final).toEqual(expect.objectContaining({
+      status: 'MODERATION_COMPLETE', moderationOutcome: 'APPROVED',
+    }));
+    await expect(poeWorkflow.byId(artifact.id, asAdminB()))
+      .rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('binds QR check-in to programme and rejects replay', async () => {

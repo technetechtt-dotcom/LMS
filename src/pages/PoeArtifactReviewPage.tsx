@@ -1,14 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, PenTool, Send } from 'lucide-react';
+import { ArrowLeft, PenTool, Send, Upload } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { useAuth } from '../contexts/AuthContext';
 import {
   poeArtifactService,
-  userService,
+  directoryService,
   type PoeArtifact,
 } from '../services/api';
 import {
@@ -32,6 +32,8 @@ export function PoeArtifactReviewPage() {
   const [moderationDecision, setModerationDecision] = useState<
     'approve' | 'reject'
   >('approve');
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [staffOptions, setStaffOptions] = useState<
     Array<{ id: string; name: string; role: string }>
   >([]);
@@ -68,9 +70,9 @@ export function PoeArtifactReviewPage() {
 
   useEffect(() => {
     if (!userRole || userRole === 'Learner') return;
-    void userService.getAll().then((res) => {
-      const list = (res.data ?? []).map((u) => {
-        const roleCode = u.memberships[0]?.role?.code ?? '';
+    void directoryService.staff({ roles: ['ASSESSOR', 'MODERATOR'], pageSize: 50 }).then((res) => {
+      const list = (res.data?.items ?? []).map((u) => {
+        const roleCode = u.role;
         const roleLabel =
           roleCode === 'ASSESSOR'
             ? 'Assessor'
@@ -81,7 +83,7 @@ export function PoeArtifactReviewPage() {
                 : roleCode;
         return {
           id: u.id,
-          name: `${u.firstName} ${u.lastName}`.trim(),
+          name: u.name,
           role: roleLabel,
         };
       });
@@ -133,6 +135,13 @@ export function PoeArtifactReviewPage() {
     }
     try {
       if (userRole === 'Learner') {
+        if (evidenceFile) {
+          setUploading(true);
+          await poeArtifactService.uploadEvidence(artifact, evidenceFile);
+        } else if (!artifact.evidenceVerified) {
+          toast.error('Attach a verified evidence file before submitting');
+          return;
+        }
         await poeArtifactService.transition(id, 'submit');
         toast.success('Submitted for facilitator marking');
       } else if (userRole === 'Facilitator') {
@@ -177,6 +186,8 @@ export function PoeArtifactReviewPage() {
       navigate(-1);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -249,6 +260,21 @@ export function PoeArtifactReviewPage() {
               from the learner profile or learning library.
             </p>
           )}
+          {userRole === 'Learner' && artifact.status === 'ISSUED_TO_LEARNER' && (
+            <label className="mt-4 flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-gray-300 p-3 text-sm text-gray-700">
+              <Upload className="h-4 w-4" />
+              <span>{evidenceFile?.name ?? 'Choose evidence file'}</span>
+              <input
+                className="sr-only"
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.mp4,.mp3,.wav,.txt,.csv,.docx,.xlsx,.pptx"
+                onChange={(event) => setEvidenceFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+          )}
+          <p className="mt-2 text-xs text-gray-500">
+            Verified evidence files: {artifact.evidenceCount ?? 0}
+          </p>
         </Card>
 
         {(artifact.facilitatorFeedback || artifact.assessorFeedback) && (
@@ -376,7 +402,7 @@ export function PoeArtifactReviewPage() {
             Back
           </Button>
           {canAct && (
-            <Button leftIcon={<Send className="h-4 w-4" />} onClick={() => void handleSubmit()}>
+            <Button disabled={uploading} leftIcon={<Send className="h-4 w-4" />} onClick={() => void handleSubmit()}>
               {userRole === 'Learner'
                 ? 'Submit to facilitator'
                 : userRole === 'Facilitator'

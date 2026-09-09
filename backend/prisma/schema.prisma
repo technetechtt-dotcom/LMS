@@ -77,48 +77,55 @@ enum PoeModerationOutcome {
 }
 
 model User {
-  id           String             @id @default(uuid()) @db.Uuid
-  email        String             @unique
-  passwordHash String
-  firstName    String
-  lastName     String
-  phone        String?
-  jobTitle     String?
-  signatureStorageKey String?
-  isActive     Boolean            @default(true)
+  id                               String                @id @default(uuid()) @db.Uuid
+  email                            String                @unique
+  passwordHash                     String
+  firstName                        String
+  lastName                         String
+  phone                            String?
+  jobTitle                         String?
+  signatureStorageKey              String?
+  isActive                         Boolean               @default(true)
   /// SDP-assigned facilitator job capacity (optional).
-  facilitatorRole FacilitatorRole?
-  lastLoginAt  DateTime?
+  facilitatorRole                  FacilitatorRole?
+  lastLoginAt                      DateTime?
   /// Null until an activation link has been used to set the first password.
-  passwordSetAt DateTime?          @default(now())
-  totpEnabled  Boolean            @default(false)
-  totpSecret   String?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  deletedAt    DateTime?
-  memberships  UserOrganisation[]
-  enrollments  Enrollment[]       @relation("LearnerEnrollments")
-  evidence     Evidence[]         @relation("EvidenceUploadedBy")
-  verifiedDocs Document[]         @relation("DocumentVerifiedBy")
-  audits       AuditLog[]
-  poeArtifactsCreated          PoeLearningArtifact[] @relation("PoeArtifactCreatedBy")
-  poeArtifactsFacilitatorMarked PoeLearningArtifact[] @relation("PoeArtifactFacilitatorMarkedBy")
-  poeArtifactsAllocatedAsAssessor PoeLearningArtifact[] @relation("PoeArtifactAssessor")
+  passwordSetAt                    DateTime?             @default(now())
+  totpEnabled                      Boolean               @default(false)
+  totpSecret                       String?
+  createdAt                        DateTime              @default(now())
+  updatedAt                        DateTime              @updatedAt
+  deletedAt                        DateTime?
+  memberships                      UserOrganisation[]
+  enrollments                      Enrollment[]          @relation("LearnerEnrollments")
+  evidence                         Evidence[]            @relation("EvidenceUploadedBy")
+  verifiedDocs                     Document[]            @relation("DocumentVerifiedBy")
+  audits                           AuditLog[]
+  poeArtifactsCreated              PoeLearningArtifact[] @relation("PoeArtifactCreatedBy")
+  poeArtifactsFacilitatorMarked    PoeLearningArtifact[] @relation("PoeArtifactFacilitatorMarkedBy")
+  poeArtifactsAllocatedAsAssessor  PoeLearningArtifact[] @relation("PoeArtifactAssessor")
   poeArtifactsSubmittedToModerator PoeLearningArtifact[] @relation("PoeArtifactSubmittedForModerationBy")
-  poeArtifactsModerated        PoeLearningArtifact[] @relation("PoeArtifactModerator")
-  uploadedLearningMaterials     LearningMaterial[]     @relation("LearningMaterialUploadedBy")
-  refreshTokens                 RefreshToken[]
-  passwordResetTokens           PasswordResetToken[]
-  inAppNotifications            InAppNotification[]
-  messagesSent                  Message[]              @relation("MessagesSent")
-  messagesReceived              Message[]              @relation("MessagesReceived")
-  workplaceLogsMentored         WorkplaceLog[]         @relation("WorkplaceLogMentor")
-  credentialsIssued             Credential[]           @relation("CredentialIssuedBy")
-  invitationsSent               Invitation[]           @relation("InvitationInvitedBy")
-  dataSubjectRequests           DataSubjectRequest[]
-  preference                    UserPreference?
-  complianceDecisions           ComplianceDecision[] @relation("ComplianceDecisionActor")
-  generatedReports              GeneratedReport[]     @relation("GeneratedReportActor")
+  poeArtifactsModerated            PoeLearningArtifact[] @relation("PoeArtifactModerator")
+  uploadedLearningMaterials        LearningMaterial[]    @relation("LearningMaterialUploadedBy")
+  refreshTokens                    RefreshToken[]
+  passwordResetTokens              PasswordResetToken[]
+  inAppNotifications               InAppNotification[]
+  messagesSent                     Message[]             @relation("MessagesSent")
+  messagesReceived                 Message[]             @relation("MessagesReceived")
+  workplaceLogsMentored            WorkplaceLog[]        @relation("WorkplaceLogMentor")
+  credentialsIssued                Credential[]          @relation("CredentialIssuedBy")
+  invitationsSent                  Invitation[]          @relation("InvitationInvitedBy")
+  dataSubjectRequests              DataSubjectRequest[]
+  preference                       UserPreference?
+  complianceDecisions              ComplianceDecision[]  @relation("ComplianceDecisionActor")
+  generatedReports                 GeneratedReport[]     @relation("GeneratedReportActor")
+  uploadedFiles                    UploadRecord[]        @relation("UploadRecordUploader")
+  activationDeliveryAttempts       MailDeliveryAttempt[] @relation("MailDeliveryUser")
+  reportDownloads                  ReportDownload[]      @relation("ReportDownloadActor")
+  complianceAlertsAcknowledged     ComplianceAlert[]     @relation("ComplianceAlertAcknowledgedBy")
+  complianceAlertsResolved         ComplianceAlert[]     @relation("ComplianceAlertResolvedBy")
+  poeArtifactUploadsLinked         PoeArtifactUpload[]   @relation("PoeArtifactUploadLinkedBy")
+  mailDeliveryJobs                 MailDeliveryJob[]     @relation("MailDeliveryJobUser")
 }
 
 model Role {
@@ -133,30 +140,34 @@ model Role {
 }
 
 model Organisation {
-  id            String             @id @default(uuid()) @db.Uuid
-  name          String
-  registrationNo String?
-  type          OrganisationType
-  metadata      Json?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  deletedAt     DateTime?
-  memberships   UserOrganisation[]
-  programmes    Programme[]
-  sdioEnrollments   Enrollment[]       @relation("SdioOrganisationEnrollment")
-  employerEnrollments Enrollment[]     @relation("EmployerOrganisationEnrollment")
-  documents     Document[]
-  learningMaterials LearningMaterial[]
-  messages      Message[]
-  credentials   Credential[]
-  invitations   Invitation[]
-  dataSubjectRequests DataSubjectRequest[]
-  attendanceSessions AttendanceSession[]
-  assessmentInstruments AssessmentInstrument[]
+  id                     String                  @id @default(uuid()) @db.Uuid
+  name                   String
+  registrationNo         String?
+  type                   OrganisationType
+  metadata               Json?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  deletedAt              DateTime?
+  memberships            UserOrganisation[]
+  programmes             Programme[]
+  sdioEnrollments        Enrollment[]            @relation("SdioOrganisationEnrollment")
+  employerEnrollments    Enrollment[]            @relation("EmployerOrganisationEnrollment")
+  documents              Document[]
+  learningMaterials      LearningMaterial[]
+  messages               Message[]
+  credentials            Credential[]
+  invitations            Invitation[]
+  dataSubjectRequests    DataSubjectRequest[]
+  attendanceSessions     AttendanceSession[]
+  assessmentInstruments  AssessmentInstrument[]
   setaGatewaySubmissions SetaGatewaySubmission[]
-  complianceDecisions ComplianceDecision[]
-  generatedReports GeneratedReport[]
-  uploads         UploadRecord[]
+  complianceDecisions    ComplianceDecision[]
+  generatedReports       GeneratedReport[]
+  uploads                UploadRecord[]
+  mailDeliveryAttempts   MailDeliveryAttempt[]
+  reportDownloads        ReportDownload[]
+  complianceAlerts       ComplianceAlert[]
+  mailDeliveryJobs       MailDeliveryJob[]
 }
 
 model UserOrganisation {
@@ -190,32 +201,32 @@ model Qualification {
 }
 
 model UnitStandard {
-  id              String         @id @default(uuid()) @db.Uuid
-  code            String         @unique
-  title           String
-  credits         Int
-  level           Int
-  qualificationId String         @db.Uuid
-  qualification   Qualification  @relation(fields: [qualificationId], references: [id])
-  outcomes        Outcome[]
-  assessments     Assessment[]
-  assessmentQuestions AssessmentQuestion[]
+  id                    String                 @id @default(uuid()) @db.Uuid
+  code                  String                 @unique
+  title                 String
+  credits               Int
+  level                 Int
+  qualificationId       String                 @db.Uuid
+  qualification         Qualification          @relation(fields: [qualificationId], references: [id])
+  outcomes              Outcome[]
+  assessments           Assessment[]
+  assessmentQuestions   AssessmentQuestion[]
   assessmentInstruments AssessmentInstrument[]
-  evidence        Evidence[]
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  deletedAt       DateTime?
+  evidence              Evidence[]
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  deletedAt             DateTime?
 }
 
 model Outcome {
-  id             String        @id @default(uuid()) @db.Uuid
-  unitStandardId String        @db.Uuid
+  id             String       @id @default(uuid()) @db.Uuid
+  unitStandardId String       @db.Uuid
   code           String
   description    String
-  unitStandard   UnitStandard  @relation(fields: [unitStandardId], references: [id])
+  unitStandard   UnitStandard @relation(fields: [unitStandardId], references: [id])
   evidence       Evidence[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
   deletedAt      DateTime?
 
   @@unique([unitStandardId, code])
@@ -235,53 +246,53 @@ enum FacilitatorRole {
 }
 
 model Programme {
-  id               String         @id @default(uuid()) @db.Uuid
-  organisationId   String         @db.Uuid
-  qualificationId  String         @db.Uuid
-  code             String
-  title            String
-  programmeKind    ProgrammeKind  @default(OCCUPATIONAL_PROGRAMME)
-  startDate        DateTime?
-  endDate          DateTime?
-  metadata         Json?
-  organisation     Organisation   @relation(fields: [organisationId], references: [id])
-  qualification    Qualification  @relation(fields: [qualificationId], references: [id])
-  enrollments      Enrollment[]
-  learningMaterials LearningMaterial[]
+  id                 String              @id @default(uuid()) @db.Uuid
+  organisationId     String              @db.Uuid
+  qualificationId    String              @db.Uuid
+  code               String
+  title              String
+  programmeKind      ProgrammeKind       @default(OCCUPATIONAL_PROGRAMME)
+  startDate          DateTime?
+  endDate            DateTime?
+  metadata           Json?
+  organisation       Organisation        @relation(fields: [organisationId], references: [id])
+  qualification      Qualification       @relation(fields: [qualificationId], references: [id])
+  enrollments        Enrollment[]
+  learningMaterials  LearningMaterial[]
   attendanceSessions AttendanceSession[]
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  deletedAt        DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  deletedAt          DateTime?
 
   @@unique([organisationId, code])
 }
 
 model Enrollment {
-  id                    String                 @id @default(uuid()) @db.Uuid
-  learnerId             String                 @db.Uuid
-  programmeId           String                 @db.Uuid
-  sdioOrganisationId    String                 @db.Uuid
-  employerOrganisationId String?               @db.Uuid
-  status                LearnerLifecycleStatus @default(ENROLLED)
-  startedAt             DateTime?
-  completedAt           DateTime?
-  metadata              Json?
-  learner               User                   @relation("LearnerEnrollments", fields: [learnerId], references: [id])
-  programme             Programme              @relation(fields: [programmeId], references: [id])
-  sdioOrganisation      Organisation           @relation("SdioOrganisationEnrollment", fields: [sdioOrganisationId], references: [id])
-  employerOrganisation  Organisation?          @relation("EmployerOrganisationEnrollment", fields: [employerOrganisationId], references: [id])
-  evidence              Evidence[]
-  workplaceLogs         WorkplaceLog[]
-  assessments           Assessment[]
-  attendance            Attendance[]
-  workflowTransitions   EnrollmentWorkflow[]
-  documents             Document[]
-  poeLearningArtifacts PoeLearningArtifact[]
-  assessmentSubmissions AssessmentSubmission[]
-  credentials           Credential[]
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  deletedAt             DateTime?
+  id                     String                 @id @default(uuid()) @db.Uuid
+  learnerId              String                 @db.Uuid
+  programmeId            String                 @db.Uuid
+  sdioOrganisationId     String                 @db.Uuid
+  employerOrganisationId String?                @db.Uuid
+  status                 LearnerLifecycleStatus @default(ENROLLED)
+  startedAt              DateTime?
+  completedAt            DateTime?
+  metadata               Json?
+  learner                User                   @relation("LearnerEnrollments", fields: [learnerId], references: [id])
+  programme              Programme              @relation(fields: [programmeId], references: [id])
+  sdioOrganisation       Organisation           @relation("SdioOrganisationEnrollment", fields: [sdioOrganisationId], references: [id])
+  employerOrganisation   Organisation?          @relation("EmployerOrganisationEnrollment", fields: [employerOrganisationId], references: [id])
+  evidence               Evidence[]
+  workplaceLogs          WorkplaceLog[]
+  assessments            Assessment[]
+  attendance             Attendance[]
+  workflowTransitions    EnrollmentWorkflow[]
+  documents              Document[]
+  poeLearningArtifacts   PoeLearningArtifact[]
+  assessmentSubmissions  AssessmentSubmission[]
+  credentials            Credential[]
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  deletedAt              DateTime?
 
   @@index([programmeId, status])
   @@index([learnerId, status])
@@ -289,41 +300,42 @@ model Enrollment {
 
 /// Learner Guide (textbook), Workbook (facilitator-built homework), or Summative — with PoE marking workflow.
 model PoeLearningArtifact {
-  id                       String                     @id @default(uuid()) @db.Uuid
-  enrollmentId             String                     @db.Uuid
-  kind                     PoeLearningArtifactKind
-  title                    String
-  description              String?
-  status                   PoeLearningArtifactStatus  @default(DRAFT)
-  createdById              String                     @db.Uuid
-  facilitatorMarkedAt      DateTime?
-  facilitatorMarkedById    String?                    @db.Uuid
+  id                         String                    @id @default(uuid()) @db.Uuid
+  enrollmentId               String                    @db.Uuid
+  kind                       PoeLearningArtifactKind
+  title                      String
+  description                String?
+  status                     PoeLearningArtifactStatus @default(DRAFT)
+  createdById                String                    @db.Uuid
+  facilitatorMarkedAt        DateTime?
+  facilitatorMarkedById      String?                   @db.Uuid
   /// Convention: facilitator feedback corresponds to blue pen on physical PoE.
-  facilitatorFeedback      String?
-  allocatedToAssessorAt    DateTime?
-  assessorId               String?                    @db.Uuid
-  assessorMarkedAt        DateTime?
+  facilitatorFeedback        String?
+  allocatedToAssessorAt      DateTime?
+  assessorId                 String?                   @db.Uuid
+  assessorMarkedAt           DateTime?
   /// Convention: assessor feedback corresponds to red pen.
-  assessorFeedback        String?
-  submittedToModeratorAt  DateTime?
-  submittedForModerationById String?                  @db.Uuid
-  moderatorId             String?                    @db.Uuid
-  moderatedAt              DateTime?
+  assessorFeedback           String?
+  submittedToModeratorAt     DateTime?
+  submittedForModerationById String?                   @db.Uuid
+  moderatorId                String?                   @db.Uuid
+  moderatedAt                DateTime?
   /// Convention: moderator feedback corresponds to green pen.
-  moderatorFeedback       String?
-  moderationOutcome       PoeModerationOutcome        @default(PENDING)
-  storageKey               String?
-  url                      String?
-  metadata                 Json?
-  enrollment               Enrollment                  @relation(fields: [enrollmentId], references: [id])
-  createdBy                User                      @relation("PoeArtifactCreatedBy", fields: [createdById], references: [id])
-  facilitatorMarkedBy      User?                     @relation("PoeArtifactFacilitatorMarkedBy", fields: [facilitatorMarkedById], references: [id])
-  assessor                 User?                     @relation("PoeArtifactAssessor", fields: [assessorId], references: [id])
-  submittedForModerationBy User?                     @relation("PoeArtifactSubmittedForModerationBy", fields: [submittedForModerationById], references: [id])
-  moderator                User?                     @relation("PoeArtifactModerator", fields: [moderatorId], references: [id])
-  createdAt                DateTime                  @default(now())
-  updatedAt                DateTime                  @updatedAt
-  deletedAt                DateTime?
+  moderatorFeedback          String?
+  moderationOutcome          PoeModerationOutcome      @default(PENDING)
+  storageKey                 String?
+  url                        String?
+  metadata                   Json?
+  enrollment                 Enrollment                @relation(fields: [enrollmentId], references: [id])
+  createdBy                  User                      @relation("PoeArtifactCreatedBy", fields: [createdById], references: [id])
+  facilitatorMarkedBy        User?                     @relation("PoeArtifactFacilitatorMarkedBy", fields: [facilitatorMarkedById], references: [id])
+  assessor                   User?                     @relation("PoeArtifactAssessor", fields: [assessorId], references: [id])
+  submittedForModerationBy   User?                     @relation("PoeArtifactSubmittedForModerationBy", fields: [submittedForModerationById], references: [id])
+  moderator                  User?                     @relation("PoeArtifactModerator", fields: [moderatorId], references: [id])
+  uploads                    PoeArtifactUpload[]
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+  deletedAt                  DateTime?
 
   @@index([enrollmentId, status])
   @@index([assessorId, status])
@@ -331,76 +343,78 @@ model PoeLearningArtifact {
 }
 
 model Evidence {
-  id             String      @id @default(uuid()) @db.Uuid
-  enrollmentId   String      @db.Uuid
-  unitStandardId String      @db.Uuid
-  outcomeId      String?     @db.Uuid
+  id             String       @id @default(uuid()) @db.Uuid
+  enrollmentId   String       @db.Uuid
+  unitStandardId String       @db.Uuid
+  outcomeId      String?      @db.Uuid
   fileName       String
   fileType       String
   fileSize       Int
   storageKey     String
+  uploadId       String       @unique @db.Uuid
   url            String
   metadata       Json?
-  latitude       Decimal?    @db.Decimal(10, 7)
-  longitude      Decimal?    @db.Decimal(10, 7)
-  uploadedById   String      @db.Uuid
-  verifiedById   String?     @db.Uuid
-  uploadedAt     DateTime    @default(now())
+  latitude       Decimal?     @db.Decimal(10, 7)
+  longitude      Decimal?     @db.Decimal(10, 7)
+  uploadedById   String       @db.Uuid
+  verifiedById   String?      @db.Uuid
+  uploadedAt     DateTime     @default(now())
   verifiedAt     DateTime?
-  enrollment     Enrollment  @relation(fields: [enrollmentId], references: [id])
+  enrollment     Enrollment   @relation(fields: [enrollmentId], references: [id])
   unitStandard   UnitStandard @relation(fields: [unitStandardId], references: [id])
-  outcome        Outcome?    @relation(fields: [outcomeId], references: [id])
-  uploadedBy     User        @relation("EvidenceUploadedBy", fields: [uploadedById], references: [id])
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  outcome        Outcome?     @relation(fields: [outcomeId], references: [id])
+  uploadedBy     User         @relation("EvidenceUploadedBy", fields: [uploadedById], references: [id])
+  upload         UploadRecord @relation(fields: [uploadId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
   deletedAt      DateTime?
 
   @@index([enrollmentId, unitStandardId])
 }
 
 model WorkplaceLog {
-  id              String      @id @default(uuid()) @db.Uuid
-  enrollmentId    String      @db.Uuid
-  logDate         DateTime
-  hoursWorked     Decimal     @db.Decimal(5, 2)
-  activity        String
-  supervisorName  String
-  supervisorEmail String?
+  id                 String     @id @default(uuid()) @db.Uuid
+  enrollmentId       String     @db.Uuid
+  logDate            DateTime
+  hoursWorked        Decimal    @db.Decimal(5, 2)
+  activity           String
+  supervisorName     String
+  supervisorEmail    String?
   supervisorSignedAt DateTime?
   /// PENDING until workplace mentor verifies; only VERIFIED hours count toward completion.
-  mentorStatus    String      @default("PENDING")
-  mentorVerifiedAt DateTime?
-  mentorVerifiedById String?  @db.Uuid
-  mentorFeedback  String?
-  metadata        Json?
-  enrollment      Enrollment  @relation(fields: [enrollmentId], references: [id])
-  mentorVerifiedBy User?      @relation("WorkplaceLogMentor", fields: [mentorVerifiedById], references: [id])
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  deletedAt       DateTime?
+  mentorStatus       String     @default("PENDING")
+  mentorVerifiedAt   DateTime?
+  mentorVerifiedById String?    @db.Uuid
+  mentorFeedback     String?
+  metadata           Json?
+  enrollment         Enrollment @relation(fields: [enrollmentId], references: [id])
+  mentorVerifiedBy   User?      @relation("WorkplaceLogMentor", fields: [mentorVerifiedById], references: [id])
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  deletedAt          DateTime?
 
   @@index([enrollmentId, logDate])
   @@index([enrollmentId, mentorStatus])
 }
 
 model Assessment {
-  id              String           @id @default(uuid()) @db.Uuid
-  enrollmentId    String           @db.Uuid
-  unitStandardId  String           @db.Uuid
-  assessorId      String           @db.Uuid
-  moderatorId     String?          @db.Uuid
-  result          CompetencyResult @default(PENDING)
-  feedback        String?
-  evidenceLinks   Json?
-  assessedAt      DateTime         @default(now())
-  version         Int              @default(1)
-  enrollment      Enrollment       @relation(fields: [enrollmentId], references: [id])
-  unitStandard    UnitStandard     @relation(fields: [unitStandardId], references: [id])
-  moderation      Moderation?
-  submissions     AssessmentSubmission[]
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  deletedAt       DateTime?
+  id             String                 @id @default(uuid()) @db.Uuid
+  enrollmentId   String                 @db.Uuid
+  unitStandardId String                 @db.Uuid
+  assessorId     String                 @db.Uuid
+  moderatorId    String?                @db.Uuid
+  result         CompetencyResult       @default(PENDING)
+  feedback       String?
+  evidenceLinks  Json?
+  assessedAt     DateTime               @default(now())
+  version        Int                    @default(1)
+  enrollment     Enrollment             @relation(fields: [enrollmentId], references: [id])
+  unitStandard   UnitStandard           @relation(fields: [unitStandardId], references: [id])
+  moderation     Moderation[]
+  submissions    AssessmentSubmission[]
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  deletedAt      DateTime?
 
   @@index([enrollmentId, assessedAt])
   @@index([unitStandardId, result])
@@ -408,29 +422,29 @@ model Assessment {
 }
 
 model AssessmentSubmission {
-  id           String     @id @default(uuid()) @db.Uuid
-  enrollmentId String     @db.Uuid
-  assessmentId String     @db.Uuid
-  instrumentId String?    @db.Uuid
-  attemptNumber Int       @default(1)
-  status       String     @default("submitted")
-  responses    Json       @default("[]")
-  humanGrades  Json?
-  score        Float?
-  percentage   Float?
-  feedback     String?
-  submittedAt  DateTime?
-  gradedAt     DateTime?
-  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
-  assessment   Assessment @relation(fields: [assessmentId], references: [id])
-  instrument   AssessmentInstrument? @relation(fields: [instrumentId], references: [id])
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id            String                @id @default(uuid()) @db.Uuid
+  enrollmentId  String                @db.Uuid
+  assessmentId  String                @db.Uuid
+  instrumentId  String?               @db.Uuid
+  attemptNumber Int                   @default(1)
+  status        String                @default("submitted")
+  responses     Json                  @default("[]")
+  humanGrades   Json?
+  score         Float?
+  percentage    Float?
+  feedback      String?
+  submittedAt   DateTime?
+  gradedAt      DateTime?
+  enrollment    Enrollment            @relation(fields: [enrollmentId], references: [id])
+  assessment    Assessment            @relation(fields: [assessmentId], references: [id])
+  instrument    AssessmentInstrument? @relation(fields: [instrumentId], references: [id])
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
 
+  @@unique([assessmentId, enrollmentId, attemptNumber])
   @@index([enrollmentId, assessmentId])
   @@index([assessmentId, status])
   @@index([instrumentId])
-  @@unique([assessmentId, enrollmentId, attemptNumber])
 }
 
 model Message {
@@ -460,31 +474,31 @@ enum CredentialStatus {
 
 /// First-class credential record (not Document metadata).
 model Credential {
-  id                 String           @id @default(uuid()) @db.Uuid
-  organisationId     String           @db.Uuid
-  enrollmentId       String           @db.Uuid
-  certificateNumber  String           @unique
-  verificationCode   String           @unique
-  title              String
-  learnerName        String
-  programmeName      String
-  status             CredentialStatus @default(ISSUED)
-  issuedAt           DateTime         @default(now())
-  issuedById         String?          @db.Uuid
-  revokedAt          DateTime?
-  revocationReason   String?
-  supersedesId       String?          @db.Uuid
-  pdfStorageKey      String
-  pdfSha256          String?
-  documentId         String?          @db.Uuid
-  metadata           Json?
-  organisation       Organisation     @relation(fields: [organisationId], references: [id])
-  enrollment         Enrollment       @relation(fields: [enrollmentId], references: [id])
-  issuedBy           User?            @relation("CredentialIssuedBy", fields: [issuedById], references: [id])
-  supersedes         Credential?      @relation("CredentialSupersession", fields: [supersedesId], references: [id])
-  supersededBy       Credential[]     @relation("CredentialSupersession")
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  id                String           @id @default(uuid()) @db.Uuid
+  organisationId    String           @db.Uuid
+  enrollmentId      String           @db.Uuid
+  certificateNumber String           @unique
+  verificationCode  String           @unique
+  title             String
+  learnerName       String
+  programmeName     String
+  status            CredentialStatus @default(ISSUED)
+  issuedAt          DateTime         @default(now())
+  issuedById        String?          @db.Uuid
+  revokedAt         DateTime?
+  revocationReason  String?
+  supersedesId      String?          @db.Uuid
+  pdfStorageKey     String
+  pdfSha256         String?
+  documentId        String?          @db.Uuid
+  metadata          Json?
+  organisation      Organisation     @relation(fields: [organisationId], references: [id])
+  enrollment        Enrollment       @relation(fields: [enrollmentId], references: [id])
+  issuedBy          User?            @relation("CredentialIssuedBy", fields: [issuedById], references: [id])
+  supersedes        Credential?      @relation("CredentialSupersession", fields: [supersedesId], references: [id])
+  supersededBy      Credential[]     @relation("CredentialSupersession")
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   @@index([organisationId, status])
   @@index([enrollmentId])
@@ -492,32 +506,44 @@ model Credential {
 }
 
 model Moderation {
-  id            String             @id @default(uuid()) @db.Uuid
-  assessmentId  String             @unique @db.Uuid
-  moderatorId   String             @db.Uuid
-  decision      ModerationDecision
-  feedback      String?
-  moderatedAt   DateTime           @default(now())
-  trail         Json?
-  assessment    Assessment         @relation(fields: [assessmentId], references: [id])
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  deletedAt     DateTime?
+  id               String              @id @default(uuid()) @db.Uuid
+  assessmentId     String              @db.Uuid
+  round            Int                 @default(1)
+  moderatorId      String              @db.Uuid
+  decision         ModerationDecision
+  feedback         String?
+  allocatedAt      DateTime            @default(now())
+  submittedVersion Int                 @default(1)
+  sampledRecords   Json                @default("[]")
+  moderatedAt      DateTime?
+  previousOutcome  ModerationDecision?
+  supersedesId     String?             @unique @db.Uuid
+  trail            Json?
+  assessment       Assessment          @relation(fields: [assessmentId], references: [id])
+  supersedes       Moderation?         @relation("ModerationSupersession", fields: [supersedesId], references: [id])
+  supersededBy     Moderation[]        @relation("ModerationSupersession")
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  deletedAt        DateTime?
+
+  @@unique([assessmentId, round])
+  @@index([assessmentId, moderatedAt])
+  @@index([moderatorId, decision])
 }
 
 model Attendance {
-  id           String           @id @default(uuid()) @db.Uuid
-  enrollmentId String           @db.Uuid
-  sessionId    String?          @db.Uuid
+  id           String             @id @default(uuid()) @db.Uuid
+  enrollmentId String             @db.Uuid
+  sessionId    String?            @db.Uuid
   sessionDate  DateTime
   status       AttendanceStatus
-  latitude     Decimal?         @db.Decimal(10, 7)
-  longitude    Decimal?         @db.Decimal(10, 7)
+  latitude     Decimal?           @db.Decimal(10, 7)
+  longitude    Decimal?           @db.Decimal(10, 7)
   notes        String?
-  enrollment   Enrollment       @relation(fields: [enrollmentId], references: [id])
+  enrollment   Enrollment         @relation(fields: [enrollmentId], references: [id])
   session      AttendanceSession? @relation(fields: [sessionId], references: [id])
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
   deletedAt    DateTime?
 
   @@unique([sessionId, enrollmentId])
@@ -526,21 +552,23 @@ model Attendance {
 }
 
 model Document {
-  id             String       @id @default(uuid()) @db.Uuid
-  organisationId String?      @db.Uuid
-  enrollmentId   String?      @db.Uuid
+  id             String        @id @default(uuid()) @db.Uuid
+  organisationId String?       @db.Uuid
+  enrollmentId   String?       @db.Uuid
   category       String
   name           String
   storageKey     String
+  uploadId       String?       @unique @db.Uuid
   url            String
   metadata       Json?
-  verifiedById   String?      @db.Uuid
+  verifiedById   String?       @db.Uuid
   verifiedAt     DateTime?
   organisation   Organisation? @relation(fields: [organisationId], references: [id])
-  enrollment     Enrollment?  @relation(fields: [enrollmentId], references: [id])
-  verifiedBy     User?        @relation("DocumentVerifiedBy", fields: [verifiedById], references: [id])
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  enrollment     Enrollment?   @relation(fields: [enrollmentId], references: [id])
+  verifiedBy     User?         @relation("DocumentVerifiedBy", fields: [verifiedById], references: [id])
+  upload         UploadRecord? @relation(fields: [uploadId], references: [id])
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   deletedAt      DateTime?
 
   @@index([enrollmentId, category])
@@ -549,38 +577,38 @@ model Document {
 
 /// SDP programme library (guides, assessment instruments, templates). Workbook/summative PDFs use poeComponent Assessment; learner guides use Knowledge — not the per-enrollment PoE workflow instance.
 model LearningMaterial {
-  id                 String         @id @default(uuid()) @db.Uuid
-  organisationId     String         @db.Uuid
-  programmeId        String?        @db.Uuid
-  title              String
-  description        String?
-  moduleCode         String?
+  id                String       @id @default(uuid()) @db.Uuid
+  organisationId    String       @db.Uuid
+  programmeId       String?      @db.Uuid
+  title             String
+  description       String?
+  moduleCode        String?
   /// Matches frontend: learner-guide | learner-workbook | summative | other
-  artifactSlug       String         @default("other")
-  artifactTypeLabel  String?
+  artifactSlug      String       @default("other")
+  artifactTypeLabel String?
   /// Knowledge | Practical | Workplace | Compliance | Assessment (workbook/summative KM artefacts)
-  poeComponent       String         @default("Knowledge")
-  moduleKey          String?
-  moduleLabel        String?
+  poeComponent      String       @default("Knowledge")
+  moduleKey         String?
+  moduleLabel       String?
   /// video | pdf | document | interactive | audio
-  mediaKind          String         @default("pdf")
-  formatLabel        String         @default("PDF")
-  fileName           String?
-  fileSizeBytes      Int            @default(0)
-  storageKey         String?
-  url                String
-  viewCount          Int            @default(0)
-  downloadCount      Int            @default(0)
-  completionCount    Int            @default(0)
-  isApproved         Boolean        @default(true)
-  isAIEnhanced       Boolean        @default(false)
-  uploadedById       String         @db.Uuid
-  organisation       Organisation   @relation(fields: [organisationId], references: [id])
-  programme          Programme?     @relation(fields: [programmeId], references: [id])
-  uploadedBy         User           @relation("LearningMaterialUploadedBy", fields: [uploadedById], references: [id])
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
-  deletedAt          DateTime?
+  mediaKind         String       @default("pdf")
+  formatLabel       String       @default("PDF")
+  fileName          String?
+  fileSizeBytes     Int          @default(0)
+  storageKey        String?
+  url               String
+  viewCount         Int          @default(0)
+  downloadCount     Int          @default(0)
+  completionCount   Int          @default(0)
+  isApproved        Boolean      @default(true)
+  isAIEnhanced      Boolean      @default(false)
+  uploadedById      String       @db.Uuid
+  organisation      Organisation @relation(fields: [organisationId], references: [id])
+  programme         Programme?   @relation(fields: [programmeId], references: [id])
+  uploadedBy        User         @relation("LearningMaterialUploadedBy", fields: [uploadedById], references: [id])
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  deletedAt         DateTime?
 
   @@index([organisationId, poeComponent])
   @@index([organisationId, artifactSlug])
@@ -588,24 +616,24 @@ model LearningMaterial {
 }
 
 model WorkflowState {
-  id          String              @id @default(uuid()) @db.Uuid
-  code        LearnerLifecycleStatus @unique
-  label       String
-  order       Int                 @unique
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  id        String                 @id @default(uuid()) @db.Uuid
+  code      LearnerLifecycleStatus @unique
+  label     String
+  order     Int                    @unique
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
 }
 
 model EnrollmentWorkflow {
-  id               String                 @id @default(uuid()) @db.Uuid
-  enrollmentId     String                 @db.Uuid
-  fromState        LearnerLifecycleStatus
-  toState          LearnerLifecycleStatus
-  action           WorkflowAction
-  reason           String?
-  changedById      String                 @db.Uuid
-  changedAt        DateTime               @default(now())
-  enrollment       Enrollment             @relation(fields: [enrollmentId], references: [id])
+  id           String                 @id @default(uuid()) @db.Uuid
+  enrollmentId String                 @db.Uuid
+  fromState    LearnerLifecycleStatus
+  toState      LearnerLifecycleStatus
+  action       WorkflowAction
+  reason       String?
+  changedById  String                 @db.Uuid
+  changedAt    DateTime               @default(now())
+  enrollment   Enrollment             @relation(fields: [enrollmentId], references: [id])
 
   @@index([enrollmentId, changedAt])
 }
@@ -618,25 +646,25 @@ enum AssessmentInstrumentStatus {
 }
 
 model AssessmentInstrument {
-  id             String                      @id @default(uuid()) @db.Uuid
-  organisationId String                      @db.Uuid
-  unitStandardId String                      @db.Uuid
-  version        Int
-  title          String?
-  status         AssessmentInstrumentStatus  @default(DRAFT)
-  publishedAt    DateTime?
+  id               String                     @id @default(uuid()) @db.Uuid
+  organisationId   String                     @db.Uuid
+  unitStandardId   String                     @db.Uuid
+  version          Int
+  title            String?
+  status           AssessmentInstrumentStatus @default(DRAFT)
+  publishedAt      DateTime?
   /// Max learner attempts against this published instrument (0 = unlimited).
-  maxAttempts    Int                         @default(3)
+  maxAttempts      Int                        @default(3)
   /// Minimum percentage required for competent (C) outcome.
-  passMark       Int                         @default(50)
+  passMark         Int                        @default(50)
   /// Optional time limit in minutes for learner attempts.
   timeLimitMinutes Int?
-  organisation    Organisation                 @relation(fields: [organisationId], references: [id])
-  unitStandard   UnitStandard                @relation(fields: [unitStandardId], references: [id])
-  questions      AssessmentQuestion[]
-  submissions    AssessmentSubmission[]
-  createdAt      DateTime                    @default(now())
-  updatedAt      DateTime                    @updatedAt
+  organisation     Organisation               @relation(fields: [organisationId], references: [id])
+  unitStandard     UnitStandard               @relation(fields: [unitStandardId], references: [id])
+  questions        AssessmentQuestion[]
+  submissions      AssessmentSubmission[]
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
 
   @@unique([organisationId, unitStandardId, version])
   @@index([unitStandardId, status])
@@ -645,18 +673,18 @@ model AssessmentInstrument {
 
 /// Per–unit-standard question bank; prefer linking via instrumentId for versioning.
 model AssessmentQuestion {
-  id             String                 @id @default(uuid()) @db.Uuid
-  unitStandardId String                 @db.Uuid
-  instrumentId   String?                @db.Uuid
+  id             String                @id @default(uuid()) @db.Uuid
+  unitStandardId String                @db.Uuid
+  instrumentId   String?               @db.Uuid
   orderIndex     Int
   prompt         String
-  questionType   String                 @default("mcq_single")
+  questionType   String                @default("mcq_single")
   options        Json?
-  points         Int                    @default(1)
-  unitStandard   UnitStandard           @relation(fields: [unitStandardId], references: [id])
-  instrument     AssessmentInstrument?  @relation(fields: [instrumentId], references: [id])
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
+  points         Int                   @default(1)
+  unitStandard   UnitStandard          @relation(fields: [unitStandardId], references: [id])
+  instrument     AssessmentInstrument? @relation(fields: [instrumentId], references: [id])
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
   deletedAt      DateTime?
 
   @@index([unitStandardId, orderIndex])
@@ -664,15 +692,15 @@ model AssessmentQuestion {
 }
 
 model RefreshToken {
-  id        String    @id @default(uuid()) @db.Uuid
-  userId    String    @db.Uuid
-  tokenHash String    @unique
-  expiresAt DateTime
-  revokedAt DateTime?
-  portal    String    @default("lms")
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  portal     String    @default("lms")
   lastUsedAt DateTime?
-  createdAt DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
 }
@@ -702,61 +730,164 @@ model UserPreference {
 
 /// Human compliance decisions. No readiness state is inferred from filenames.
 model ComplianceDecision {
-  id             String       @id @default(uuid()) @db.Uuid
-  organisationId String       @db.Uuid
-  controlKey     String
-  status         String       @default("NOT_REVIEWED")
-  notes          String?
-  decidedById    String       @db.Uuid
-  decidedAt      DateTime     @default(now())
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organisation   Organisation @relation(fields: [organisationId], references: [id])
-  decidedBy      User         @relation("ComplianceDecisionActor", fields: [decidedById], references: [id])
+  id                  String       @id @default(uuid()) @db.Uuid
+  organisationId      String       @db.Uuid
+  controlKey          String
+  status              String       @default("NOT_REVIEWED")
+  notes               String?
+  evidenceDocumentIds Json         @default("[]")
+  decidedById         String       @db.Uuid
+  decidedAt           DateTime     @default(now())
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  organisation        Organisation @relation(fields: [organisationId], references: [id])
+  decidedBy           User         @relation("ComplianceDecisionActor", fields: [decidedById], references: [id])
 
   @@unique([organisationId, controlKey])
   @@index([organisationId, status])
 }
 
+model ComplianceAlert {
+  id                  String       @id @default(uuid()) @db.Uuid
+  organisationId      String       @db.Uuid
+  controlKey          String
+  title               String
+  details             String?
+  status              String       @default("OPEN")
+  acknowledgedById    String?      @db.Uuid
+  acknowledgedAt      DateTime?
+  resolvedById        String?      @db.Uuid
+  resolvedAt          DateTime?
+  resolutionNotes     String?
+  evidenceDocumentIds Json         @default("[]")
+  organisation        Organisation @relation(fields: [organisationId], references: [id])
+  acknowledgedBy      User?        @relation("ComplianceAlertAcknowledgedBy", fields: [acknowledgedById], references: [id])
+  resolvedBy          User?        @relation("ComplianceAlertResolvedBy", fields: [resolvedById], references: [id])
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@index([organisationId, status, createdAt])
+}
+
 /// Persisted report metadata and the exact tenant-scoped filters used to produce it.
 model GeneratedReport {
-  id             String       @id @default(uuid()) @db.Uuid
-  organisationId String       @db.Uuid
+  id             String           @id @default(uuid()) @db.Uuid
+  organisationId String           @db.Uuid
   reportType     String
   format         String
   name           String
-  status         String       @default("COMPLETED")
-  filters        Json         @default("{}")
+  status         String           @default("COMPLETED")
+  filters        Json             @default("{}")
   snapshot       Json
-  generatedById  String       @db.Uuid
-  createdAt      DateTime     @default(now())
+  generatedById  String           @db.Uuid
+  createdAt      DateTime         @default(now())
   deletedAt      DateTime?
-  organisation   Organisation @relation(fields: [organisationId], references: [id])
-  generatedBy    User         @relation("GeneratedReportActor", fields: [generatedById], references: [id])
+  organisation   Organisation     @relation(fields: [organisationId], references: [id])
+  generatedBy    User             @relation("GeneratedReportActor", fields: [generatedById], references: [id])
+  downloads      ReportDownload[]
 
   @@index([organisationId, createdAt])
 }
 
 /// Durable upload lifecycle: a file is never reported usable before verification.
 model UploadRecord {
-  id             String       @id @default(uuid()) @db.Uuid
-  organisationId String?      @db.Uuid
-  storageKey     String?      @unique
+  id             String              @id @default(uuid()) @db.Uuid
+  organisationId String?             @db.Uuid
+  uploadedById   String?             @db.Uuid
+  storageKey     String?             @unique
   quarantineKey  String?
   originalName   String
   mimeType       String
   size           Int
   sha256         String?
   provider       String
-  status         String       @default("QUARANTINED")
+  status         String              @default("QUARANTINED")
   failureReason  String?
+  scanResult     String?
+  scannedAt      DateTime?
   verifiedAt     DateTime?
   retentionUntil DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  organisation   Organisation?       @relation(fields: [organisationId], references: [id])
+  uploadedBy     User?               @relation("UploadRecordUploader", fields: [uploadedById], references: [id])
+  documents      Document[]
+  evidence       Evidence?
+  poeArtifacts   PoeArtifactUpload[]
 
   @@index([organisationId, status, createdAt])
+  @@index([uploadedById, createdAt])
+}
+
+model PoeArtifactUpload {
+  id         String              @id @default(uuid()) @db.Uuid
+  artifactId String              @db.Uuid
+  uploadId   String              @db.Uuid
+  linkedById String              @db.Uuid
+  createdAt  DateTime            @default(now())
+  artifact   PoeLearningArtifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  upload     UploadRecord        @relation(fields: [uploadId], references: [id])
+  linkedBy   User                @relation("PoeArtifactUploadLinkedBy", fields: [linkedById], references: [id])
+
+  @@unique([artifactId, uploadId])
+  @@index([uploadId])
+}
+
+model MailDeliveryAttempt {
+  id                String        @id @default(uuid()) @db.Uuid
+  organisationId    String?       @db.Uuid
+  userId            String?       @db.Uuid
+  recipient         String
+  template          String
+  status            String
+  providerMessageId String?
+  error             String?
+  attemptedAt       DateTime      @default(now())
+  organisation      Organisation? @relation(fields: [organisationId], references: [id])
+  user              User?         @relation("MailDeliveryUser", fields: [userId], references: [id])
+
+  @@index([userId, attemptedAt])
+  @@index([organisationId, status, attemptedAt])
+}
+
+model MailDeliveryJob {
+  id                  String        @id @default(uuid()) @db.Uuid
+  organisationId      String?       @db.Uuid
+  userId              String?       @db.Uuid
+  recipient           String
+  template            String
+  actionUrlCiphertext String
+  status              String        @default("QUEUED")
+  attempts            Int           @default(0)
+  availableAt         DateTime      @default(now())
+  lockedAt            DateTime?
+  lastError           String?
+  completedAt         DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  organisation        Organisation? @relation(fields: [organisationId], references: [id])
+  user                User?         @relation("MailDeliveryJobUser", fields: [userId], references: [id])
+
+  @@index([status, availableAt])
+}
+
+model ReportDownload {
+  id             String           @id @default(uuid()) @db.Uuid
+  reportId       String?          @db.Uuid
+  organisationId String           @db.Uuid
+  requestedById  String           @db.Uuid
+  requesterRole  String
+  reportType     String
+  format         String
+  filters        Json             @default("{}")
+  fileSha256     String
+  downloadedAt   DateTime         @default(now())
+  report         GeneratedReport? @relation(fields: [reportId], references: [id])
+  organisation   Organisation     @relation(fields: [organisationId], references: [id])
+  requestedBy    User             @relation("ReportDownloadActor", fields: [requestedById], references: [id])
+
+  @@index([organisationId, downloadedAt])
+  @@index([requestedById, downloadedAt])
 }
 
 model InAppNotification {
@@ -774,9 +905,9 @@ model InAppNotification {
 }
 
 model AuditLog {
-  id             String      @id @default(uuid()) @db.Uuid
-  organisationId String?     @db.Uuid
-  actorId        String?     @db.Uuid
+  id             String   @id @default(uuid()) @db.Uuid
+  organisationId String?  @db.Uuid
+  actorId        String?  @db.Uuid
   entityType     String
   entityId       String?
   action         String
@@ -784,8 +915,8 @@ model AuditLog {
   afterValue     Json?
   ipAddress      String?
   userAgent      String?
-  createdAt      DateTime    @default(now())
-  actor          User?       @relation(fields: [actorId], references: [id])
+  createdAt      DateTime @default(now())
+  actor          User?    @relation(fields: [actorId], references: [id])
 
   @@index([organisationId, entityType, createdAt])
   @@index([actorId, createdAt])
@@ -800,24 +931,25 @@ enum InvitationStatus {
 
 /// Organisation-scoped join: public self-registration is disabled in production.
 model Invitation {
-  id             String           @id @default(uuid()) @db.Uuid
-  organisationId String           @db.Uuid
-  email          String
-  roleId         String           @db.Uuid
-  tokenHash      String           @unique
-  status         InvitationStatus @default(PENDING)
-  expiresAt      DateTime
-  acceptedAt     DateTime?
-  invitedById    String           @db.Uuid
-  mailStatus     String           @default("PENDING")
-  mailAttempts   Int              @default(0)
-  lastMailError  String?
-  lastMailedAt   DateTime?
-  organisation   Organisation     @relation(fields: [organisationId], references: [id])
-  role           Role             @relation(fields: [roleId], references: [id])
-  invitedBy      User             @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  id                    String           @id @default(uuid()) @db.Uuid
+  organisationId        String           @db.Uuid
+  email                 String
+  roleId                String           @db.Uuid
+  tokenHash             String           @unique
+  status                InvitationStatus @default(PENDING)
+  expiresAt             DateTime
+  acceptedAt            DateTime?
+  invitedById           String           @db.Uuid
+  mailStatus            String           @default("PENDING")
+  mailAttempts          Int              @default(0)
+  lastMailError         String?
+  lastProviderMessageId String?
+  lastMailedAt          DateTime?
+  organisation          Organisation     @relation(fields: [organisationId], references: [id])
+  role                  Role             @relation(fields: [roleId], references: [id])
+  invitedBy             User             @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
 
   @@index([organisationId, email])
   @@index([email, status])
@@ -838,35 +970,35 @@ enum DataSubjectRequestStatus {
 }
 
 model DataSubjectRequest {
-  id             String                     @id @default(uuid()) @db.Uuid
-  organisationId String                     @db.Uuid
-  subjectUserId  String                     @db.Uuid
+  id             String                   @id @default(uuid()) @db.Uuid
+  organisationId String                   @db.Uuid
+  subjectUserId  String                   @db.Uuid
   type           DataSubjectRequestType
-  status         DataSubjectRequestStatus   @default(RECEIVED)
+  status         DataSubjectRequestStatus @default(RECEIVED)
   notes          String?
   retentionUntil DateTime?
   completedAt    DateTime?
-  organisation   Organisation               @relation(fields: [organisationId], references: [id])
-  subject        User                       @relation(fields: [subjectUserId], references: [id])
-  createdAt      DateTime                   @default(now())
-  updatedAt      DateTime                   @updatedAt
+  organisation   Organisation             @relation(fields: [organisationId], references: [id])
+  subject        User                     @relation(fields: [subjectUserId], references: [id])
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
 
   @@index([organisationId, status])
   @@index([subjectUserId])
 }
 
 model Incident {
-  id             String   @id @default(uuid()) @db.Uuid
-  organisationId String   @db.Uuid
+  id             String    @id @default(uuid()) @db.Uuid
+  organisationId String    @db.Uuid
   severity       String
   title          String
   description    String
-  status         String   @default("OPEN")
-  reportedById   String?  @db.Uuid
+  status         String    @default("OPEN")
+  reportedById   String?   @db.Uuid
   resolvedAt     DateTime?
   metadata       Json?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([organisationId, status])
 }
@@ -898,17 +1030,17 @@ model DataExportJob {
 }
 
 model AttendanceSession {
-  id             String    @id @default(uuid()) @db.Uuid
-  organisationId String    @db.Uuid
-  programmeId    String    @db.Uuid
-  openedById     String    @db.Uuid
-  tokenHash      String    @unique
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @db.Uuid
+  programmeId    String       @db.Uuid
+  openedById     String       @db.Uuid
+  tokenHash      String       @unique
   expiresAt      DateTime
   closedAt       DateTime?
   title          String?
-  scheduledAt    DateTime  @default(now())
-  expectedCount  Int       @default(0)
-  createdAt      DateTime  @default(now())
+  scheduledAt    DateTime     @default(now())
+  expectedCount  Int          @default(0)
+  createdAt      DateTime     @default(now())
   organisation   Organisation @relation(fields: [organisationId], references: [id])
   programme      Programme    @relation(fields: [programmeId], references: [id])
   checkIns       Attendance[]
@@ -918,17 +1050,17 @@ model AttendanceSession {
 
 /// Regulator gateway submission receipt (SETA/NLRD HTTP integration).
 model SetaGatewaySubmission {
-  id                 String       @id @default(uuid()) @db.Uuid
-  organisationId     String       @db.Uuid
-  batchId            String
-  adapter            String
-  status             String
-  gatewayUrl         String?
-  externalReference  String?
-  responseBody       String?
-  submittedAt        DateTime?
-  createdAt          DateTime     @default(now())
-  organisation       Organisation @relation(fields: [organisationId], references: [id])
+  id                String       @id @default(uuid()) @db.Uuid
+  organisationId    String       @db.Uuid
+  batchId           String
+  adapter           String
+  status            String
+  gatewayUrl        String?
+  externalReference String?
+  responseBody      String?
+  submittedAt       DateTime?
+  createdAt         DateTime     @default(now())
+  organisation      Organisation @relation(fields: [organisationId], references: [id])
 
   @@index([organisationId, batchId])
 }

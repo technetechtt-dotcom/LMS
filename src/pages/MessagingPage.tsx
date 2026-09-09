@@ -6,7 +6,7 @@ import { Avatar } from '../components/ui/Avatar';
 import { Modal } from '../components/ui/Modal';
 import { FileUpload } from '../components/ui/FileUpload';
 import { Select } from '../components/ui/Select';
-import { messagingService, userService } from '../services/api';
+import { directoryService, messagingService } from '../services/api';
 import type { Message } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
@@ -120,14 +120,14 @@ export function MessagingPage() {
 
   useEffect(() => {
     if (!isComposeOpen) return;
-    userService
-      .getAll()
+    directoryService
+      .messageRecipients({ pageSize: 50 })
       .then((res) => {
-        const options = (res.data ?? [])
+        const options = (res.data?.items ?? [])
           .filter((u) => u.id !== user?.id)
           .map((u) => ({
             value: u.id,
-            label: `${u.firstName} ${u.lastName}`.trim(),
+            label: u.name,
           }));
         setRecipientOptions(options);
         if (options.length > 0 && !composeRecipientId) {

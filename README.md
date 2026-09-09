@@ -57,7 +57,7 @@ Certificates require enrolment `COMPLETED`, all assessments `C`, and approved wo
 
 ## Production (Render)
 
-See root `render.yaml`. Required API env: `DATABASE_URL`, `DIRECT_URL`, `JWT_SECRET`, `FRONTEND_ORIGIN`. Uploads go to a Render persistent disk. Password-reset and invite links appear in Render API logs.
+See root `render.yaml`. Production requires the database, signing/encryption secrets, private object storage, malware-scanner, and mail-provider settings represented there. Activation links are sent by the configured provider and retry payloads are encrypted; they are never written to application logs.
 
 ## Tests
 
@@ -66,9 +66,9 @@ npm --prefix backend test
 npm --prefix backend run typecheck
 ```
 
-## Deferred (P2)
+## Enterprise boundary
 
-MFA, SSO/OIDC/SAML, advanced risk analytics, full POPIA DSAR flows, and offline PWA remain product backlog items — not part of the Nest API surface yet.
+TOTP MFA and POPIA request/incident/retention workflows are implemented. Generic SSO remains disabled until a tenant-approved OIDC/SAML provider is configured and certified. SCORM/xAPI/LTI and offline/mobile synchronisation remain interoperability roadmap items, not capabilities claimed by this release.
 
 ## Legacy Express API
 

@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { memoryStorage } from 'multer';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
 import { validateOrReject } from 'class-validator';
@@ -24,12 +24,17 @@ import {
 } from './materials.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
+import { quarantineUploadOptions } from '../common/quarantine-upload';
+import { FileStorageService } from '../common/file-storage.service';
 
 @ApiTags('Materials')
 @ApiBearerAuth()
 @Controller('materials')
 export class MaterialsController {
-  constructor(private readonly materials: MaterialsService) {}
+  constructor(
+    private readonly materials: MaterialsService,
+    private readonly files: FileStorageService,
+  ) {}
 
   @Get('completeness')
   completeness(
@@ -65,13 +70,11 @@ export class MaterialsController {
   }
 
   @Post()
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Roles('ADMIN', 'FACILITATOR')
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: { fileSize: 25 * 1024 * 1024 },
-    }),
+    FileInterceptor('file', quarantineUploadOptions({ maxFiles: 1, maxFields: 4 })),
   )
   async upload(
     @UploadedFile() file: Express.Multer.File | undefined,
@@ -84,6 +87,7 @@ export class MaterialsController {
         ? (JSON.parse(body.metadata) as Record<string, unknown>)
         : {};
     } catch {
+      await this.files.discardStaged(file as never);
       throw new BadRequestException('metadata must be valid JSON');
     }
     const dto = plainToInstance(CreateLearningMaterialDto, raw);
@@ -91,7 +95,11 @@ export class MaterialsController {
       dto.title =
         file.originalname.replace(/\.[^.]+$/, '').trim() || 'Untitled';
     }
-    await validateOrReject(dto);
-    return this.materials.createWithFile(req.user, file, dto);
+    try {
+      await validateOrReject(dto);
+      return await this.materials.createWithFile(req.user, file as never, dto);
+    } finally {
+      await this.files.discardStaged(file as never);
+    }
   }
 }

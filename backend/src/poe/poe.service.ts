@@ -1,19 +1,21 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import type { Document, PoeLearningArtifact } from '@prisma/client';
-import { randomUUID } from 'crypto';
 import { FileStorageService } from '../common/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   assertEnrollmentAccess,
+  enrollmentActorWhere,
   enrollmentOrgWhere,
   isLearnerOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
+import type { StagedUploadFile } from '../common/quarantine-upload';
 
 type EnrollmentCtx = {
   id: string;
@@ -39,6 +41,7 @@ export class PoeService {
         id: enrollmentId,
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
+        ...enrollmentActorWhere(user),
       },
       include: { learner: true },
     });
@@ -88,7 +91,7 @@ export class PoeService {
 
   async uploadDocument(
     enrollmentId: string,
-    file: Express.Multer.File | undefined,
+    file: StagedUploadFile | undefined,
     metadata: Record<string, unknown>,
     user?: AuthUser,
   ) {
@@ -101,47 +104,69 @@ export class PoeService {
     }
 
     const organisationId = requireOrganisationId(user);
-    const now = new Date().toISOString();
-    let url = '/materials/placeholder';
-    let storageKey = `local/${randomUUID()}`;
-    if (file?.buffer?.length) {
-      const stored = await this.files.upload(
-        file.originalname,
-        file.buffer,
-        file.mimetype,
-        { prefix: 'poe', organisationId },
-      );
-      url = stored.url;
-      storageKey = stored.key;
+    if (!file) throw new BadRequestException('A real evidence file is required');
+    const artifactId = typeof metadata.artifactId === 'string' ? metadata.artifactId : undefined;
+    const artifact = artifactId
+      ? await this.prisma.poeLearningArtifact.findFirst({
+          where: { id: artifactId, enrollmentId: ctx.id, deletedAt: null },
+          select: { id: true },
+        })
+      : null;
+    if (artifactId && !artifact) {
+      await this.files.discardStaged(file);
+      throw new BadRequestException('artifactId must identify a PoE artifact for this enrollment');
     }
-    const doc = await this.prisma.document.create({
-      data: {
-        enrollmentId: ctx.id,
-        organisationId,
-        category: (metadata.category as string) ?? 'General',
-        name: file?.originalname ?? (metadata.name as string) ?? 'upload.bin',
-        storageKey,
-        url,
-        metadata: {
-          ...metadata,
-          type: metadata.type ?? metadata.category ?? 'Evidence',
-          mimeType: file?.mimetype ?? 'application/octet-stream',
-          fileSize: file
-            ? `${(file.size / 1024 / 1024).toFixed(1)} MB`
-            : '0 MB',
-          status: 'submitted',
-          version: 1,
-          versionHistory: [
-            {
+    const stored = await this.files.uploadStaged(file, {
+      prefix: 'poe',
+      organisationId,
+      uploadedById,
+    });
+    const now = new Date().toISOString();
+    const doc = await this.prisma.$transaction(async (tx) => {
+      const upload = await tx.uploadRecord.findUnique({
+        where: { id: stored.uploadId },
+        select: { retentionUntil: true },
+      });
+      const created = await tx.document.create({
+        data: {
+          enrollmentId: ctx.id,
+          organisationId,
+          uploadId: stored.uploadId,
+          category: (metadata.category as string) ?? 'General',
+          name: file.originalname,
+          storageKey: stored.key,
+          url: stored.url,
+          metadata: {
+            ...metadata,
+            type: metadata.type ?? metadata.category ?? 'Evidence',
+            mimeType: stored.mimeType,
+            fileSize: `${(stored.size / 1024 / 1024).toFixed(1)} MB`,
+            checksum: stored.sha256,
+            scanResult: stored.status,
+            retentionUntil: upload?.retentionUntil?.toISOString(),
+            status: 'submitted',
+            version: 1,
+            versionHistory: [{
               version: 1,
-              fileUrl: url,
-              fileName: file?.originalname ?? 'upload.bin',
+              fileUrl: stored.url,
+              fileName: file.originalname,
               uploadedAt: now,
               uploadedBy: uploadedById,
-            },
-          ],
+              checksum: stored.sha256,
+            }],
+          },
         },
-      },
+      });
+      if (artifact) {
+        await tx.poeArtifactUpload.create({
+          data: { artifactId: artifact.id, uploadId: stored.uploadId, linkedById: uploadedById },
+        });
+        await tx.poeLearningArtifact.update({
+          where: { id: artifact.id },
+          data: { storageKey: stored.key, url: stored.url },
+        });
+      }
+      return created;
     });
     return this.mapDocument(doc, ctx);
   }

@@ -30,7 +30,7 @@ export default defineConfig({
         {
           command: 'npm run start:prod',
           cwd: path.join(repoRoot, 'backend'),
-          url: `${apiURL}/health`,
+          url: `${apiURL}/health/live`,
           reuseExistingServer: false,
           timeout: 120_000,
         },

@@ -1,43 +1,49 @@
-# Operations & compliance runbooks
+# Operations and compliance runbook
 
 ## Disaster recovery
 
-1. **RPO / RTO targets (default):** RPO ≤ 24h (Neon PITR), RTO ≤ 4h for API restore.
-2. **Backup owner:** Platform admin; Neon automatic backups + weekly `pg_dump` to encrypted object storage.
-3. **Restore test cadence:** Quarterly — restore to a branch, run `prisma migrate deploy`, smoke `/health`, login, issue credential verify.
-4. **Fail-over steps:** promote Neon branch → update `DATABASE_URL`/`DIRECT_URL` → redeploy API → invalidate CDN → notify tenants.
-5. **Validation checklist:** health OK, migrations applied, seed not required in prod, certificate verify endpoint live.
+1. Default objectives: RPO at most 24 hours and RTO at most 4 hours.
+2. The platform owner confirms database PITR and encrypted backup retention with the provider.
+3. Quarterly, run the `Operational drills` workflow against a dedicated restore database. Never use the production database as the restore target.
+4. Validate migrations, representative tenant/user counts, authentication, evidence downloads, and credential verification.
+5. Attach workflow output to the release ticket and update `RESTORE_DRILL_AT` and `RESTORE_DRILL_RESULT` only after review.
+6. For failover, promote the verified database target, update `DATABASE_URL`/`DIRECT_URL`, deploy the exact release SHA, verify `/health/ready`, and notify tenants.
 
-## Breach / incident management
+Object storage must have provider-side versioning enabled; production readiness now fails closed if the bucket does not report it. Quarterly, restore a deleted test object with `POST /storage/uploads/:id/recover` as an Admin or Platform Admin, verify its SHA-256 checksum, record the resulting `OBJECT_VERSION_RECOVERED` audit event, and never use regulated learner evidence as the drill object. An optional `versionId` request field selects a particular retained version.
 
-1. Open `POST /privacy/incidents` with severity (LOW|MEDIUM|HIGH|CRITICAL).
-2. Contain: rotate JWT secret if tokens may be compromised; revoke refresh tokens; disable compromised accounts.
-3. Notify DPO / regulator per POPIA timelines; record actions in incident metadata.
-4. Close with status RESOLVED + `resolvedAt`.
+## Incident response
 
-## External penetration test
+1. Create `POST /privacy/incidents` with LOW, MEDIUM, HIGH, or CRITICAL severity.
+2. Preserve logs and audit records; do not copy authentication secrets into tickets.
+3. Contain by disabling affected accounts/integrations, revoking refresh sessions, and rotating exposed signing or encryption keys.
+4. Notify the information officer and regulator/data subjects when legally required under POPIA.
+5. Recover from verified database/object versions and validate the exact application revision.
+6. Record the timeline, decisions, root cause, remediation, and `resolvedAt` before closure.
 
-Schedule an annual independent web/API pentest covering:
-- tenant isolation / IDOR
-- enrollment & assessment privilege escalation
-- file upload
-- auth (invite, reset, MFA when live)
+## Observability and alerting
 
-Track findings in Issues; block production accreditation until Critical/High are closed.
-
-## Observability
-
-- `GET /health` — liveness + DB ping
-- `GET /metrics` — process uptime / memory (Prometheus-style export can replace later)
-- Application audit trail via `AuditInterceptor` + `AuditLog`
-- CI security job: dependency audit, SBOM, gitleaks (see `.github/workflows/ci.yml`)
+- `GET /health/live`: process-only liveness.
+- `GET /health/ready`: database/migrations, object storage, scanner, mail, secrets, MFA coverage, worker heartbeat, and application revision.
+- `GET /health/integrations`: live object storage, scanner, and mail-provider diagnostics. The mail probe uses `MAIL_DELIVERY_HEALTH_URL` and fails closed in production.
+- `GET /metrics`: process memory/uptime plus method-level request counts, server errors, and average latency.
+- HTTP logs are structured JSON and include a server-issued request ID returned in `X-Request-Id`.
+- The production release requires a working `MONITORING_HEALTHCHECK_URL`. Configure alerts for readiness failure, elevated 5xx rate, worker heartbeat loss, and scanner/mail/object-storage degradation.
+- Application decisions remain traceable through `AuditInterceptor` and `AuditLog`; dependency audits, SBOM generation, and secret scanning run in CI.
 
 ## Rate limits
 
-Global Nest throttler: 200 req / 60s. Tighter limits on auth, attendance check-in, privacy DSAR, enrollment transitions.
+The global limit is 200 requests per 60 seconds. Authentication, activation, attendance, privacy, enrollment transitions, reports, and each multipart upload surface have tighter endpoint limits.
 
-## Backup restore test log
+## Security testing
 
-| Date | Environment | Result | Operator |
-|------|-------------|--------|----------|
-| _TBD_ | staging | _pending_ |  |
+Schedule an annual independent web/API penetration test covering tenant isolation, IDOR, assignment escalation, uploads, invitation/reset/MFA, and credential integrity. Critical or high findings block production.
+
+Run the bounded load job against staging and capture request count, error rate, and p95 latency. Increase limits only through an approved drill; the repository script caps concurrency and duration.
+
+## Restore drill log
+
+| Date | Isolated environment | Result | Operator | Evidence link |
+|---|---|---|---|---|
+| _TBD_ | _TBD_ | Pending | _TBD_ | _TBD_ |
+
+See [SECURITY_PRIVACY_RELEASE.md](./SECURITY_PRIVACY_RELEASE.md) for identity, evidence, privacy, and launch controls.

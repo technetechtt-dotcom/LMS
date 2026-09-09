@@ -32,7 +32,7 @@ export class EnterpriseController {
         'privacy-dsar',
       ],
       planned: {
-        mfaTotp: 'scaffolded',
+        mfaTotp: 'live',
         webauthn: 'planned',
         saml: 'planned',
         oidc: 'planned',

@@ -14,7 +14,7 @@ export type AssessmentWithRelations = Assessment & {
     learner: User;
   };
   unitStandard: UnitStandard;
-  moderation: Moderation | null;
+  moderation: Moderation[];
   submissions?: AssessmentSubmission[];
 };
 
@@ -45,7 +45,7 @@ export function mapAssessmentToApi(a: AssessmentWithRelations): Record<string, u
       submissionStatus ?? '',
     ),
     needsModeration:
-      a.moderation == null &&
+      a.moderation[0]?.decision !== 'APPROVED' &&
       competencyFinalised &&
       submissionStatus === 'assessor_verified',
     type: 'mixed',

@@ -78,20 +78,40 @@ export class ModerationService {
       );
     }
 
+    const latest = await this.prisma.moderation.findFirst({
+      where: { assessmentId: dto.assessmentId, deletedAt: null },
+      orderBy: { round: 'desc' },
+    });
+    const decisionData = {
+      decision: dto.decision,
+      feedback: dto.feedback,
+      moderatedAt: new Date(),
+      sampledRecords: dto.sampledRecordIds ?? [],
+      trail: [
+        ...(Array.isArray(latest?.trail) ? (latest.trail as unknown[]) : []),
+        {
+          action: 'decision_recorded',
+          decision: dto.decision,
+          at: new Date().toISOString(),
+          by: moderatorId,
+        },
+      ] as object,
+    };
+    if (latest?.decision === 'PENDING' && latest.moderatorId === moderatorId) {
+      return this.prisma.moderation.update({
+        where: { id: latest.id },
+        data: decisionData,
+      });
+    }
     return this.prisma.moderation.create({
       data: {
         assessmentId: dto.assessmentId,
+        round: (latest?.round ?? 0) + 1,
         moderatorId: assessment.moderatorId!,
-        decision: dto.decision,
-        feedback: dto.feedback,
-        trail: [
-          {
-            action: 'decision_recorded',
-            decision: dto.decision,
-            at: new Date().toISOString(),
-            by: moderatorId,
-          },
-        ],
+        submittedVersion: 1,
+        previousOutcome: latest?.decision,
+        supersedesId: latest?.id,
+        ...decisionData,
       },
     });
   }
@@ -133,25 +153,24 @@ export class ModerationService {
       by: user.userId,
     };
 
-    const existing = await this.prisma.moderation.findUnique({
-      where: { assessmentId: dto.assessmentId },
+    const existing = await this.prisma.moderation.findFirst({
+      where: { assessmentId: dto.assessmentId, deletedAt: null },
+      orderBy: { round: 'desc' },
     });
     const priorTrail = Array.isArray(existing?.trail)
       ? (existing!.trail as unknown[])
       : [];
 
     const [moderation] = await this.prisma.$transaction([
-      this.prisma.moderation.upsert({
-        where: { assessmentId: dto.assessmentId },
-        create: {
+      this.prisma.moderation.create({
+        data: {
           assessmentId: dto.assessmentId,
+          round: (existing?.round ?? 0) + 1,
           moderatorId: dto.moderatorId,
           decision: 'PENDING',
           feedback: 'Awaiting moderation',
-          trail: [trailEntry],
-        },
-        update: {
-          moderatorId: dto.moderatorId,
+          previousOutcome: existing?.decision,
+          supersedesId: existing?.id,
           trail: [...priorTrail, trailEntry] as object,
         },
       }),
@@ -175,7 +194,7 @@ export class ModerationService {
     });
     if (!assessment) throw new NotFoundException('Assessment not found');
 
-    const moderation = await this.prisma.moderation.findFirst({
+    const rounds = await this.prisma.moderation.findMany({
       where: { assessmentId, deletedAt: null },
       include: {
         assessment: {
@@ -185,11 +204,13 @@ export class ModerationService {
           },
         },
       },
+      orderBy: { round: 'asc' },
     });
     return {
       assessmentId,
-      moderation,
-      trail: Array.isArray(moderation?.trail) ? moderation.trail : [],
+      moderation: rounds[rounds.length - 1] ?? null,
+      rounds,
+      trail: rounds.flatMap((round) => Array.isArray(round.trail) ? round.trail : []),
     };
   }
 }

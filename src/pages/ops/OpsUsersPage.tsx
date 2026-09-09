@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Mail, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -23,6 +23,7 @@ type OpsUserRow = {
   organisation: string;
   status: string;
   lastLogin: string;
+  activationPending: boolean;
 };
 
 const ROLE_FILTER_MAP: Record<string, string> = {
@@ -45,6 +46,7 @@ function mapUser(u: DirectoryUserRow): OpsUserRow {
     roleCode: m?.role?.code ?? '',
     organisation: m?.organisation?.name ?? '—',
     status: u.isActive ? 'Active' : 'Inactive',
+    activationPending: !u.passwordSetAt,
     lastLogin: u.lastLoginAt
       ? new Date(u.lastLoginAt).toLocaleString()
       : '—',
@@ -117,6 +119,30 @@ export function OpsUsersPage() {
       header: 'Last login',
       accessorKey: 'lastLogin' as const,
       className: 'hidden md:table-cell',
+    },
+    {
+      header: 'Actions',
+      accessorKey: 'id' as const,
+      cell: (row: OpsUserRow) => row.activationPending ? (
+        <button
+          type="button"
+          aria-label={`Resend activation to ${row.name}`}
+          className="inline-flex items-center gap-1 text-sm text-brand-navy hover:underline"
+          onClick={async () => {
+            try {
+              const result = await userService.resendActivation(row.id);
+              toast[result.data.mailStatus === 'SENT' ? 'success' : 'error'](
+                result.data.mailStatus === 'SENT'
+                  ? 'Replacement activation sent.'
+                  : 'Delivery failed; retry queued.',
+              );
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : 'Could not resend activation');
+            }
+          }}>
+          <Mail size={14} /> Resend activation
+        </button>
+      ) : null,
     },
   ];
 

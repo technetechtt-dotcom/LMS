@@ -11,6 +11,7 @@ const roles = [
   { email: 'facilitator@skillforge.co.za', home: '/facilitator-dashboard' },
   { email: 'mentor@skillforge.co.za', home: '/workplace-mentor-dashboard' },
   { email: 'qa@skillforge.co.za', home: '/qa-dashboard' },
+  { email: 'seta@skillforge.co.za', home: '/audit' },
 ] as const;
 
 async function login(page: import('@playwright/test').Page, email: string) {

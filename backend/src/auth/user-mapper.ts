@@ -84,6 +84,7 @@ export function mapUserToApiProfile(user: UserWithMemberships): Record<string, u
     phone: user.phone ?? '',
     jobTitle: user.jobTitle ?? '',
     hasSignature: Boolean(user.signatureStorageKey),
+    mfaEnabled: user.totpEnabled,
     isActive: user.isActive,
     lastLoginAt: user.lastLoginAt?.toISOString(),
     facilitatorRole: mapFacilitatorRoleToApp(user.facilitatorRole),

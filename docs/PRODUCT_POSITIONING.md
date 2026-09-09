@@ -38,24 +38,26 @@ Prefer over:
 
 > LMS
 
-## Enterprise roadmap (P2)
+## Enterprise capability boundary
 
 Capability status is advertised live at `GET /enterprise/capabilities` (public).
 
-Scaffolded (not fully live):
+Live security and governance controls:
 
-- `POST /auth/mfa/enroll`, `GET /auth/sso/status`
+- TOTP enrollment, verification, login enforcement, and administrator-facing MFA readiness
+- POPIA request, incident, retention, evidence, and alert workflows
+- `GET /auth/sso/status` truthfully reports the currently configured SSO capability
 - `GET /enterprise/billing/status`, `GET /enterprise/integrations`
 
-Still planned:
+Provider-dependent or roadmap capabilities (not claimed as live):
 
-- MFA/TOTP pairing, WebAuthn/passkeys, SAML, OIDC, corporate SSO  
-- Tenant subscription/billing, employer portal, dedicated mentor portal  
-- Configurable qualification/completion engine, bulk onboarding  
-- Document templates, digital signatures  
-- SCORM, xAPI, LTI, webhooks/API ecosystem  
-- Offline assessment sync, advanced analytics, learner-risk predictions  
-- Scheduled compliance reminders, accreditation-expiry monitoring  
+- WebAuthn/passkeys, SAML, OIDC, corporate SSO
+- Tenant subscription/billing, employer portal, dedicated mentor portal
+- Configurable qualification/completion engine, bulk onboarding
+- Document templates, digital signatures
+- SCORM, xAPI, LTI, webhooks/API ecosystem
+- Offline assessment sync, advanced analytics, learner-risk predictions
+- Additional accreditation-expiry automation beyond the implemented evidence-backed alerts
 
 ## Programme completion rules
 

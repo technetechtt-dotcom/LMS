@@ -194,6 +194,24 @@ export const authService = {
     });
   },
 
+  beginMfaEnrollment: async (): Promise<{
+    enabled: false;
+    secret: string;
+    otpauthUri: string;
+  }> => apiFetchJSON('/auth/mfa/enroll', { method: 'POST' }),
+
+  confirmMfaEnrollment: async (code: string): Promise<{ enabled: true }> =>
+    apiFetchJSON('/auth/mfa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  disableMfa: async (password: string, code: string): Promise<{ enabled: false }> =>
+    apiFetchJSON('/auth/mfa', {
+      method: 'DELETE',
+      body: JSON.stringify({ password, code }),
+    }),
+
   getPreferences: async <T extends Record<string, unknown>>(): Promise<ApiResponse<T>> => {
     const raw = await apiFetchJSON<ApiResponse<T> | T>('/auth/me/preferences');
     return { data: unwrapData(raw), success: true };
@@ -239,8 +257,13 @@ export const learnerService = {
     return { data, success: true };
   },
 
-  create: async (data: Partial<Learner>): Promise<ApiResponse<Learner>> => {
-    return remotePostJson<Learner>('/learners', data);
+  create: async (data: Partial<Learner>): Promise<ApiResponse<{
+    id: string;
+    pendingActivation: boolean;
+    activationExpiresAt: string;
+    mailStatus: 'SENT' | 'FAILED';
+  }>> => {
+    return remotePostJson('/learners', data);
   },
 
   update: async (
@@ -777,6 +800,8 @@ export interface PoeArtifact {
   assessorId?: string | null;
   moderatorId?: string | null;
   url?: string | null;
+  evidenceCount?: number;
+  evidenceVerified?: boolean;
 }
 
 export type PoeTransitionAction =
@@ -862,6 +887,17 @@ export const poeArtifactService = {
   }): Promise<ApiResponse<PoeArtifact>> => {
     const raw = await remotePostJson<PoeArtifact>('/poe-artifacts', body);
     return raw;
+  },
+
+  uploadEvidence: async (
+    artifact: Pick<PoeArtifact, 'id' | 'enrollmentId' | 'kind'>,
+    file: File,
+  ): Promise<ApiResponse<POEDocument>> => {
+    return poeService.upload(artifact.enrollmentId, file, {
+      category: artifact.kind,
+      type: 'Evidence',
+      artifactId: artifact.id,
+    } as Partial<POEDocument>);
   },
 
   transition: async (
@@ -1106,6 +1142,7 @@ export type DirectoryUserRow = {
   firstName: string;
   lastName: string;
   isActive: boolean;
+  passwordSetAt: string | null;
   lastLoginAt: string | null;
   memberships: Array<{
     role: { code: string; name: string };
@@ -1114,6 +1151,52 @@ export type DirectoryUserRow = {
   enrollments: Array<{
     programme: { id: string; title: string; code: string };
   }>;
+};
+
+export type ScopedDirectoryEntry = {
+  id: string;
+  name: string;
+  role: string;
+  status: 'ACTIVE' | 'INACTIVE' | 'PENDING_ACTIVATION';
+};
+
+type ScopedDirectoryPage = {
+  items: ScopedDirectoryEntry[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
+
+const directoryQuery = (params?: { roles?: string[]; search?: string; page?: number; pageSize?: number }) => {
+  const query = new URLSearchParams();
+  if (params?.roles?.length) query.set('roles', params.roles.join(','));
+  if (params?.search) query.set('search', params.search);
+  if (params?.page) query.set('page', String(params.page));
+  if (params?.pageSize) query.set('pageSize', String(params.pageSize));
+  const suffix = query.toString();
+  return suffix ? `?${suffix}` : '';
+};
+
+export const directoryService = {
+  staff: async (params?: { roles?: string[]; search?: string; page?: number; pageSize?: number }) => {
+    const raw = await apiFetchJSON<ApiResponse<ScopedDirectoryPage> | ScopedDirectoryPage>(
+      `/directory/staff${directoryQuery(params)}`,
+    );
+    return { data: unwrapData(raw), success: true } as ApiResponse<ScopedDirectoryPage>;
+  },
+  messageRecipients: async (params?: { search?: string; page?: number; pageSize?: number }) => {
+    const raw = await apiFetchJSON<ApiResponse<ScopedDirectoryPage> | ScopedDirectoryPage>(
+      `/directory/message-recipients${directoryQuery(params)}`,
+    );
+    return { data: unwrapData(raw), success: true } as ApiResponse<ScopedDirectoryPage>;
+  },
+  mentors: async (params?: { search?: string; page?: number; pageSize?: number }) => {
+    const raw = await apiFetchJSON<ApiResponse<ScopedDirectoryPage> | ScopedDirectoryPage>(
+      `/directory/mentors${directoryQuery(params)}`,
+    );
+    return { data: unwrapData(raw), success: true } as ApiResponse<ScopedDirectoryPage>;
+  },
 };
 
 export const userService = {
@@ -1160,6 +1243,12 @@ export const userService = {
   }): Promise<ApiResponse<unknown>> => {
     return remotePostJson<unknown>('/users/memberships', body);
   },
+
+  resendActivation: async (id: string): Promise<ApiResponse<{
+    id: string;
+    mailStatus: 'SENT' | 'FAILED';
+    activationExpiresAt: string;
+  }>> => remotePostJson(`/users/${encodeURIComponent(id)}/resend-activation`, {}),
 
   listRoles: async (): Promise<
     ApiResponse<Array<{ id: string; code: string; name: string }>>
@@ -1287,8 +1376,14 @@ export const qaOfficerService = {
     effectiveDate?: string;
     expiryDate?: string;
     notes?: string;
-  }): Promise<ApiResponse<unknown>> => {
-    return remotePostJson('/qa-officer/contracts', body);
+  }, file: File): Promise<ApiResponse<unknown>> => {
+    const form = new FormData();
+    form.append('file', file);
+    Object.entries(body).forEach(([key, value]) => {
+      if (value !== undefined) form.append(key, String(value));
+    });
+    const raw = await apiFetchFormData<ApiResponse<unknown>>('/qa-officer/contracts', form);
+    return { data: unwrapData(raw), success: true };
   },
 
   signContract: async (
@@ -1576,8 +1671,13 @@ export const invitationService = {
   create: async (body: {
     email: string;
     roleId: string;
-  }): Promise<ApiResponse<unknown>> => {
-    return remotePostJson<unknown>('/invitations', body);
+  }): Promise<ApiResponse<{
+    id: string;
+    mailStatus: 'SENT' | 'FAILED' | 'PENDING';
+    mailAttempts: number;
+    expiresAt: string;
+  }>> => {
+    return remotePostJson('/invitations', body);
   },
 
   retryMail: async (id: string): Promise<ApiResponse<unknown>> => {

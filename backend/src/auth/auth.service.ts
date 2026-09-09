@@ -10,10 +10,12 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import type { LoginDto, RegisterDto, UpdateProfileDto, ChangePasswordDto } from './auth.dto';
 import { mapUserToApiProfile, type UserWithMemberships } from './user-mapper';
 import { FileStorageService } from '../common/file-storage.service';
+import type { StagedUploadFile } from '../common/quarantine-upload';
 import { MailService } from '../mail/mail.service';
 import { InvitationsService } from '../invitations/invitations.service';
 import { redactAuditValue } from '../audit/audit-redact';
@@ -22,6 +24,7 @@ import {
   hashOpaqueToken,
 } from '../common/crypto/token-crypto';
 import type { AuthPortal } from './auth-cookies';
+import { encodeBase32, verifyTotp } from '../common/crypto/totp';
 
 @Injectable()
 export class AuthService {
@@ -35,6 +38,42 @@ export class AuthService {
     private readonly invitations: InvitationsService,
     @Optional() private readonly files?: FileStorageService,
   ) {}
+
+  private mfaKey(): Buffer {
+    const secret = this.config.get<string>('MFA_ENCRYPTION_KEY')?.trim()
+      || this.config.get<string>('JOB_ENCRYPTION_KEY')?.trim()
+      || this.config.get<string>('JWT_SECRET')?.trim()
+      || 'development-mfa-encryption-key';
+    return createHash('sha256').update(secret).digest();
+  }
+
+  private encryptMfaSecret(secret: string): string {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', this.mfaKey(), iv);
+    const encrypted = Buffer.concat([cipher.update(secret, 'utf8'), cipher.final()]);
+    return [iv, cipher.getAuthTag(), encrypted]
+      .map((part) => part.toString('base64url'))
+      .join('.');
+  }
+
+  private decryptMfaSecret(payload: string): string {
+    const [ivRaw, tagRaw, dataRaw] = payload.split('.');
+    if (!ivRaw || !tagRaw || !dataRaw) throw new UnauthorizedException('MFA configuration is invalid');
+    try {
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        this.mfaKey(),
+        Buffer.from(ivRaw, 'base64url'),
+      );
+      decipher.setAuthTag(Buffer.from(tagRaw, 'base64url'));
+      return Buffer.concat([
+        decipher.update(Buffer.from(dataRaw, 'base64url')),
+        decipher.final(),
+      ]).toString('utf8');
+    } catch {
+      throw new UnauthorizedException('MFA configuration is invalid');
+    }
+  }
 
   private refreshExpiryDate(): Date {
     const raw =
@@ -131,6 +170,14 @@ export class AuthService {
       );
     }
 
+    if (user.totpEnabled) {
+      const secret = user.totpSecret ? this.decryptMfaSecret(user.totpSecret) : '';
+      if (!secret || !dto.totpCode || !verifyTotp(secret, dto.totpCode)) {
+        await this.logLoginAttempt(user.id, email, 'LOGIN_FAILURE_MFA', meta, {});
+        throw new UnauthorizedException('A valid authenticator code is required');
+      }
+    }
+
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -143,6 +190,7 @@ export class AuthService {
 
   private async userPortalAccess(userId: string): Promise<{
     platform: boolean;
+    codes: string[];
   }> {
     const rows = await this.prisma.userOrganisation.findMany({
       where: {
@@ -155,7 +203,77 @@ export class AuthService {
     const codes = rows.map((r) => r.role.code);
     return {
       platform: codes.includes('PLATFORM_ADMIN'),
+      codes,
     };
+  }
+
+  async beginMfaEnrollment(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.deletedAt || !user.isActive) {
+      throw new UnauthorizedException('User not found');
+    }
+    if (user.totpEnabled) throw new BadRequestException('MFA is already enabled');
+    const secret = encodeBase32(randomBytes(20));
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { totpSecret: this.encryptMfaSecret(secret), totpEnabled: false },
+    });
+    const issuer = this.config.get<string>('MFA_ISSUER')?.trim() || 'SkillForge LMS';
+    const uri = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(user.email)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+    return { enabled: false, secret, otpauthUri: uri };
+  }
+
+  async confirmMfaEnrollment(userId: string, code: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.totpSecret || user.deletedAt || !user.isActive) {
+      throw new BadRequestException('Start MFA enrollment first');
+    }
+    if (!verifyTotp(this.decryptMfaSecret(user.totpSecret), code)) {
+      throw new BadRequestException('Invalid authenticator code');
+    }
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: userId }, data: { totpEnabled: true } }),
+      this.prisma.auditLog.create({
+        data: {
+          actorId: userId,
+          entityType: 'Authentication',
+          entityId: userId,
+          action: 'MFA_ENABLED',
+        },
+      }),
+    ]);
+    return { enabled: true };
+  }
+
+  async disableMfa(userId: string, password: string, code: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.totpEnabled || !user.totpSecret || user.deletedAt) {
+      throw new BadRequestException('MFA is not enabled');
+    }
+    const [passwordValid, codeValid] = await Promise.all([
+      bcrypt.compare(password, user.passwordHash),
+      Promise.resolve(verifyTotp(this.decryptMfaSecret(user.totpSecret), code)),
+    ]);
+    if (!passwordValid || !codeValid) throw new UnauthorizedException('Invalid MFA disable credentials');
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { totpEnabled: false, totpSecret: null },
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          actorId: userId,
+          entityType: 'Authentication',
+          entityId: userId,
+          action: 'MFA_DISABLED',
+        },
+      }),
+    ]);
+    return { enabled: false };
   }
 
   private async userIsPlatformAdmin(userId: string): Promise<boolean> {
@@ -359,10 +477,17 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(newPassword, 10);
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.passwordResetToken.update({
-        where: { id: row.id },
+      const consumed = await tx.passwordResetToken.updateMany({
+        where: {
+          id: row.id,
+          usedAt: null,
+          expiresAt: { gt: new Date() },
+        },
         data: { usedAt: new Date() },
       });
+      if (consumed.count !== 1) {
+        throw new BadRequestException('Invalid or expired reset link');
+      }
       await tx.user.update({
         where: { id: row.userId },
         data: { passwordHash, passwordSetAt: new Date(), isActive: true },
@@ -370,6 +495,10 @@ export class AuthService {
       await tx.refreshToken.updateMany({
         where: { userId: row.userId, revokedAt: null },
         data: { revokedAt: new Date() },
+      });
+      await tx.passwordResetToken.updateMany({
+        where: { userId: row.userId, usedAt: null },
+        data: { usedAt: new Date() },
       });
     });
 
@@ -457,21 +586,20 @@ export class AuthService {
 
   async uploadSignature(
     userId: string,
-    file: Express.Multer.File | undefined,
+    file: StagedUploadFile | undefined,
     organisationId?: string,
   ) {
-    if (!file?.buffer?.length) {
+    if (!file) {
       throw new BadRequestException('Signature file is required');
     }
     if (!this.files) {
       throw new BadRequestException('File storage is not configured');
     }
-    const stored = await this.files.upload(
-      file.originalname || 'signature.png',
-      file.buffer,
-      file.mimetype || 'image/png',
-      { prefix: 'signatures', organisationId: organisationId ?? 'platform' },
-    );
+    const stored = await this.files.uploadStaged(file, {
+      prefix: 'signatures',
+      organisationId: organisationId ?? 'platform',
+      uploadedById: userId,
+    });
     await this.prisma.user.update({
       where: { id: userId },
       data: { signatureStorageKey: stored.key },

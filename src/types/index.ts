@@ -130,6 +130,7 @@ export interface User extends BaseEntity {
   phone?: string;
   jobTitle?: string;
   hasSignature?: boolean;
+  mfaEnabled?: boolean;
   isActive: boolean;
   lastLoginAt?: string;
   /** Facilitator job capacity assigned by the SDP (optional). */
@@ -147,6 +148,7 @@ export interface AuthState {
 export interface LoginCredentials {
   email: string;
   password: string;
+  totpCode?: string;
 }
 
 // --- Learner ---

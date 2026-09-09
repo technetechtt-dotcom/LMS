@@ -1,0 +1,71 @@
+name: Operational drills
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_restore:
+        description: Restore the backup into the isolated drill database
+        required: true
+        type: boolean
+        default: false
+      run_load:
+        description: Run the bounded staging concurrency test
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    if: inputs.run_restore
+    runs-on: ubuntu-latest
+    environment: disaster-recovery-test
+    env:
+      SOURCE_DATABASE_URL: ${{ secrets.BACKUP_SOURCE_DATABASE_URL }}
+      RESTORE_DATABASE_URL: ${{ secrets.ISOLATED_RESTORE_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Prove the destination is isolated
+        run: |
+          test -n "$SOURCE_DATABASE_URL" && test -n "$RESTORE_DATABASE_URL"
+          test "$SOURCE_DATABASE_URL" != "$RESTORE_DATABASE_URL"
+          RESTORE_URL="$RESTORE_DATABASE_URL" node -e "const u=new URL(process.env.RESTORE_URL); if(!/(restore|drill|test)/i.test(u.hostname+u.pathname)) process.exit(1)"
+      - name: Dump and restore without retaining the dump as an artifact
+        run: |
+          pg_dump "$SOURCE_DATABASE_URL" --format=custom --no-owner --file="$RUNNER_TEMP/restore.dump"
+          pg_restore --clean --if-exists --no-owner --dbname="$RESTORE_DATABASE_URL" "$RUNNER_TEMP/restore.dump"
+          rm -f "$RUNNER_TEMP/restore.dump"
+      - name: Validate schema and data
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.ISOLATED_RESTORE_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.ISOLATED_RESTORE_DATABASE_URL }}
+        run: |
+          npm ci
+          npx prisma migrate deploy
+          npx prisma validate
+          node -e "const {PrismaClient}=require('@prisma/client'); const p=new PrismaClient(); p.user.count().then(n=>{if(n<1)process.exitCode=1; console.log('restored users',n)}).finally(()=>p.\$disconnect())"
+
+  load:
+    if: inputs.run_load
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bounded staging concurrency test
+        env:
+          LOAD_BASE_URL: ${{ vars.STAGING_API_URL }}
+          LOAD_VUS: '20'
+          LOAD_DURATION_MS: '30000'
+          LOAD_P95_LIMIT_MS: '1000'
+        run: node scripts/load-smoke.mjs

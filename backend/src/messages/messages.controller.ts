@@ -9,17 +9,22 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
-import { memoryStorage } from 'multer';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import type { AuthUser } from '../common/types/request-with-user';
 import { MessagesService } from './messages.service';
+import { quarantineUploadOptions } from '../common/quarantine-upload';
+import { FileStorageService } from '../common/file-storage.service';
 
 @ApiTags('Messages')
 @ApiBearerAuth()
 @Controller('messages')
 export class MessagesController {
-  constructor(private readonly messages: MessagesService) {}
+  constructor(
+    private readonly messages: MessagesService,
+    private readonly fileStorage: FileStorageService,
+  ) {}
 
   @Get()
   async list(@Req() req: Request & { user?: AuthUser }) {
@@ -28,12 +33,10 @@ export class MessagesController {
   }
 
   @Post()
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiConsumes('multipart/form-data', 'application/json')
   @UseInterceptors(
-    AnyFilesInterceptor({
-      storage: memoryStorage(),
-      limits: { fileSize: 25 * 1024 * 1024 },
-    }),
+    AnyFilesInterceptor(quarantineUploadOptions({ maxFiles: 2, maxFields: 4 })),
   )
   async send(
     @Req() req: Request & { user?: AuthUser },
@@ -42,8 +45,12 @@ export class MessagesController {
   ) {
     const toId = body.toId ?? (req.body as { toId?: string }).toId ?? '';
     const content = body.content ?? (req.body as { content?: string }).content ?? '';
-    const data = await this.messages.send(req.user, toId, content, files);
-    return { success: true, data };
+    try {
+      const data = await this.messages.send(req.user, toId, content, files as never);
+      return { success: true, data };
+    } finally {
+      await Promise.all((files ?? []).map((file) => this.fileStorage.discardStaged(file as never)));
+    }
   }
 
   @Patch('read')

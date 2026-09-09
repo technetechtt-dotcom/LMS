@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
 import { UsersService } from './users.service';
 import { AddUserMembershipDto, CreateUserDto } from './users.dto';
+import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -31,6 +32,16 @@ export class UsersController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.users.create(dto, req.user);
+  }
+
+  @Roles('ADMIN', 'PLATFORM_ADMIN')
+  @Throttle({ default: { ttl: 15 * 60_000, limit: 10 } })
+  @Post(':id/resend-activation')
+  resendActivation(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.users.resendActivation(id, req.user);
   }
 
   @Roles('ADMIN', 'PLATFORM_ADMIN')

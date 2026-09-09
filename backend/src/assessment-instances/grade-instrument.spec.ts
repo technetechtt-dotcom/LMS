@@ -73,4 +73,45 @@ describe('gradeAgainstInstrument', () => {
     expect(result.graded).toHaveLength(2);
     expect(result.percentage).toBe(100);
   });
+
+  it('accepts numeric strings and choice text without trusting client scores', () => {
+    const numeric = gradeAgainstInstrument(
+      [{ id: 'q1', points: 4, options: { correctIndex: 1, choices: ['No', 'Yes'] } }],
+      [{ questionId: 'q1', answer: '1' }],
+    );
+    expect(numeric.totalScore).toBe(4);
+
+    const text = gradeAgainstInstrument(
+      [{ id: 'q1', points: 4, options: { correctIndex: 1, choices: ['No', 'Yes'] } }],
+      [{ questionId: 'q1', answer: 'Yes' }],
+    );
+    expect(text.totalScore).toBe(4);
+  });
+
+  it('normalizes textual booleans and rejects unsupported text', () => {
+    expect(gradeAgainstInstrument(
+      [{ id: 'q', points: 1, options: { correctAnswer: true } }],
+      [{ questionId: 'q', answer: ' TRUE ' }],
+    ).percentage).toBe(100);
+    expect(gradeAgainstInstrument(
+      [{ id: 'q', points: 1, options: { correctAnswer: false } }],
+      [{ questionId: 'q', answer: 'false' }],
+    ).percentage).toBe(100);
+    expect(gradeAgainstInstrument(
+      [{ id: 'q', points: 1, options: { correctAnswer: true } }],
+      [{ questionId: 'q', answer: 'yes' }],
+    ).percentage).toBe(0);
+  });
+
+  it('returns zero for ungradable and zero-point instruments', () => {
+    const result = gradeAgainstInstrument(
+      [{ id: 'q', points: 0, options: null }],
+      [{ questionId: 'q', answer: 'free text' }],
+    );
+    expect(result).toEqual(expect.objectContaining({
+      totalScore: 0,
+      maxScore: 0,
+      percentage: 0,
+    }));
+  });
 });

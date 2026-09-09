@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -15,6 +16,7 @@ import {
   isPlatformAdmin,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
+import { MailDeliveryQueueService } from '../mail/mail-delivery-queue.service';
 
 @Injectable()
 export class InvitationsService {
@@ -22,6 +24,7 @@ export class InvitationsService {
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    @Optional() private readonly mailQueue?: MailDeliveryQueueService,
   ) {}
 
   async create(
@@ -83,12 +86,18 @@ export class InvitationsService {
     if (invite.mailAttempts >= 5) {
       throw new BadRequestException('Mail retry limit reached');
     }
+    if (invite.lastMailedAt && invite.lastMailedAt > new Date(Date.now() - 60_000)) {
+      throw new BadRequestException('Wait before retrying invitation delivery');
+    }
     // Cannot recover raw token from hash — issue replacement token
     const raw = generateOpaqueRefreshToken();
     const tokenHash = hashOpaqueToken(raw);
     await this.prisma.invitation.update({
       where: { id },
-      data: { tokenHash },
+      data: {
+        tokenHash,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
     });
     await this.deliverInviteMail(id, invite.email, raw);
     return this.prisma.invitation.findUniqueOrThrow({ where: { id } });
@@ -104,7 +113,15 @@ export class InvitationsService {
       'http://localhost:5173';
     const url = `${front}/register?invite=${encodeURIComponent(rawToken)}`;
     try {
-      await this.mail.sendActivation(email, url);
+      const receipt = await this.mail.sendActivation(email, url);
+      const invite = await this.prisma.invitation.findUnique({ where: { id: invitationId } });
+      await this.mailQueue?.recordAttempt({
+        organisationId: invite?.organisationId,
+        recipient: email,
+        template: 'account-activation',
+        status: 'SENT',
+        providerMessageId: receipt?.providerMessageId,
+      });
       await this.prisma.invitation.update({
         where: { id: invitationId },
         data: {
@@ -112,16 +129,32 @@ export class InvitationsService {
           mailAttempts: { increment: 1 },
           lastMailedAt: new Date(),
           lastMailError: null,
+          lastProviderMessageId: receipt?.providerMessageId,
         },
       });
     } catch (err) {
+      const invite = await this.prisma.invitation.findUnique({ where: { id: invitationId } });
+      const message = err instanceof Error ? err.message : String(err);
+      await this.mailQueue?.recordAttempt({
+        organisationId: invite?.organisationId,
+        recipient: email,
+        template: 'account-activation',
+        status: 'FAILED',
+        error: message,
+      });
+      await this.mailQueue?.enqueue({
+        organisationId: invite?.organisationId,
+        recipient: email,
+        template: 'account-activation',
+        actionUrl: url,
+      });
       await this.prisma.invitation.update({
         where: { id: invitationId },
         data: {
           mailStatus: 'FAILED',
           mailAttempts: { increment: 1 },
           lastMailedAt: new Date(),
-          lastMailError: String(err).slice(0, 500),
+          lastMailError: message.slice(0, 500),
         },
       });
     }

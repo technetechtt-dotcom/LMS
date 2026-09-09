@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsOptional, IsUUID } from 'class-validator';
 
 export class CreateEvidenceDto {
   @IsUUID()
@@ -10,19 +10,4 @@ export class CreateEvidenceDto {
   @IsOptional()
   @IsUUID()
   outcomeId?: string;
-
-  @IsString()
-  fileName!: string;
-
-  @IsString()
-  fileType!: string;
-
-  @IsNumber()
-  fileSize!: number;
-
-  @IsString()
-  storageKey!: string;
-
-  @IsString()
-  url!: string;
 }

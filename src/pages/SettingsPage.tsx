@@ -73,6 +73,10 @@ export function SettingsPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
+  const [mfaEnabled, setMfaEnabled] = useState(Boolean(user?.mfaEnabled));
+  const [mfaSetup, setMfaSetup] = useState<{ secret: string; otpauthUri: string } | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaPassword, setMfaPassword] = useState('');
   const [prefs, setPrefs] = useState<UserPrefs>(DEFAULT_PREFS);
   const [logFrom, setLogFrom] = useState('');
   const [logTo, setLogTo] = useState('');
@@ -184,6 +188,40 @@ export function SettingsPage() {
       toast.error('Could not save preferences');
     } finally {
       setSavingPrefs(false);
+    }
+  };
+
+  const beginMfa = async () => {
+    try {
+      const setup = await authService.beginMfaEnrollment();
+      setMfaSetup(setup);
+      setMfaCode('');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not start MFA enrollment');
+    }
+  };
+
+  const confirmMfa = async () => {
+    try {
+      await authService.confirmMfaEnrollment(mfaCode);
+      setMfaEnabled(true);
+      setMfaSetup(null);
+      setMfaCode('');
+      toast.success('Multi-factor authentication enabled');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Invalid authenticator code');
+    }
+  };
+
+  const disableMfa = async () => {
+    try {
+      await authService.disableMfa(mfaPassword, mfaCode);
+      setMfaEnabled(false);
+      setMfaPassword('');
+      setMfaCode('');
+      toast.success('Multi-factor authentication disabled; sign in again on other devices');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not disable MFA');
     }
   };
 
@@ -515,6 +553,60 @@ export function SettingsPage() {
                   </Button>
                 </div>
               </form>
+            </Card>
+            <Card title="Authenticator MFA">
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Status: <strong>{mfaEnabled ? 'Enabled' : 'Not enabled'}</strong>.
+                  Privileged accounts must enable MFA before production readiness can pass.
+                </p>
+                {!mfaEnabled && !mfaSetup && (
+                  <Button onClick={() => void beginMfa()}>Set up authenticator</Button>
+                )}
+                {mfaSetup && (
+                  <div className="space-y-3 rounded-md border border-gray-200 p-4">
+                    <p className="text-sm">Add this key in your authenticator app, then enter its six-digit code.</p>
+                    <code className="block break-all rounded bg-gray-100 p-2 text-xs">{mfaSetup.secret}</code>
+                    <details className="text-xs text-gray-500">
+                      <summary>Authenticator URI</summary>
+                      <code className="block break-all pt-2">{mfaSetup.otpauthUri}</code>
+                    </details>
+                    <Input
+                      label="Verification code"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      value={mfaCode}
+                      onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    />
+                    <Button disabled={mfaCode.length !== 6} onClick={() => void confirmMfa()}>
+                      Verify and enable
+                    </Button>
+                  </div>
+                )}
+                {mfaEnabled && (
+                  <div className="space-y-3">
+                    <Input
+                      label="Current password"
+                      type="password"
+                      value={mfaPassword}
+                      onChange={(e) => setMfaPassword(e.target.value)}
+                    />
+                    <Input
+                      label="Authenticator code"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      value={mfaCode}
+                      onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    />
+                    <Button
+                      variant="outline"
+                      disabled={mfaPassword.length < 8 || mfaCode.length !== 6}
+                      onClick={() => void disableMfa()}>
+                      Disable MFA
+                    </Button>
+                  </div>
+                )}
+              </div>
             </Card>
           </div>
         }

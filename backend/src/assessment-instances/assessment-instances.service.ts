@@ -10,6 +10,7 @@ import type { AuthUser } from '../common/types/request-with-user';
 import {
   assertAllocatedAssessor,
   assertAllocatedModerator,
+  assessmentActorWhere,
   assertEnrollmentAccess,
   canAssessorReview,
   canFacilitatorMark,
@@ -21,11 +22,13 @@ import {
 } from '../common/tenant/tenant-scope';
 import { isObjectiveQuestionType } from '../assessment-instruments/instrument-options';
 import { FileStorageService } from '../common/file-storage.service';
+import type { StagedUploadFile } from '../common/quarantine-upload';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
   gradeAgainstInstrument,
   type ResponseInput,
 } from './grade-instrument';
+import { assertAssessmentAttemptOpen } from './attempt-window';
 
 @Injectable()
 export class AssessmentInstancesService {
@@ -39,12 +42,10 @@ export class AssessmentInstancesService {
     createdAt: Date;
     instrument?: { timeLimitMinutes: number | null } | null;
   }) {
-    const minutes = attempt.instrument?.timeLimitMinutes ?? 0;
-    if (minutes <= 0) return;
-    const expiresAt = attempt.createdAt.getTime() + minutes * 60_000;
-    if (Date.now() >= expiresAt) {
-      throw new ForbiddenException('Assessment time has expired');
-    }
+    assertAssessmentAttemptOpen(
+      attempt.createdAt,
+      attempt.instrument?.timeLimitMinutes,
+    );
   }
 
   private mapSubmission(row: {
@@ -92,6 +93,7 @@ export class AssessmentInstancesService {
     const rows = await this.prisma.assessmentSubmission.findMany({
       where: {
         ...(status ? { status } : {}),
+        assessment: assessmentActorWhere(user),
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
           ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
@@ -112,6 +114,7 @@ export class AssessmentInstancesService {
     const row = await this.prisma.assessmentSubmission.findFirst({
       where: {
         id,
+        assessment: assessmentActorWhere(user),
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
           ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
@@ -345,23 +348,33 @@ export class AssessmentInstancesService {
       });
     }
 
-    // Moderation records a quality decision; reject clears competency to NYC.
-    await this.prisma.moderation.upsert({
-      where: { assessmentId: row.assessmentId },
-      create: {
-        assessmentId: row.assessmentId,
-        moderatorId: user.userId,
-        decision: decision === 'approve' ? 'APPROVED' : 'REJECTED',
-        feedback: comments,
-        moderatedAt: new Date(),
-      },
-      update: {
-        moderatorId: user.userId,
-        decision: decision === 'approve' ? 'APPROVED' : 'REJECTED',
-        feedback: comments,
-        moderatedAt: new Date(),
-      },
+    // A correction creates a new immutable round; an allocated PENDING round may
+    // receive its first decision without overwriting a historical outcome.
+    const priorRound = await this.prisma.moderation.findFirst({
+      where: { assessmentId: row.assessmentId, deletedAt: null },
+      orderBy: { round: 'desc' },
     });
+    const outcome = decision === 'approve' ? 'APPROVED' : 'REJECTED';
+    if (priorRound?.decision === 'PENDING' && priorRound.moderatorId === user.userId) {
+      await this.prisma.moderation.update({
+        where: { id: priorRound.id },
+        data: { decision: outcome, feedback: comments, moderatedAt: new Date() },
+      });
+    } else {
+      await this.prisma.moderation.create({
+        data: {
+          assessmentId: row.assessmentId,
+          round: (priorRound?.round ?? 0) + 1,
+          moderatorId: user.userId,
+          decision: outcome,
+          feedback: comments,
+          moderatedAt: new Date(),
+          submittedVersion: row.attemptNumber,
+          previousOutcome: priorRound?.decision,
+          supersedesId: priorRound?.id,
+        },
+      });
+    }
     await this.prisma.assessment.update({
       where: { id: row.assessmentId },
       data: { moderatorId: user.userId },
@@ -525,13 +538,13 @@ export class AssessmentInstancesService {
   async uploadAnswerFile(
     submissionId: string,
     questionId: string,
-    file: Express.Multer.File | undefined,
+    file: StagedUploadFile | undefined,
     user?: AuthUser,
   ) {
     if (!questionId?.trim()) {
       throw new BadRequestException('questionId is required');
     }
-    if (!file?.buffer?.length) {
+    if (!file) {
       throw new BadRequestException('File is required');
     }
     if (!this.files) {
@@ -569,16 +582,17 @@ export class AssessmentInstancesService {
       );
     }
 
-    const stored = await this.files.upload(
-      file.originalname,
-      file.buffer,
-      file.mimetype,
-      { prefix: 'assessment-answers', organisationId },
-    );
+    const stored = await this.files.uploadStaged(file, {
+      prefix: 'assessment-answers',
+      organisationId,
+      uploadedById: user?.userId,
+    });
     const payload = {
       storageKey: stored.key,
       fileName: file.originalname,
-      mimeType: file.mimetype,
+      mimeType: stored.mimeType,
+      uploadId: stored.uploadId,
+      checksum: stored.sha256,
       url: stored.url,
     };
 

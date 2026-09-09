@@ -120,8 +120,12 @@ export function OpsInvitationsPage() {
     const email = String(fd.get('email') ?? '');
     const roleId = String(fd.get('roleId') ?? '');
     try {
-      await invitationService.create({ email, roleId });
-      toast.success('Invitation sent');
+      const result = await invitationService.create({ email, roleId });
+      toast[result.data.mailStatus === 'SENT' ? 'success' : 'error'](
+        result.data.mailStatus === 'SENT'
+          ? 'Invitation sent.'
+          : 'Invitation created, but delivery failed and was queued for retry.',
+      );
       setShowModal(false);
       await load();
     } catch {

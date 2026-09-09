@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomUUID } from 'crypto';
 import type { Document } from '@prisma/client';
 import { FileStorageService } from '../common/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,6 +7,7 @@ import type { AuthUser } from '../common/types/request-with-user';
 import { requireOrganisationId } from '../common/tenant/tenant-scope';
 import { resolveSetaAdapter } from './seta-adapters';
 import { NLRD_CERTIFICATION, NLRD_SCHEMA_VERSION } from './nlrd-schema';
+import type { StagedUploadFile } from '../common/quarantine-upload';
 
 @Injectable()
 export class ComplianceService {
@@ -30,7 +30,7 @@ export class ComplianceService {
 
   async recordDecision(
     controlKeyRaw: string,
-    body: { status?: string; notes?: string },
+    body: { status?: string; notes?: string; evidenceDocumentIds?: string[] },
     user?: AuthUser,
   ) {
     const organisationId = requireOrganisationId(user);
@@ -56,6 +56,23 @@ export class ComplianceService {
     if (!allowedStatuses.has(status)) {
       throw new BadRequestException('Invalid compliance decision status');
     }
+    const evidenceDocumentIds = [...new Set(body.evidenceDocumentIds ?? [])];
+    if (status === 'SATISFIED') {
+      if (!evidenceDocumentIds.length) {
+        throw new BadRequestException('Satisfied controls require verified evidence');
+      }
+      const verified = await this.prisma.document.count({
+        where: {
+          id: { in: evidenceDocumentIds },
+          organisationId,
+          deletedAt: null,
+          upload: { status: 'VERIFIED', storageKey: { not: null } },
+        },
+      });
+      if (verified !== evidenceDocumentIds.length) {
+        throw new BadRequestException('Every compliance evidence document must have a verified upload');
+      }
+    }
     return this.prisma.complianceDecision.upsert({
       where: { organisationId_controlKey: { organisationId, controlKey } },
       create: {
@@ -63,13 +80,92 @@ export class ComplianceService {
         controlKey,
         status,
         notes: body.notes?.trim() || null,
+        evidenceDocumentIds,
         decidedById: user.userId,
       },
       update: {
         status,
         notes: body.notes?.trim() || null,
+        evidenceDocumentIds,
         decidedById: user.userId,
         decidedAt: new Date(),
+      },
+    });
+  }
+
+  listAlerts(user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    return this.prisma.complianceAlert.findMany({
+      where: { organisationId },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+  }
+
+  createAlert(
+    body: { controlKey?: string; title?: string; details?: string },
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    if (!body.controlKey?.trim() || !body.title?.trim()) {
+      throw new BadRequestException('controlKey and title are required');
+    }
+    return this.prisma.complianceAlert.create({
+      data: {
+        organisationId,
+        controlKey: body.controlKey.trim().toLowerCase(),
+        title: body.title.trim(),
+        details: body.details?.trim(),
+      },
+    });
+  }
+
+  async acknowledgeAlert(id: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    if (!user?.userId) throw new BadRequestException('Authentication required');
+    const row = await this.prisma.complianceAlert.findFirst({ where: { id, organisationId } });
+    if (!row) throw new BadRequestException('Compliance alert not found');
+    if (row.status === 'RESOLVED') throw new BadRequestException('Resolved alerts are immutable');
+    return this.prisma.complianceAlert.update({
+      where: { id },
+      data: { status: 'ACKNOWLEDGED', acknowledgedById: user.userId, acknowledgedAt: new Date() },
+    });
+  }
+
+  async resolveAlert(
+    id: string,
+    body: { notes?: string; evidenceDocumentIds?: string[] },
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    if (!user?.userId) throw new BadRequestException('Authentication required');
+    const evidenceDocumentIds = [...new Set(body.evidenceDocumentIds ?? [])];
+    if (!evidenceDocumentIds.length) {
+      throw new BadRequestException('Resolution requires verified evidence');
+    }
+    const [row, verified] = await Promise.all([
+      this.prisma.complianceAlert.findFirst({ where: { id, organisationId } }),
+      this.prisma.document.count({
+        where: {
+          id: { in: evidenceDocumentIds },
+          organisationId,
+          deletedAt: null,
+          upload: { status: 'VERIFIED', storageKey: { not: null } },
+        },
+      }),
+    ]);
+    if (!row) throw new BadRequestException('Compliance alert not found');
+    if (verified !== evidenceDocumentIds.length) {
+      throw new BadRequestException('Resolution evidence must be verified');
+    }
+    return this.prisma.complianceAlert.update({
+      where: { id },
+      data: {
+        status: 'RESOLVED',
+        resolvedById: user.userId,
+        resolvedAt: new Date(),
+        resolutionNotes: body.notes?.trim(),
+        evidenceDocumentIds,
       },
     });
   }
@@ -158,32 +254,30 @@ export class ComplianceService {
   }
 
   async uploadDocument(
-    file: Express.Multer.File | undefined,
+    file: StagedUploadFile | undefined,
     metadata: Record<string, unknown>,
     user?: AuthUser,
   ) {
     const organisationId = requireOrganisationId(user);
-    let url: string | undefined;
-    let storageKey = `compliance/${randomUUID()}`;
-    if (file?.buffer?.length) {
-      const stored = await this.files.upload(
-        file.originalname,
-        file.buffer,
-        file.mimetype,
-        { prefix: 'compliance', organisationId },
-      );
-      url = stored.url;
-      storageKey = stored.key;
-    }
+    if (!file) throw new BadRequestException('A compliance evidence file is required');
+    const stored = await this.files.uploadStaged(file, {
+      prefix: 'compliance',
+      organisationId,
+      uploadedById: user?.userId,
+    });
     const doc = await this.prisma.document.create({
       data: {
         organisationId,
         category: (metadata.category as string) ?? 'compliance',
-        name: (metadata.name as string) ?? file?.originalname ?? 'document',
-        storageKey,
-        url: url ?? '/materials/placeholder',
+        uploadId: stored.uploadId,
+        name: (metadata.name as string) ?? file.originalname,
+        storageKey: stored.key,
+        url: stored.url,
         metadata: {
           ...metadata,
+          checksum: stored.sha256,
+          uploaderId: user?.userId,
+          scanResult: stored.status,
           status: metadata.status ?? 'pending_review',
         },
       },

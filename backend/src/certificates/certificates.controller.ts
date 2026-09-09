@@ -22,7 +22,7 @@ export class CertificatesController {
   }
 
   @ApiBearerAuth()
-  @Roles('ADMIN', 'ASSESSOR', 'QA_OFFICER', 'FACILITATOR')
+  @Roles('ADMIN', 'QA_OFFICER')
   @Post('issue')
   async issue(
     @Body() body: { enrollmentId: string },

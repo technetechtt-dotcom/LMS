@@ -10,6 +10,7 @@ import type { AuthUser } from '../common/types/request-with-user';
 import { requireOrganisationId } from '../common/tenant/tenant-scope';
 import { FileStorageService } from '../common/file-storage.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import type { StagedUploadFile } from '../common/quarantine-upload';
 
 function roleFromMemberships(
   memberships: Array<{ role: { code: string; name: string } }>,
@@ -101,7 +102,7 @@ export class MessagesService {
     actor: AuthUser | undefined,
     toId: string,
     content: string,
-    files?: Express.Multer.File[],
+    files?: StagedUploadFile[],
   ) {
     const fromId = actor?.userId;
     if (!fromId) throw new BadRequestException('Authentication required');
@@ -134,21 +135,23 @@ export class MessagesService {
       fileName: string;
       mimeType: string;
       url: string;
+      uploadId: string;
+      checksum: string;
     }> = [];
     if (files?.length && this.files) {
       for (const file of files) {
-        if (!file?.buffer?.length) continue;
-        const stored = await this.files.upload(
-          file.originalname,
-          file.buffer,
-          file.mimetype,
-          { prefix: 'messages', organisationId },
-        );
+        const stored = await this.files.uploadStaged(file, {
+          prefix: 'messages',
+          organisationId,
+          uploadedById: fromId,
+        });
         attachments.push({
           storageKey: stored.key,
           fileName: file.originalname,
-          mimeType: file.mimetype,
+          mimeType: stored.mimeType,
           url: stored.url,
+          uploadId: stored.uploadId,
+          checksum: stored.sha256,
         });
       }
     }

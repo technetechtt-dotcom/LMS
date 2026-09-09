@@ -20,6 +20,7 @@
 | `MALWARE_SCAN_URL` | HTTPS scanner webhook required to enable production uploads. It must return `{ "clean": true }` only after scanning the quarantined object. |
 | `MALWARE_SCAN_TOKEN` | Scanner bearer credential, when required. |
 | `MAIL_DELIVERY_URL` | HTTPS delivery webhook required to enable activation and reset mail. |
+| `MAIL_DELIVERY_HEALTH_URL` | HTTPS provider health endpoint; production readiness probes it with a five-second timeout. |
 | `MAIL_DELIVERY_TOKEN` | Mail provider bearer credential, when required. |
 | `UPLOAD_RETENTION_DAYS` | Retention deadline recorded per upload; default is 2555 days. |
 

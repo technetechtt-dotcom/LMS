@@ -33,6 +33,15 @@ export function validateEnv(
     } else if (!str('DIRECT_URL')) {
       cfg.DIRECT_URL = str('DATABASE_URL');
     }
+    if (!str('FILE_SIGNING_SECRET') || str('FILE_SIGNING_SECRET').length < 32) {
+      errs.push('FILE_SIGNING_SECRET must be set to at least 32 characters in production');
+    }
+    if (!str('JOB_ENCRYPTION_KEY') || str('JOB_ENCRYPTION_KEY').length < 32) {
+      errs.push('JOB_ENCRYPTION_KEY must be set to at least 32 characters in production');
+    }
+    if (!str('MFA_ENCRYPTION_KEY') || str('MFA_ENCRYPTION_KEY').length < 32) {
+      errs.push('MFA_ENCRYPTION_KEY must be set to at least 32 characters in production');
+    }
 
     if ((str('PUBLIC_REGISTRATION') || '').toLowerCase() === 'true') {
       errs.push('PUBLIC_REGISTRATION cannot be enabled in production — use invitations');
@@ -60,7 +69,7 @@ export function validateEnv(
       }
     }
 
-    for (const key of ['MAIL_DELIVERY_URL', 'MALWARE_SCAN_URL']) {
+    for (const key of ['MAIL_DELIVERY_URL', 'MAIL_DELIVERY_HEALTH_URL', 'MALWARE_SCAN_URL']) {
       const value = str(key);
       if (value && !value.toLowerCase().startsWith('https://')) {
         errs.push(`${key} must be an HTTPS URL in production`);

@@ -20,6 +20,7 @@ type ManagedUser = {
   programmeId: string;
   programmeName: string;
   status: 'Active' | 'Inactive';
+  activationPending: boolean;
   lastLogin: string;
 };
 
@@ -52,6 +53,7 @@ function mapDirectoryUser(u: DirectoryUserRow): ManagedUser {
     programmeId: prog?.id ?? 'shared',
     programmeName: prog?.title ?? 'No programme enrolment',
     status: u.isActive ? 'Active' : 'Inactive',
+    activationPending: !u.passwordSetAt,
     lastLogin: last,
   };
 }
@@ -169,6 +171,26 @@ export function UserManagementPage() {
       accessorKey: 'id' as const,
       cell: (row: ManagedUser) => (
         <div className="flex space-x-2">
+          {row.activationPending && (
+            <button
+              aria-label={`Resend activation to ${row.name}`}
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  const result = await userService.resendActivation(row.id);
+                  toast[result.data.mailStatus === 'SENT' ? 'success' : 'error'](
+                    result.data.mailStatus === 'SENT'
+                      ? 'A replacement activation link was sent.'
+                      : 'A replacement link was issued, but delivery failed and was queued for retry.',
+                  );
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : 'Could not resend activation');
+                }
+              }}
+              className="text-gray-400 hover:text-brand-blue">
+              <Mail className="h-4 w-4" />
+            </button>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();

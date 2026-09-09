@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   PoeLearningArtifactKind,
@@ -13,11 +14,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   assertEnrollmentAccess,
+  enrollmentActorWhere,
   enrollmentOrgWhere,
   isLearnerOnly,
+  poeArtifactActorWhere,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
 import { CompletionGateService } from '../enrollments/completion-gate.service';
+import { FileStorageService } from '../common/file-storage.service';
 
 export type PoeTransitionAction =
   | 'issue'
@@ -85,7 +89,32 @@ export class PoeWorkflowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly completion: CompletionGateService,
+    @Optional() private readonly files?: FileStorageService,
   ) {}
+
+  private async assertVerifiedArtifactEvidence(
+    artifactId: string,
+    organisationId: string,
+  ): Promise<void> {
+    const links = await this.prisma.poeArtifactUpload.findMany({
+      where: {
+        artifactId,
+        upload: {
+          organisationId,
+          status: 'VERIFIED',
+          storageKey: { not: null },
+          OR: [{ retentionUntil: null }, { retentionUntil: { gt: new Date() } }],
+        },
+      },
+      select: { uploadId: true },
+    });
+    if (!links.length) {
+      throw new BadRequestException('At least one verified evidence upload is required');
+    }
+    for (const link of links) {
+      await this.files?.assertUploadAvailable(link.uploadId, organisationId);
+    }
+  }
 
   private assertRole(user: AuthUser | undefined, roles: string[]) {
     const codes = user?.roleCodes ?? [];
@@ -133,6 +162,7 @@ export class PoeWorkflowService {
         id: body.enrollmentId,
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
+        ...enrollmentActorWhere(user),
       },
       select: { id: true, learnerId: true },
     });
@@ -157,13 +187,18 @@ export class PoeWorkflowService {
         id: enrollmentId,
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
+        ...enrollmentActorWhere(user),
       },
       select: { learnerId: true },
     });
     assertEnrollmentAccess(user, enrollment, 'PoE artifact');
 
     return this.prisma.poeLearningArtifact.findMany({
-      where: { enrollmentId, deletedAt: null },
+      where: {
+        enrollmentId,
+        deletedAt: null,
+        ...poeArtifactActorWhere(user),
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -202,6 +237,7 @@ export class PoeWorkflowService {
       where: {
         id,
         deletedAt: null,
+        ...poeArtifactActorWhere(user),
         enrollment: enrollmentOrgWhere(organisationId),
       },
       include: {
@@ -210,6 +246,9 @@ export class PoeWorkflowService {
             learner: true,
             programme: true,
           },
+        },
+        uploads: {
+          include: { upload: { select: { status: true, storageKey: true } } },
         },
       },
     });
@@ -237,6 +276,10 @@ export class PoeWorkflowService {
       assessorMarkedAt: row.assessorMarkedAt?.toISOString() ?? null,
       moderatedAt: row.moderatedAt?.toISOString() ?? null,
       url: row.url,
+      evidenceCount: row.uploads.length,
+      evidenceVerified: row.uploads.some(
+        (link) => link.upload.status === 'VERIFIED' && Boolean(link.upload.storageKey),
+      ),
     };
   }
 
@@ -313,12 +356,25 @@ export class PoeWorkflowService {
       );
     }
 
+    if (action !== 'issue') {
+      await this.assertVerifiedArtifactEvidence(id, organisationId);
+    }
+
     if (action === 'assessor_mark') {
       if (!artifact.assessorId || artifact.assessorId !== user!.userId) {
         throw new ForbiddenException(
           'Only the allocated assessor may mark this artefact',
         );
       }
+    }
+    if (
+      action === 'submit_moderation'
+      && !user?.roleCodes.some((role) => ['ADMIN', 'PLATFORM_ADMIN'].includes(role))
+      && artifact.assessorId !== user?.userId
+    ) {
+      throw new ForbiddenException(
+        'Only the allocated assessor may submit this artefact for moderation',
+      );
     }
     if (
       action === 'moderate_approve' || action === 'moderate_reject'

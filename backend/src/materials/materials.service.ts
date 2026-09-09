@@ -6,6 +6,7 @@ import {
 import { Prisma, LearningMaterial } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../common/file-storage.service';
+import type { StagedUploadFile } from '../common/quarantine-upload';
 import { CreateLearningMaterialDto, ListMaterialsQueryDto } from './materials.dto';
 import { AuthUser } from '../common/types/request-with-user';
 import {
@@ -169,62 +170,16 @@ export class MaterialsService {
   }
 
   async createRecord(user: AuthUser | undefined, dto: CreateLearningMaterialDto) {
-    const organisationId = this.requireOrganisationId(user);
-    const uploadedById = user?.userId;
-    if (!uploadedById) throw new BadRequestException('Authenticated user required');
-
-    const p = await this.prisma.programme.findFirst({
-      where: {
-        id: dto.programmeId,
-        organisationId,
-        deletedAt: null,
-      },
-    });
-    if (!p) throw new NotFoundException('Programme not found for this organisation');
-
-    const slug = normalizeSlug(dto.artifactSlug);
-    const mediaKind = mediaKindFromDto(dto);
-    const formatLabel = formatFromDto(dto);
-
-    const stored = await this.prisma.learningMaterial.create({
-      data: {
-        organisationId,
-        programmeId: dto.programmeId,
-        title: dto.title.trim(),
-        description: dto.description?.trim(),
-        moduleCode: dto.moduleCode?.trim() || null,
-        artifactSlug: slug,
-        artifactTypeLabel: dto.artifactType?.trim() || ARTIFACT_LABELS[slug] || null,
-        poeComponent:
-          dto.poeComponent?.trim() ||
-          defaultPoeComponentForSlug(slug, dto.moduleCode),
-        moduleKey: dto.moduleId?.trim() || null,
-        moduleLabel: dto.moduleName?.trim() || null,
-        mediaKind,
-        formatLabel,
-        fileName: null,
-        fileSizeBytes: 0,
-        storageKey: null,
-        url: dto.fileUrl?.trim() || '/materials/placeholder',
-        viewCount: dto.viewCount ?? 0,
-        downloadCount: dto.downloadCount ?? 0,
-        completionCount: dto.completionCount ?? 0,
-        isApproved: dto.isApproved !== false,
-        isAIEnhanced: dto.isAIEnhanced ?? false,
-        uploadedById,
-      },
-      include: { programme: { select: { id: true, title: true } } },
-    });
-
-    return {
-      success: true,
-      data: this.toClientRow(stored),
-    };
+    this.requireOrganisationId(user);
+    void dto;
+    throw new BadRequestException(
+      'A verified material file is required; use the multipart upload endpoint',
+    );
   }
 
   async createWithFile(
     user: AuthUser | undefined,
-    file: Express.Multer.File | undefined,
+    file: StagedUploadFile | undefined,
     dto: CreateLearningMaterialDto,
   ) {
     const organisationId = this.requireOrganisationId(user);
@@ -244,23 +199,16 @@ export class MaterialsService {
     const mediaKind = mediaKindFromDto(dto, file?.mimetype);
     const formatLabel = formatFromDto(dto, file?.mimetype);
 
-    let url = '/materials/placeholder';
-    let storageKey: string | null = null;
-    let fileSizeBytes = 0;
-    let fileName: string | null = null;
-
-    if (file) {
-      const up = await this.files.upload(file.originalname, file.buffer, file.mimetype, {
-        prefix: 'materials',
-        organisationId,
-      });
-      url = up.url;
-      storageKey = up.key;
-      fileSizeBytes = file.size;
-      fileName = file.originalname;
-    } else if (dto.fileUrl?.trim()) {
-      url = dto.fileUrl.trim();
-    }
+    if (!file) throw new BadRequestException('A material file is required for this endpoint');
+    const up = await this.files.uploadStaged(file, {
+      prefix: 'materials',
+      organisationId,
+      uploadedById,
+    });
+    const url = up.url;
+    const storageKey = up.key;
+    const fileSizeBytes = up.size;
+    const fileName = file.originalname;
 
     const stored = await this.prisma.learningMaterial.create({
       data: {
