@@ -71,7 +71,36 @@ export class AssessmentInstrumentsController {
     return this.instruments.replaceQuestions(id, dto, req.user);
   }
 
-  @Roles('ADMIN', 'FACILITATOR', 'QA_OFFICER')
+  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR')
+  @Post(':id/submit-review')
+  submitReview(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.instruments.submitForReview(id, req.user);
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER')
+  @Post(':id/approve')
+  approve(
+    @Param('id') id: string,
+    @Body() body: { notes?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.instruments.review(id, true, body.notes, req.user);
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER')
+  @Post(':id/reject')
+  reject(
+    @Param('id') id: string,
+    @Body() body: { notes?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.instruments.review(id, false, body.notes, req.user);
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER')
   @Post(':id/publish')
   publish(@Param('id') id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.instruments.publish(id, req.user);

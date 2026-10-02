@@ -46,7 +46,7 @@ export class AssessmentInstancesController {
     return { success: true, data };
   }
 
-  @Roles('LEARNER', 'ASSESSOR', 'ADMIN', 'FACILITATOR')
+  @Roles('LEARNER')
   @Post()
   async submit(
     @Body() body: Record<string, unknown>,
@@ -88,7 +88,7 @@ export class AssessmentInstancesController {
     }
   }
 
-  @Roles('LEARNER', 'ASSESSOR', 'ADMIN', 'FACILITATOR')
+  @Roles('LEARNER')
   @Patch(':id/progress')
   async saveProgress(
     @Param('id') id: string,

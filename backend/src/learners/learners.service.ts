@@ -12,7 +12,10 @@ import {
 } from './learners.mapper';
 import type { CreateLearnerDto, UpdateLearnerDto } from './learners.dto';
 import type { AuthUser } from '../common/types/request-with-user';
-import { requireOrganisationId } from '../common/tenant/tenant-scope';
+import {
+  enrollmentActorWhere,
+  requireOrganisationId,
+} from '../common/tenant/tenant-scope';
 
 export type LearnerListQuery = {
   search?: string;
@@ -119,18 +122,7 @@ export class LearnersService {
     if (organisationId) {
       Object.assign(where, this.orgScope(organisationId));
     }
-
-    if (
-      user?.roleCodes?.includes('MENTOR') &&
-      !user.roleCodes.some((c) =>
-        ['ADMIN', 'PLATFORM_ADMIN', 'FACILITATOR', 'QA_OFFICER'].includes(c),
-      )
-    ) {
-      where.metadata = {
-        path: ['workplaceMentorId'],
-        equals: user.userId,
-      };
-    }
+    Object.assign(where, enrollmentActorWhere(user));
 
     const programmeId = filters.programme?.trim();
     if (programmeId && programmeId !== 'all') {
@@ -204,6 +196,7 @@ export class LearnersService {
     if (organisationId) {
       Object.assign(where, this.orgScope(organisationId));
     }
+    Object.assign(where, enrollmentActorWhere(user));
     const row = await this.prisma.enrollment.findFirst({
       where,
       include: {
@@ -214,25 +207,6 @@ export class LearnersService {
       },
     });
     if (!row) throw new NotFoundException('Learner enrolment not found');
-
-    // Learners may only view their own enrolment profile.
-    if (
-      user &&
-      !user.roleCodes?.some((c) =>
-        ['ADMIN', 'PLATFORM_ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER', 'SETA'].includes(
-          c,
-        ),
-      )
-    ) {
-      if (user.roleCodes?.includes('MENTOR')) {
-        const meta = (row.metadata as { workplaceMentorId?: string } | null) ?? {};
-        if (meta.workplaceMentorId !== user.userId) {
-          throw new NotFoundException('Learner enrolment not found');
-        }
-      } else if (row.learnerId !== user.userId) {
-        throw new NotFoundException('Learner enrolment not found');
-      }
-    }
 
     const stats = await this.assessmentStatsForEnrollmentIds([row.id]);
     return mapEnrollmentToLearnerApi(
@@ -343,6 +317,6 @@ export class LearnersService {
       });
     });
 
-    return this.byId(id, organisationId);
+    return this.byId(id, organisationId, user);
   }
 }

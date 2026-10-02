@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Filter, Download, Plus, Trash2 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
@@ -43,9 +43,12 @@ const SETA_SELECT_OPTIONS = [
 
 export function ProgrammesPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [kindFilter, setKindFilter] = useState<'all' | ProgrammeKind>('all');
-  const [showAddProgramme, setShowAddProgramme] = useState(false);
+  const [showAddProgramme, setShowAddProgramme] = useState(
+    () => searchParams.get('action') === 'new',
+  );
   const [newProgrammeForm, setNewProgrammeForm] = useState<NewProgrammeForm>(
     () => emptyNewProgrammeForm(),
   );

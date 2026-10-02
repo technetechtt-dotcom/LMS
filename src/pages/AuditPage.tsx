@@ -311,10 +311,18 @@ export function AuditPage() {
               <Button
                 onClick={async () => {
                   if (!findingNotes.trim()) return toast.error('Enter findings before saving');
-                  await auditService.log('AUDIT_FINDING', 'audit_session', selectedProgrammeId || 'all', findingNotes.trim());
-                  setFindingNotes('');
-                  setAuditEventCount((count) => count + 1);
-                  toast.success('Finding persisted in the audit trail');
+                  try {
+                    await auditService.createFinding({
+                      scopeType: 'programme',
+                      scopeId: selectedProgrammeId || undefined,
+                      finding: findingNotes.trim(),
+                      severity: 'MEDIUM',
+                    });
+                    setFindingNotes('');
+                    toast.success('Formal auditor finding persisted');
+                  } catch {
+                    toast.error('The auditor finding was not saved');
+                  }
                 }}
               >
                 Save Finding

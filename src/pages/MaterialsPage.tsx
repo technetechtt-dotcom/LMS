@@ -782,8 +782,8 @@ export function MaterialsPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+      <div>
+        <div>
           <Card
             title="Material Library"
             noPadding
@@ -840,9 +840,9 @@ export function MaterialsPage() {
                   onClick={() => setPage((p) => Math.max(1, p - 1))}>
                   Previous
                 </Button>
-                <Button size="sm" className="bg-brand-navy text-white">
+                <span className="flex items-center px-3 py-1 text-xs font-semibold rounded bg-brand-navy text-white">
                   {page}
-                </Button>
+                </span>
                 <Button
                   variant="outline"
                   size="sm"
@@ -851,19 +851,6 @@ export function MaterialsPage() {
                   Next
                 </Button>
               </div>
-            </div>
-          </Card>
-        </div>
-        <div className="lg:col-span-1">
-          <Card title="AI Recommendations">
-            <div className="absolute top-4 right-4">
-              <Badge variant="info" className="bg-brand-navy text-white">
-                AI
-              </Badge>
-            </div>
-            <div className="text-center py-8 text-gray-500 text-sm">
-              Select a material to see AI-generated recommendations for
-              supplementary content.
             </div>
           </Card>
         </div>

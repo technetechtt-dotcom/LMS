@@ -9,8 +9,8 @@ import { CreateAttendanceDto } from './attendance.dto';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   assertEnrollmentAccess,
+  enrollmentActorWhere,
   enrollmentOrgWhere,
-  isLearnerOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
 import { hashOpaqueToken } from '../common/crypto/token-crypto';
@@ -27,6 +27,7 @@ export class AttendanceService {
           id: enrollmentId,
           deletedAt: null,
           ...enrollmentOrgWhere(organisationId),
+          ...enrollmentActorWhere(user),
         },
         select: { learnerId: true },
       });
@@ -39,7 +40,7 @@ export class AttendanceService {
         ...(enrollmentId ? { enrollmentId } : {}),
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
-          ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
+          ...enrollmentActorWhere(user),
         },
       },
       include: {
@@ -147,7 +148,7 @@ export class AttendanceService {
   async summary(user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const sessions = await this.prisma.attendanceSession.findMany({
-      where: { organisationId },
+      where: { organisationId, mandatory: true },
       include: {
         checkIns: { where: { deletedAt: null } },
       },
@@ -173,7 +174,7 @@ export class AttendanceService {
         sum + s.checkIns.filter((c) => c.status === 'EXCUSED').length,
       0,
     );
-    const denominator = expectedCount > 0 ? expectedCount : present + absent + excused;
+    const denominator = expectedCount;
     return {
       scheduledSessions: sessions.length,
       expectedCount,
@@ -194,14 +195,14 @@ export class AttendanceService {
       throw new BadRequestException('Session already closed');
     }
 
-    const enrollments = await this.prisma.enrollment.findMany({
+    const enrollments = session.mandatory ? await this.prisma.enrollment.findMany({
       where: {
         deletedAt: null,
         programmeId: session.programmeId,
         ...enrollmentOrgWhere(organisationId),
       },
       select: { id: true },
-    });
+    }) : [];
     const existing = await this.prisma.attendance.findMany({
       where: { sessionId: session.id, deletedAt: null },
       select: { enrollmentId: true },

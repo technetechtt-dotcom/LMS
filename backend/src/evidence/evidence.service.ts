@@ -31,6 +31,7 @@ export class EvidenceService {
           id: enrollmentId,
           deletedAt: null,
           ...enrollmentOrgWhere(organisationId),
+          ...enrollmentActorWhere(user),
         },
         select: { learnerId: true, metadata: true },
       });
@@ -64,6 +65,7 @@ export class EvidenceService {
         id: dto.enrollmentId,
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
+        ...enrollmentActorWhere(user),
       },
       select: { id: true, learnerId: true, metadata: true },
     });
@@ -76,21 +78,26 @@ export class EvidenceService {
       organisationId,
       uploadedById,
     });
-    return this.prisma.evidence.create({
-      data: {
-        ...dto,
-        uploadId: stored.uploadId,
-        fileName: file.originalname,
-        fileType: stored.mimeType,
-        fileSize: stored.size,
-        storageKey: stored.key,
-        url: stored.url,
-        metadata: {
-          checksum: stored.sha256,
-          scanResult: stored.status,
+    try {
+      return await this.prisma.evidence.create({
+        data: {
+          ...dto,
+          uploadId: stored.uploadId,
+          fileName: file.originalname,
+          fileType: stored.mimeType,
+          fileSize: stored.size,
+          storageKey: stored.key,
+          url: stored.url,
+          metadata: {
+            checksum: stored.sha256,
+            scanResult: stored.status,
+          },
+          uploadedById,
         },
-        uploadedById,
-      },
-    });
+      });
+    } catch (error) {
+      await this.files.rollbackUpload?.(stored.uploadId);
+      throw error;
+    }
   }
 }

@@ -148,7 +148,7 @@ describe('CompletionGateService authoritative completion decisions', () => {
       'A blocking compliance decision is unresolved',
       'Verified workplace hours 10 < required 100',
       'Mandatory attendance sessions remain open',
-      'Attendance rate 50% < required 80%',
+      'Attendance rate 0% < required 80%',
     ]));
   });
 

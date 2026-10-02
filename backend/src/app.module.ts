@@ -41,6 +41,7 @@ import { validateEnv } from './config/env.validation';
 import { HealthController } from './health/health.controller';
 import { DirectoryModule } from './directory/directory.module';
 import { MailModule } from './mail/mail.module';
+import { FeedbackModule } from './feedback/feedback.module';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { MailModule } from './mail/mail.module';
     OpsModule,
     DirectoryModule,
     MailModule,
+    FeedbackModule,
   ],
   controllers: [HealthController],
   providers: [

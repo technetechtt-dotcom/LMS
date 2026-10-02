@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import type { LoginDto, RegisterDto, UpdateProfileDto, ChangePasswordDto } from './auth.dto';
 import { mapUserToApiProfile, type UserWithMemberships } from './user-mapper';
@@ -25,6 +25,7 @@ import {
 } from '../common/crypto/token-crypto';
 import type { AuthPortal } from './auth-cookies';
 import { encodeBase32, verifyTotp } from '../common/crypto/totp';
+import { MailDeliveryQueueService } from '../mail/mail-delivery-queue.service';
 
 @Injectable()
 export class AuthService {
@@ -37,6 +38,7 @@ export class AuthService {
     private readonly mail: MailService,
     private readonly invitations: InvitationsService,
     @Optional() private readonly files?: FileStorageService,
+    @Optional() private readonly mailQueue?: MailDeliveryQueueService,
   ) {}
 
   private mfaKey(): Buffer {
@@ -73,6 +75,31 @@ export class AuthService {
     } catch {
       throw new UnauthorizedException('MFA configuration is invalid');
     }
+  }
+
+  private recoveryCodeHash(code: string): string {
+    const normalized = code.toUpperCase().replace(/[^A-F0-9]/g, '');
+    return createHmac('sha256', this.mfaKey()).update(normalized).digest('hex');
+  }
+
+  private newRecoveryCodes(): string[] {
+    return Array.from({ length: 10 }, () =>
+      randomBytes(8).toString('hex').toUpperCase().match(/.{1,4}/g)!.join('-'),
+    );
+  }
+
+  private async replaceRecoveryCodes(userId: string): Promise<string[]> {
+    const recoveryCodes = this.newRecoveryCodes();
+    await this.prisma.$transaction([
+      this.prisma.mfaRecoveryCode.deleteMany({ where: { userId } }),
+      this.prisma.mfaRecoveryCode.createMany({
+        data: recoveryCodes.map((code) => ({
+          userId,
+          codeHash: this.recoveryCodeHash(code),
+        })),
+      }),
+    ]);
+    return recoveryCodes;
   }
 
   private refreshExpiryDate(): Date {
@@ -172,9 +199,25 @@ export class AuthService {
 
     if (user.totpEnabled) {
       const secret = user.totpSecret ? this.decryptMfaSecret(user.totpSecret) : '';
-      if (!secret || !dto.totpCode || !verifyTotp(secret, dto.totpCode)) {
+      const totpValid = Boolean(secret && dto.totpCode && verifyTotp(secret, dto.totpCode));
+      let recoveryValid = false;
+      if (!totpValid && dto.recoveryCode) {
+        const consumed = await this.prisma.mfaRecoveryCode.updateMany({
+          where: {
+            userId: user.id,
+            codeHash: this.recoveryCodeHash(dto.recoveryCode),
+            usedAt: null,
+          },
+          data: { usedAt: new Date() },
+        });
+        recoveryValid = consumed.count === 1;
+        if (recoveryValid) {
+          await this.logLoginAttempt(user.id, email, 'MFA_RECOVERY_CODE_USED', meta, {});
+        }
+      }
+      if (!totpValid && !recoveryValid) {
         await this.logLoginAttempt(user.id, email, 'LOGIN_FAILURE_MFA', meta, {});
-        throw new UnauthorizedException('A valid authenticator code is required');
+        throw new UnauthorizedException('A valid authenticator or recovery code is required');
       }
     }
 
@@ -231,8 +274,16 @@ export class AuthService {
     if (!verifyTotp(this.decryptMfaSecret(user.totpSecret), code)) {
       throw new BadRequestException('Invalid authenticator code');
     }
+    const recoveryCodes = this.newRecoveryCodes();
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: userId }, data: { totpEnabled: true } }),
+      this.prisma.mfaRecoveryCode.deleteMany({ where: { userId } }),
+      this.prisma.mfaRecoveryCode.createMany({
+        data: recoveryCodes.map((recoveryCode) => ({
+          userId,
+          codeHash: this.recoveryCodeHash(recoveryCode),
+        })),
+      }),
       this.prisma.auditLog.create({
         data: {
           actorId: userId,
@@ -242,7 +293,26 @@ export class AuthService {
         },
       }),
     ]);
-    return { enabled: true };
+    return { enabled: true, recoveryCodes };
+  }
+
+  async regenerateRecoveryCodes(userId: string, password: string, code: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.totpEnabled || !user.totpSecret || user.deletedAt) {
+      throw new BadRequestException('MFA is not enabled');
+    }
+    const [passwordValid, codeValid] = await Promise.all([
+      bcrypt.compare(password, user.passwordHash),
+      Promise.resolve(verifyTotp(this.decryptMfaSecret(user.totpSecret), code)),
+    ]);
+    if (!passwordValid || !codeValid) {
+      throw new UnauthorizedException('Invalid recovery-code regeneration credentials');
+    }
+    const recoveryCodes = await this.replaceRecoveryCodes(userId);
+    await this.prisma.auditLog.create({
+      data: { actorId: userId, entityType: 'Authentication', entityId: userId, action: 'MFA_RECOVERY_CODES_REGENERATED' },
+    });
+    return { recoveryCodes };
   }
 
   async disableMfa(userId: string, password: string, code: string) {
@@ -260,6 +330,7 @@ export class AuthService {
         where: { id: userId },
         data: { totpEnabled: false, totpSecret: null },
       }),
+      this.prisma.mfaRecoveryCode.deleteMany({ where: { userId } }),
       this.prisma.refreshToken.updateMany({
         where: { userId, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -279,6 +350,118 @@ export class AuthService {
   private async userIsPlatformAdmin(userId: string): Promise<boolean> {
     const access = await this.userPortalAccess(userId);
     return access.platform;
+  }
+
+  async requestBreakGlass(emailRaw: string, password: string, reason: string) {
+    const email = emailRaw.toLowerCase().trim();
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user || user.deletedAt || !user.isActive || !user.totpEnabled || !(await bcrypt.compare(password, user.passwordHash))) {
+      await this.fakeDelay();
+      throw new UnauthorizedException('Break-glass request credentials are invalid');
+    }
+    const membership = await this.prisma.userOrganisation.findFirst({
+      where: {
+        userId: user.id,
+        deletedAt: null,
+        role: { code: { in: ['ADMIN', 'QA_OFFICER', 'PLATFORM_ADMIN'] }, deletedAt: null },
+      },
+      orderBy: { isPrimary: 'desc' },
+    });
+    if (!membership) throw new UnauthorizedException('Break-glass access is restricted to privileged accounts');
+    const request = await this.prisma.breakGlassAccess.create({
+      data: {
+        organisationId: membership.organisationId,
+        requestedById: user.id,
+        reason: reason.trim().slice(0, 2000),
+      },
+      select: { id: true, status: true, requestedAt: true },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        organisationId: membership.organisationId,
+        actorId: user.id,
+        entityType: 'BreakGlassAccess',
+        entityId: request.id,
+        action: 'BREAK_GLASS_REQUESTED',
+      },
+    });
+    return request;
+  }
+
+  listBreakGlassRequests() {
+    return this.prisma.breakGlassAccess.findMany({
+      where: { status: { in: ['PENDING', 'APPROVED'] } },
+      include: { requestedBy: { select: { email: true, firstName: true, lastName: true } } },
+      orderBy: { requestedAt: 'asc' },
+      take: 100,
+    });
+  }
+
+  async approveBreakGlass(id: string, approverId: string) {
+    if (!(await this.userIsPlatformAdmin(approverId))) {
+      throw new UnauthorizedException('Platform approval is required');
+    }
+    const request = await this.prisma.breakGlassAccess.findFirst({ where: { id, status: 'PENDING' } });
+    if (!request) throw new NotFoundException('Pending break-glass request not found');
+    if (request.requestedById === approverId) {
+      throw new UnauthorizedException('Break-glass requests require independent approval');
+    }
+    const token = generateOpaqueRefreshToken();
+    const expiresAt = new Date(Date.now() + 15 * 60_000);
+    const updated = await this.prisma.breakGlassAccess.updateMany({
+      where: { id, status: 'PENDING' },
+      data: {
+        status: 'APPROVED',
+        approvedById: approverId,
+        approvedAt: new Date(),
+        expiresAt,
+        tokenHash: hashOpaqueToken(token),
+      },
+    });
+    if (updated.count !== 1) throw new BadRequestException('Break-glass request was already processed');
+    await this.prisma.auditLog.create({
+      data: {
+        organisationId: request.organisationId,
+        actorId: approverId,
+        entityType: 'BreakGlassAccess',
+        entityId: request.id,
+        action: 'BREAK_GLASS_APPROVED',
+      },
+    });
+    return { id: request.id, token, expiresAt: expiresAt.toISOString() };
+  }
+
+  async redeemBreakGlass(id: string, token: string, emailRaw: string, password: string) {
+    const email = emailRaw.toLowerCase().trim();
+    const request = await this.prisma.breakGlassAccess.findFirst({
+      where: {
+        id,
+        status: 'APPROVED',
+        tokenHash: hashOpaqueToken(token.trim()),
+        expiresAt: { gt: new Date() },
+      },
+      include: { requestedBy: true },
+    });
+    if (!request || request.requestedBy.email.toLowerCase() !== email || !(await bcrypt.compare(password, request.requestedBy.passwordHash))) {
+      await this.fakeDelay();
+      throw new UnauthorizedException('Break-glass token is invalid or expired');
+    }
+    const consumed = await this.prisma.breakGlassAccess.updateMany({
+      where: { id, status: 'APPROVED', redeemedAt: null },
+      data: { status: 'REDEEMED', redeemedAt: new Date(), tokenHash: null },
+    });
+    if (consumed.count !== 1) throw new UnauthorizedException('Break-glass token was already used');
+    await this.prisma.auditLog.create({
+      data: {
+        organisationId: request.organisationId,
+        actorId: request.requestedById,
+        entityType: 'BreakGlassAccess',
+        entityId: request.id,
+        action: 'BREAK_GLASS_REDEEMED',
+      },
+    });
+    const portal: AuthPortal = await this.userIsPlatformAdmin(request.requestedById) ? 'ops' : 'lms';
+    return this.issueSession(request.requestedById, request.requestedBy.email, portal);
   }
 
   private async fakeDelay() {
@@ -314,6 +497,7 @@ export class AuthService {
       accessToken,
       refreshToken: refreshRaw,
       sessionId: refreshSession.id,
+      portal,
       tokenType: 'Bearer' as const,
       user: apiUser,
     };
@@ -445,15 +629,37 @@ export class AuthService {
     const resetUrl = `${base}/reset-password?token=${raw}`;
 
     try {
-      await this.mail.sendPasswordReset(email, resetUrl);
+      const receipt = await this.mail.sendPasswordReset(email, resetUrl);
+      await this.mailQueue?.recordAttempt({
+        userId: user.id,
+        recipient: email,
+        template: 'password-reset',
+        status: 'SENT',
+        providerMessageId: receipt?.providerMessageId,
+      });
     } catch (err) {
       this.logger.error(
         `Failed to send password reset email to ${email}`,
         err instanceof Error ? err.stack : undefined,
       );
-      if (this.config.get<string>('NODE_ENV') === 'production') {
-        throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      if (!this.mailQueue) {
+        if (this.config.get<string>('NODE_ENV') === 'production') throw err;
+        return { success: true };
       }
+      await this.mailQueue?.recordAttempt({
+        userId: user.id,
+        recipient: email,
+        template: 'password-reset',
+        status: 'FAILED',
+        error: message,
+      });
+      await this.mailQueue?.enqueue({
+        userId: user.id,
+        recipient: email,
+        template: 'password-reset',
+        actionUrl: resetUrl,
+      });
     }
 
     return { success: true };
@@ -600,10 +806,15 @@ export class AuthService {
       organisationId: organisationId ?? 'platform',
       uploadedById: userId,
     });
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { signatureStorageKey: stored.key },
-    });
+    try {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { signatureStorageKey: stored.key },
+      });
+    } catch (error) {
+      await this.files.rollbackUpload?.(stored.uploadId);
+      throw error;
+    }
     return this.buildUserResponse(userId);
   }
 

@@ -14,6 +14,21 @@ describe('AssessmentsService attempt refresh and resume', () => {
     enrollment: { learnerId: 'learner-1' },
   };
 
+  it('rejects staff before reading or creating any learner attempt', async () => {
+    const findFirst = jest.fn();
+    const service = new AssessmentsService({
+      assessment: { findFirst },
+    } as never);
+
+    await expect(service.startAttempt('assessment-1', {
+      userId: 'facilitator-1',
+      email: 'facilitator@example.test',
+      organisationId: 'organisation-1',
+      roleCodes: ['FACILITATOR'],
+    })).rejects.toThrow('Assessment attempts may only be started by the enrolled learner');
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
   it('resumes the same attempt and reports an expired server-derived window', async () => {
     const createdAt = new Date(Date.now() - 61_000);
     const open = {

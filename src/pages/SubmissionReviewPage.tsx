@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useOutletContext } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -34,6 +34,8 @@ function initialsFromName(name: string): string {
 export function SubmissionReviewPage() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const instanceIdFromQuery = searchParams.get('instanceId');
   const context = useOutletContext<{
     userRole?: string;
   }>();
@@ -123,13 +125,17 @@ export function SubmissionReviewPage() {
           avatar: initialsFromName(s.learnerName ?? 'L'),
         }));
         setInstances(mapped);
-        if (mapped[0]?.id) setSelectedSubmissionId(mapped[0].id);
+        if (instanceIdFromQuery && mapped.some((m) => m.id === instanceIdFromQuery)) {
+          setSelectedSubmissionId(instanceIdFromQuery);
+        } else if (mapped[0]?.id) {
+          setSelectedSubmissionId(mapped[0].id);
+        }
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, instanceIdFromQuery]);
 
   useEffect(() => {
     if (!selectedSubmissionId) return;

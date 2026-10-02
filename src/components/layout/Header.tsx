@@ -17,7 +17,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import type { Notification as DomainNotification } from '../../types';
 import { getStoredAccessToken } from '../../config/authStorage';
 import { messagingService } from '../../services/api';
-import { toast } from 'sonner';
 
 type PanelNotification = {
   id: string;
@@ -162,9 +161,10 @@ export function Header({ onMenuToggle }: HeaderProps) {
         <div className="flex items-center space-x-2 sm:space-x-4">
           <button
             type="button"
-            className="hidden sm:flex p-2 text-gray-400 hover:text-gray-500 rounded-full hover:bg-gray-100 items-center space-x-1"
-            onClick={() => toast.info('English is the only language available in this release')}
-            title="Language">
+            disabled
+            aria-label="Interface language: English"
+            className="hidden sm:flex p-2 text-gray-400 rounded-full items-center space-x-1 cursor-default"
+            title="Interface language: English (additional translations are not installed)">
             <Globe className="h-5 w-5" />
             <span className="text-sm font-medium text-gray-600">EN</span>
           </button>

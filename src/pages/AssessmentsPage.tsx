@@ -132,7 +132,13 @@ export function AssessmentsPage() {
       cell: (row: QueueRow) => (
         <Button
           size="sm"
-          onClick={() => navigate(`/assessment/${row.assessmentId}/submissions`)}>
+          onClick={() =>
+            navigate(
+              `/assessment/${row.assessmentId}/submissions?instanceId=${encodeURIComponent(
+                row.id,
+              )}`,
+            )
+          }>
           Review
         </Button>
       ),

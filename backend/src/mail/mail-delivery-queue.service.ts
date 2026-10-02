@@ -65,6 +65,7 @@ export class MailDeliveryQueueService implements OnApplicationBootstrap, OnAppli
   async enqueue(input: {
     organisationId?: string;
     userId?: string;
+    invitationId?: string;
     recipient: string;
     template: Template;
     actionUrl: string;
@@ -73,6 +74,7 @@ export class MailDeliveryQueueService implements OnApplicationBootstrap, OnAppli
       data: {
         organisationId: input.organisationId,
         userId: input.userId,
+        invitationId: input.invitationId,
         recipient: input.recipient,
         template: input.template,
         actionUrlCiphertext: this.encrypt(input.actionUrl),
@@ -144,6 +146,18 @@ export class MailDeliveryQueueService implements OnApplicationBootstrap, OnAppli
             where: { id: job.id },
             data: { status: 'COMPLETED', completedAt: new Date(), lockedAt: null, lastError: null },
           });
+          if (job.invitationId) {
+            await this.prisma.invitation.updateMany({
+              where: { id: job.invitationId, status: 'PENDING' },
+              data: {
+                mailStatus: 'SENT',
+                mailAttempts: { increment: 1 },
+                lastMailedAt: new Date(),
+                lastMailError: null,
+                lastProviderMessageId: receipt?.providerMessageId,
+              },
+            });
+          }
         } catch (error) {
           const attempts = job.attempts + 1;
           const message = error instanceof Error ? error.message : String(error);

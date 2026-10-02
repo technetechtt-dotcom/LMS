@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Patch,
   Post,
   Req,
@@ -29,6 +30,16 @@ export class MessagesController {
   @Get()
   async list(@Req() req: Request & { user?: AuthUser }) {
     const data = await this.messages.listForUser(req.user);
+    return { success: true, data };
+  }
+
+  @Get(':id/attachments/:uploadId/download')
+  async attachmentDownload(
+    @Param('id') id: string,
+    @Param('uploadId') uploadId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.messages.attachmentDownload(req.user, id, uploadId);
     return { success: true, data };
   }
 

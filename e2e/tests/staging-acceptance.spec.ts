@@ -36,4 +36,38 @@ test.describe('deployed staging acceptance', () => {
     await expect(page.locator('body')).not.toContainText('@skillforge.co.za');
     await expect(page.locator('body')).not.toContainText('Password123!');
   });
+
+  test('all eight LMS roles sign in on the exact staged revision', async ({ browser }) => {
+    const raw = process.env.STAGING_ROLE_CREDENTIALS_JSON;
+    if (!raw) throw new Error('STAGING_ROLE_CREDENTIALS_JSON is required for release acceptance');
+    const credentials = JSON.parse(raw) as Array<{
+      role: string;
+      email: string;
+      password: string;
+      home: string;
+    }>;
+    const expectedRoles = new Set([
+      'admin', 'qa', 'facilitator', 'learner',
+      'assessor', 'moderator', 'seta', 'mentor',
+    ]);
+    expect(new Set(credentials.map((item) => item.role.toLowerCase())))
+      .toEqual(expectedRoles);
+
+    for (const credential of credentials) {
+      const context = await browser.newContext();
+      const rolePage = await context.newPage();
+      try {
+        await rolePage.goto('/login');
+        await rolePage.getByLabel('Email Address').fill(credential.email);
+        await rolePage.getByLabel('Password').fill(credential.password);
+        await rolePage.getByRole('button', { name: /sign in/i }).click();
+        await rolePage.waitForURL((url) => url.pathname === credential.home, {
+          timeout: 20_000,
+        });
+        await expect(rolePage.locator('body')).not.toContainText(/access denied/i);
+      } finally {
+        await context.close();
+      }
+    }
+  });
 });

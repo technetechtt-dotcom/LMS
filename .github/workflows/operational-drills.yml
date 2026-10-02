@@ -13,6 +13,20 @@ on:
         required: true
         type: boolean
         default: true
+      run_rollback:
+        description: Exercise staging rollback hooks and verify the expected revision
+        required: true
+        type: boolean
+        default: false
+      rollback_expected_sha:
+        description: Exact revision expected after the staging rollback
+        required: false
+        type: string
+      run_monitoring:
+        description: Trigger the staging alert canary and verify alert delivery
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -53,6 +67,69 @@ jobs:
           npx prisma validate
           node -e "const {PrismaClient}=require('@prisma/client'); const p=new PrismaClient(); p.user.count().then(n=>{if(n<1)process.exitCode=1; console.log('restored users',n)}).finally(()=>p.\$disconnect())"
 
+  rollback:
+    if: inputs.run_rollback
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      EXPECTED_SHA: ${{ inputs.rollback_expected_sha }}
+      API_URL: ${{ vars.STAGING_API_URL }}
+      WEB_URL: ${{ vars.STAGING_WEB_URL }}
+      OPS_URL: ${{ vars.STAGING_OPS_URL }}
+      API_ROLLBACK_HOOK: ${{ secrets.RENDER_STAGING_API_ROLLBACK_HOOK }}
+      WEB_ROLLBACK_HOOK: ${{ secrets.RENDER_STAGING_WEB_ROLLBACK_HOOK }}
+      OPS_ROLLBACK_HOOK: ${{ secrets.RENDER_STAGING_OPS_ROLLBACK_HOOK }}
+    steps:
+      - name: Validate rollback drill configuration
+        run: |
+          test -n "$EXPECTED_SHA"
+          test -n "$API_URL" && test -n "$WEB_URL" && test -n "$OPS_URL"
+          test -n "$API_ROLLBACK_HOOK" && test -n "$WEB_ROLLBACK_HOOK" && test -n "$OPS_ROLLBACK_HOOK"
+      - name: Trigger staging rollback
+        run: |
+          curl --fail --silent --show-error --request POST "$API_ROLLBACK_HOOK"
+          curl --fail --silent --show-error --request POST "$WEB_ROLLBACK_HOOK"
+          curl --fail --silent --show-error --request POST "$OPS_ROLLBACK_HOOK"
+      - name: Verify all services reached the exact rollback revision
+        run: |
+          check_revision() {
+            body="$(curl --fail --silent --show-error "$1")" || return 1
+            ACTUAL_JSON="$body" node -e "const b=JSON.parse(process.env.ACTUAL_JSON);if(b.revision!==process.env.EXPECTED_SHA)process.exit(1)"
+          }
+          for attempt in $(seq 1 60); do
+            if check_revision "$API_URL/health/ready" \
+              && check_revision "$WEB_URL/version.json" \
+              && check_revision "$OPS_URL/version.json"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+
+  monitoring:
+    if: inputs.run_monitoring
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      ALERT_CANARY_URL: ${{ secrets.MONITORING_ALERT_CANARY_URL }}
+      ALERT_CONFIRM_URL: ${{ secrets.MONITORING_ALERT_CONFIRM_URL }}
+    steps:
+      - name: Trigger and confirm a monitoring alert
+        run: |
+          test -n "$ALERT_CANARY_URL" && test -n "$ALERT_CONFIRM_URL"
+          drill_id="monitoring-drill-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          curl --fail --silent --show-error --request POST \
+            --header 'content-type: application/json' \
+            --data "{\"drillId\":\"$drill_id\"}" "$ALERT_CANARY_URL"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error "$ALERT_CONFIRM_URL?drillId=$drill_id" | grep -q '"delivered"[[:space:]]*:[[:space:]]*true'; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "The monitoring provider did not confirm alert delivery" >&2
+          exit 1
+
   load:
     if: inputs.run_load
     runs-on: ubuntu-latest
@@ -68,4 +145,13 @@ jobs:
           LOAD_VUS: '20'
           LOAD_DURATION_MS: '30000'
           LOAD_P95_LIMIT_MS: '1000'
-        run: node scripts/load-smoke.mjs
+        run: |
+          mkdir -p test-artifacts
+          node scripts/load-smoke.mjs | tee test-artifacts/load-result.txt
+      - name: Upload load-test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-drill-${{ github.run_id }}
+          retention-days: 90
+          path: test-artifacts

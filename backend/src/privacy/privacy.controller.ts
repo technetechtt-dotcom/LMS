@@ -16,6 +16,7 @@ import type { AuthUser } from '../common/types/request-with-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { requireOrganisationId } from '../common/tenant/tenant-scope';
 import { FileStorageService } from '../common/file-storage.service';
+import { ConfigService } from '@nestjs/config';
 
 const DSAR_TYPES = [
   'ACCESS',
@@ -31,7 +32,57 @@ export class PrivacyController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly files: FileStorageService,
+    private readonly config: ConfigService,
   ) {}
+
+  private policyVersion() {
+    return this.config.get<string>('POPIA_POLICY_VERSION')?.trim() || '2026-09-11';
+  }
+
+  @Get('notice')
+  async notice(@Req() req: Request & { user?: AuthUser }) {
+    const organisationId = requireOrganisationId(req.user);
+    const policyVersion = this.policyVersion();
+    const acknowledgement = await this.prisma.popiaAcknowledgement.findUnique({
+      where: {
+        userId_organisationId_policyVersion: {
+          userId: req.user!.userId,
+          organisationId,
+          policyVersion,
+        },
+      },
+      select: { acknowledgedAt: true },
+    });
+    return {
+      policyVersion,
+      acknowledged: Boolean(acknowledgement),
+      acknowledgedAt: acknowledgement?.acknowledgedAt?.toISOString(),
+    };
+  }
+
+  @Post('notice/acknowledge')
+  acknowledgeNotice(@Req() req: Request & { user?: AuthUser }) {
+    const organisationId = requireOrganisationId(req.user);
+    const policyVersion = this.policyVersion();
+    return this.prisma.popiaAcknowledgement.upsert({
+      where: {
+        userId_organisationId_policyVersion: {
+          userId: req.user!.userId,
+          organisationId,
+          policyVersion,
+        },
+      },
+      create: {
+        userId: req.user!.userId,
+        organisationId,
+        policyVersion,
+        ipAddress: req.ip,
+        userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined,
+      },
+      update: {},
+      select: { policyVersion: true, acknowledgedAt: true },
+    });
+  }
 
   @Roles('ADMIN', 'QA_OFFICER')
   @Get('dsar')
@@ -135,16 +186,21 @@ export class PrivacyController {
       'application/json',
       { prefix: 'exports/portability', organisationId },
     );
-    return this.prisma.dataExportJob.create({
-      data: {
-        organisationId,
-        subjectUserId: subject.id,
-        requestedById: req.user!.userId,
-        status: 'COMPLETED',
-        storageKey: stored.key,
-        completedAt: new Date(),
-      },
-    });
+    try {
+      return await this.prisma.dataExportJob.create({
+        data: {
+          organisationId,
+          subjectUserId: subject.id,
+          requestedById: req.user!.userId,
+          status: 'COMPLETED',
+          storageKey: stored.key,
+          completedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      await this.files.rollbackUpload?.(stored.uploadId);
+      throw error;
+    }
   }
 
   @Roles('ADMIN', 'QA_OFFICER')
@@ -166,16 +222,26 @@ export class PrivacyController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     const organisationId = requireOrganisationId(req.user);
+    const entityType = body.entityType?.trim().toUpperCase();
+    if (!['UPLOAD', 'GENERATED_REPORT'].includes(entityType)) {
+      throw new BadRequestException('entityType must be UPLOAD or GENERATED_REPORT');
+    }
+    if (!Number.isInteger(body.retainDays) || body.retainDays < 1) {
+      throw new BadRequestException('retainDays must be a positive integer');
+    }
+    if ((body.disposalMethod ?? 'SOFT_DELETE') !== 'SOFT_DELETE') {
+      throw new BadRequestException('Only SOFT_DELETE disposal is supported');
+    }
     return this.prisma.retentionPolicy.upsert({
       where: {
         organisationId_entityType: {
           organisationId,
-          entityType: body.entityType,
+          entityType,
         },
       },
       create: {
         organisationId,
-        entityType: body.entityType,
+        entityType,
         retainDays: body.retainDays,
         disposalMethod: body.disposalMethod ?? 'SOFT_DELETE',
       },

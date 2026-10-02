@@ -2,7 +2,7 @@
 
 ## Launch policy
 
-Production promotion is fail-closed. The protected release workflow requires a green CI run for the exact commit, exact matching API/LMS/Ops revisions, ready integrations, production approval, a recent successful restore drill, eight-role staging sign-off, security/privacy sign-off, and a live monitoring endpoint. Failed post-deploy verification invokes configured rollback hooks.
+Production promotion is fail-closed. The protected release workflow requires a green CI run for the exact commit, exact matching API/LMS/Ops revisions, ready integrations, production approval, recent successful restore/rollback/monitoring/load drills, eight-role staging sign-off, security/privacy sign-off, an independent penetration-test report, and a live monitoring endpoint. Failed post-deploy verification invokes configured rollback hooks.
 
 Never set a sign-off variable to `approved` or a drill result to `passed` without attaching the evidence to the release ticket.
 
@@ -12,6 +12,8 @@ Never set a sign-off variable to `approved` or a drill result to `passed` withou
 - Activation replacement invalidates prior tokens, delivery attempts are audited, and failed delivery enters the encrypted database queue.
 - Accounts with no `passwordSetAt` cannot authenticate.
 - TOTP secrets are encrypted at rest. Enabled accounts must supply a valid time-based code. Production readiness fails while an active privileged account has not enrolled MFA.
+- MFA enrollment returns ten single-use recovery codes; regeneration requires the account password and a current TOTP code. Codes are HMAC-hashed and never recoverable from the database.
+- Break-glass access requires password verification, a written reason, independent Platform Admin approval, a short-lived one-time token, and immutable system audit events for request, approval, and redemption.
 - Tenant context is derived from authenticated membership. Learners, mentors, assessors, moderators, and SETA officials receive assignment-scoped data; platform-wide operations remain isolated to the Ops portal.
 - Generic SSO remains disabled until an organisation supplies and approves a certified OIDC/SAML identity provider configuration. Do not represent `/auth/sso/status` as enabled before that integration is completed and tested.
 
@@ -35,6 +37,8 @@ Never set a sign-off variable to `approved` or a drill result to `passed` withou
 
 - Collect only fields required for training delivery and statutory reporting.
 - Use `/privacy` workflows for access, correction, erasure review, incident recording, and retention policies.
+- POPIA notice acknowledgement is stored per user, organisation, policy version, IP address, and timestamp; browser storage is not treated as consent evidence.
+- The retention worker applies organisation policy deadlines and purges due objects automatically. Generated reports use policy-driven soft deletion.
 - Do not erase records subject to a documented statutory hold. Review `UPLOAD_RETENTION_DAYS` and organisation retention policies with the information officer before launch.
 - Audit payloads redact passwords, tokens, cookies, authorization headers, and TOTP secrets. Logs use request correlation IDs and omit query strings.
 
@@ -49,4 +53,17 @@ Never set a sign-off variable to `approved` or a drill result to `passed` withou
 
 ## External responsibilities
 
-The repository cannot itself certify a SETA/QCTO/SAQA adapter, activate a monitoring vendor, approve a privacy review, enable storage versioning, or prove a restore. Those controls require named human owners and provider-side evidence. The release workflow intentionally blocks production until the corresponding environment approvals are present.
+The repository cannot itself certify a SETA/QCTO/SAQA adapter, activate a monitoring vendor, approve a privacy review, conduct an independent penetration test, enable storage versioning, or prove a provider-side restore. Those controls require named human owners and provider-side evidence. The release workflow intentionally blocks production until the corresponding environment approvals are present.
+
+## Required production-environment evidence
+
+Set these protected GitHub environment values only from reviewed evidence. The three approval SHA values must exactly equal the CI commit being promoted.
+
+- `RESTORE_DRILL_RESULT=passed` and `RESTORE_DRILL_AT`
+- `ROLLBACK_DRILL_RESULT=passed` and `ROLLBACK_DRILL_AT`
+- `MONITORING_DRILL_RESULT=passed` and `MONITORING_DRILL_AT`
+- `LOAD_TEST_RESULT=passed` and `LOAD_TEST_AT`
+- `STAGING_EIGHT_ROLE_SIGNOFF=approved` and `STAGING_EIGHT_ROLE_SIGNOFF_SHA`
+- `SECURITY_PRIVACY_SIGNOFF=approved` and `SECURITY_PRIVACY_SIGNOFF_SHA`
+- `PEN_TEST_RESULT=passed`, `PEN_TEST_AT`, `PEN_TEST_SHA`, and `PEN_TEST_REPORT_URL`
+- secret `STAGING_ROLE_CREDENTIALS_JSON` containing exactly admin, QA, facilitator, learner, assessor, moderator, SETA, and mentor staging credentials plus each expected home route

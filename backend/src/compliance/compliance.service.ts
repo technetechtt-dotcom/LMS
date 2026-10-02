@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Document } from '@prisma/client';
+import type { Document, UploadRecord } from '@prisma/client';
 import { FileStorageService } from '../common/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
@@ -170,7 +170,9 @@ export class ComplianceService {
     });
   }
 
-  private mapComplianceDoc(doc: Document): Record<string, unknown> {
+  private mapComplianceDoc(
+    doc: Document & { upload?: UploadRecord | null },
+  ): Record<string, unknown> {
     const meta = (doc.metadata as Record<string, unknown> | null) ?? {};
     return {
       id: doc.id,
@@ -183,6 +185,11 @@ export class ComplianceService {
       expiryDate: meta.expiryDate as string | undefined,
       fileUrl: doc.url,
       uploadedBy: meta.uploadedBy as string | undefined,
+      uploadStatus: doc.upload?.status ?? 'LEGACY_UNTRACKED',
+      scanResult: doc.upload?.scanResult ?? (meta.scanResult as string | undefined),
+      scannedAt: doc.upload?.scannedAt?.toISOString(),
+      verifiedAt: doc.upload?.verifiedAt?.toISOString() ?? doc.verifiedAt?.toISOString(),
+      retentionUntil: doc.upload?.retentionUntil?.toISOString(),
       createdAt: doc.createdAt.toISOString(),
       updatedAt: doc.updatedAt.toISOString(),
     };
@@ -214,6 +221,7 @@ export class ComplianceService {
         organisationId,
         category: { startsWith: 'compliance' },
       },
+      include: { upload: true },
       orderBy: { updatedAt: 'desc' },
     });
     return docs.map((d) => this.mapComplianceDoc(d));
@@ -265,23 +273,30 @@ export class ComplianceService {
       organisationId,
       uploadedById: user?.userId,
     });
-    const doc = await this.prisma.document.create({
-      data: {
-        organisationId,
-        category: (metadata.category as string) ?? 'compliance',
-        uploadId: stored.uploadId,
-        name: (metadata.name as string) ?? file.originalname,
-        storageKey: stored.key,
-        url: stored.url,
-        metadata: {
-          ...metadata,
-          checksum: stored.sha256,
-          uploaderId: user?.userId,
-          scanResult: stored.status,
-          status: metadata.status ?? 'pending_review',
+    let doc;
+    try {
+      doc = await this.prisma.document.create({
+        data: {
+          organisationId,
+          category: (metadata.category as string) ?? 'compliance',
+          uploadId: stored.uploadId,
+          name: (metadata.name as string) ?? file.originalname,
+          storageKey: stored.key,
+          url: stored.url,
+          metadata: {
+            ...metadata,
+            checksum: stored.sha256,
+            uploaderId: user?.userId,
+            scanResult: stored.status,
+            status: metadata.status ?? 'pending_review',
+          },
         },
-      },
-    });
+        include: { upload: true },
+      });
+    } catch (error) {
+      await this.files.rollbackUpload?.(stored.uploadId);
+      throw error;
+    }
     return this.mapComplianceDoc(doc);
   }
 
@@ -359,8 +374,9 @@ export class ComplianceService {
       { prefix: 'exports/nlrd', organisationId },
     );
 
-    await this.prisma.document.create({
-      data: {
+    try {
+      await this.prisma.document.create({
+        data: {
         organisationId,
         category: 'seta-submission',
         name: `NLRD ${batchId}`,
@@ -376,9 +392,13 @@ export class ComplianceService {
           submissionStatus: 'generated_not_accepted',
           submittedAt: new Date().toISOString(),
           errorCount: errors.length,
+          },
         },
-      },
-    });
+      });
+    } catch (error) {
+      await this.files.rollbackUpload?.(stored.uploadId);
+      throw error;
+    }
 
     return {
       batchId,
@@ -463,8 +483,9 @@ export class ComplianceService {
       { prefix: 'exports/seta', organisationId },
     );
 
-    await this.prisma.document.create({
-      data: {
+    try {
+      await this.prisma.document.create({
+        data: {
         organisationId,
         category: 'seta-submission',
         name: `SETA export ${batchId}`,
@@ -479,9 +500,13 @@ export class ComplianceService {
           status: 'generated',
           contentType: packaged.contentType,
           submittedAt: new Date().toISOString(),
+          },
         },
-      },
-    });
+      });
+    } catch (error) {
+      await this.files.rollbackUpload?.(stored.uploadId);
+      throw error;
+    }
 
     return {
       batchId,

@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Patch,
+  Param,
   Post,
   Req,
   Res,
@@ -28,6 +29,8 @@ import {
   ChangePasswordDto,
   DisableMfaDto,
   MfaCodeDto,
+  BreakGlassRequestDto,
+  BreakGlassRedeemDto,
 } from './auth.dto';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
@@ -39,6 +42,7 @@ import {
 } from './auth-cookies';
 import { quarantineUploadOptions } from '../common/quarantine-upload';
 import { FileStorageService } from '../common/file-storage.service';
+import { Roles } from '../common/decorators/roles.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -278,6 +282,18 @@ export class AuthController {
 
   @ApiBearerAuth()
   @Throttle({ default: { ttl: 300_000, limit: 3 } })
+  @Post('mfa/recovery-codes')
+  regenerateRecoveryCodes(
+    @Req() req: Request & { user?: AuthUser },
+    @Body() dto: DisableMfaDto,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Invalid session');
+    return this.auth.regenerateRecoveryCodes(userId, dto.password, dto.code);
+  }
+
+  @ApiBearerAuth()
+  @Throttle({ default: { ttl: 300_000, limit: 3 } })
   @Delete('mfa')
   mfaDisable(
     @Req() req: Request & { user?: AuthUser },
@@ -286,6 +302,51 @@ export class AuthController {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedException('Invalid session');
     return this.auth.disableMfa(userId, dto.password, dto.code);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 900_000, limit: 3 } })
+  @Post('break-glass/request')
+  requestBreakGlass(@Body() dto: BreakGlassRequestDto) {
+    return this.auth.requestBreakGlass(dto.email, dto.password, dto.reason);
+  }
+
+  @ApiBearerAuth()
+  @Roles('PLATFORM_ADMIN')
+  @Get('break-glass')
+  listBreakGlass() {
+    return this.auth.listBreakGlassRequests();
+  }
+
+  @ApiBearerAuth()
+  @Roles('PLATFORM_ADMIN')
+  @Post('break-glass/:id/approve')
+  approveBreakGlass(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Invalid session');
+    return this.auth.approveBreakGlass(id, userId);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 900_000, limit: 5 } })
+  @Post('break-glass/redeem')
+  async redeemBreakGlass(
+    @Body() dto: BreakGlassRedeemDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const session = await this.auth.redeemBreakGlass(
+      dto.requestId,
+      dto.token,
+      dto.email,
+      dto.password,
+    );
+    const portal = session.portal;
+    clearRefreshCookie(res, this.nodeEnv(), portal);
+    this.attachRefreshCookie(res, session.refreshToken, portal);
+    return this.sessionWithoutRefreshToken(session);
   }
 
   @Public()

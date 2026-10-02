@@ -175,7 +175,7 @@ describe('AuthService security decision branches', () => {
     const missingSecret = setup({ user: { totpEnabled: true, totpSecret: null } });
     await expect(missingSecret.service.login({
       email: 'person@example.test', password: 'Correct-password-123!', totpCode: '123456',
-    })).rejects.toThrow('valid authenticator code');
+    })).rejects.toThrow('valid authenticator or recovery code');
   });
 
   it('rejects invalid refresh principals and cross-portal refreshes', async () => {

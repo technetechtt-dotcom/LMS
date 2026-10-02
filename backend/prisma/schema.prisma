@@ -101,6 +101,8 @@ model User {
   evidence                         Evidence[]            @relation("EvidenceUploadedBy")
   verifiedDocs                     Document[]            @relation("DocumentVerifiedBy")
   audits                           AuditLog[]
+  feedbackSubmissions              Feedback[]             @relation("FeedbackSubmitter")
+  auditorFindings                  AuditorFinding[]        @relation("AuditorFindingActor")
   poeArtifactsCreated              PoeLearningArtifact[] @relation("PoeArtifactCreatedBy")
   poeArtifactsFacilitatorMarked    PoeLearningArtifact[] @relation("PoeArtifactFacilitatorMarkedBy")
   poeArtifactsAllocatedAsAssessor  PoeLearningArtifact[] @relation("PoeArtifactAssessor")
@@ -126,6 +128,14 @@ model User {
   complianceAlertsResolved         ComplianceAlert[]     @relation("ComplianceAlertResolvedBy")
   poeArtifactUploadsLinked         PoeArtifactUpload[]   @relation("PoeArtifactUploadLinkedBy")
   mailDeliveryJobs                 MailDeliveryJob[]     @relation("MailDeliveryJobUser")
+  assessmentInstrumentsCreated     AssessmentInstrument[] @relation("InstrumentCreatedBy")
+  assessmentInstrumentsSubmitted   AssessmentInstrument[] @relation("InstrumentSubmittedBy")
+  assessmentInstrumentsApproved    AssessmentInstrument[] @relation("InstrumentApprovedBy")
+  assessmentInstrumentsPublished   AssessmentInstrument[] @relation("InstrumentPublishedBy")
+  mfaRecoveryCodes                 MfaRecoveryCode[]
+  popiaAcknowledgements            PopiaAcknowledgement[]
+  breakGlassRequests               BreakGlassAccess[]      @relation("BreakGlassRequester")
+  breakGlassApprovals              BreakGlassAccess[]      @relation("BreakGlassApprover")
 }
 
 model Role {
@@ -168,6 +178,10 @@ model Organisation {
   reportDownloads        ReportDownload[]
   complianceAlerts       ComplianceAlert[]
   mailDeliveryJobs       MailDeliveryJob[]
+  feedback               Feedback[]
+  auditorFindings        AuditorFinding[]
+  popiaAcknowledgements  PopiaAcknowledgement[]
+  breakGlassRequests     BreakGlassAccess[]
 }
 
 model UserOrganisation {
@@ -641,6 +655,8 @@ model EnrollmentWorkflow {
 /// Versioned question instrument (publish/retire) for a unit standard.
 enum AssessmentInstrumentStatus {
   DRAFT
+  IN_REVIEW
+  APPROVED
   PUBLISHED
   RETIRED
 }
@@ -653,6 +669,13 @@ model AssessmentInstrument {
   title            String?
   status           AssessmentInstrumentStatus @default(DRAFT)
   publishedAt      DateTime?
+  createdById      String?                    @db.Uuid
+  submittedById    String?                    @db.Uuid
+  submittedAt      DateTime?
+  approvedById     String?                    @db.Uuid
+  approvedAt       DateTime?
+  publishedById    String?                    @db.Uuid
+  reviewNotes      String?
   /// Max learner attempts against this published instrument (0 = unlimited).
   maxAttempts      Int                        @default(3)
   /// Minimum percentage required for competent (C) outcome.
@@ -663,12 +686,18 @@ model AssessmentInstrument {
   unitStandard     UnitStandard               @relation(fields: [unitStandardId], references: [id])
   questions        AssessmentQuestion[]
   submissions      AssessmentSubmission[]
+  createdBy        User?                      @relation("InstrumentCreatedBy", fields: [createdById], references: [id])
+  submittedBy      User?                      @relation("InstrumentSubmittedBy", fields: [submittedById], references: [id])
+  approvedBy       User?                      @relation("InstrumentApprovedBy", fields: [approvedById], references: [id])
+  publishedBy      User?                      @relation("InstrumentPublishedBy", fields: [publishedById], references: [id])
   createdAt        DateTime                   @default(now())
   updatedAt        DateTime                   @updatedAt
 
   @@unique([organisationId, unitStandardId, version])
   @@index([unitStandardId, status])
   @@index([organisationId, status])
+  @@index([createdById])
+  @@index([approvedById])
 }
 
 /// Per–unit-standard question bank; prefer linking via instrumentId for versioning.
@@ -703,6 +732,52 @@ model RefreshToken {
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+}
+
+model MfaRecoveryCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  codeHash  String    @unique
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+}
+
+model PopiaAcknowledgement {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @db.Uuid
+  organisationId String       @db.Uuid
+  policyVersion  String
+  acknowledgedAt DateTime     @default(now())
+  ipAddress      String?
+  userAgent      String?
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([userId, organisationId, policyVersion])
+  @@index([organisationId, policyVersion])
+}
+
+model BreakGlassAccess {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @db.Uuid
+  requestedById  String       @db.Uuid
+  approvedById   String?      @db.Uuid
+  reason         String
+  status         String       @default("PENDING")
+  tokenHash      String?      @unique
+  requestedAt    DateTime     @default(now())
+  approvedAt     DateTime?
+  expiresAt      DateTime?
+  redeemedAt     DateTime?
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  requestedBy    User         @relation("BreakGlassRequester", fields: [requestedById], references: [id])
+  approvedBy     User?        @relation("BreakGlassApprover", fields: [approvedById], references: [id])
+
+  @@index([status, requestedAt])
+  @@index([requestedById, requestedAt])
 }
 
 model PasswordResetToken {
@@ -854,6 +929,7 @@ model MailDeliveryJob {
   id                  String        @id @default(uuid()) @db.Uuid
   organisationId      String?       @db.Uuid
   userId              String?       @db.Uuid
+  invitationId        String?       @db.Uuid
   recipient           String
   template            String
   actionUrlCiphertext String
@@ -867,8 +943,10 @@ model MailDeliveryJob {
   updatedAt           DateTime      @updatedAt
   organisation        Organisation? @relation(fields: [organisationId], references: [id])
   user                User?         @relation("MailDeliveryJobUser", fields: [userId], references: [id])
+  invitation          Invitation?   @relation(fields: [invitationId], references: [id], onDelete: SetNull)
 
   @@index([status, availableAt])
+  @@index([invitationId, status])
 }
 
 model ReportDownload {
@@ -922,6 +1000,43 @@ model AuditLog {
   @@index([actorId, createdAt])
 }
 
+/// End-user comments are not authoritative audit events.
+model Feedback {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @db.Uuid
+  submittedById  String       @db.Uuid
+  category       String
+  rating         Int?
+  message        String
+  status         String       @default("OPEN")
+  createdAt      DateTime     @default(now())
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  submittedBy    User         @relation("FeedbackSubmitter", fields: [submittedById], references: [id])
+
+  @@index([organisationId, status, createdAt])
+  @@index([submittedById, createdAt])
+}
+
+/// Formal findings are a restricted workflow, separate from the immutable system trail.
+model AuditorFinding {
+  id                  String       @id @default(uuid()) @db.Uuid
+  organisationId      String       @db.Uuid
+  auditorId            String       @db.Uuid
+  scopeType            String
+  scopeId              String?
+  finding              String
+  severity             String       @default("MEDIUM")
+  status               String       @default("OPEN")
+  evidenceDocumentIds Json          @default("[]")
+  createdAt             DateTime     @default(now())
+  closedAt              DateTime?
+  organisation          Organisation @relation(fields: [organisationId], references: [id])
+  auditor               User         @relation("AuditorFindingActor", fields: [auditorId], references: [id])
+
+  @@index([organisationId, status, createdAt])
+  @@index([auditorId, createdAt])
+}
+
 enum InvitationStatus {
   PENDING
   ACCEPTED
@@ -948,6 +1063,7 @@ model Invitation {
   organisation          Organisation     @relation(fields: [organisationId], references: [id])
   role                  Role             @relation(fields: [roleId], references: [id])
   invitedBy             User             @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
+  mailDeliveryJobs      MailDeliveryJob[]
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
 
@@ -1040,6 +1156,7 @@ model AttendanceSession {
   title          String?
   scheduledAt    DateTime     @default(now())
   expectedCount  Int          @default(0)
+  mandatory      Boolean      @default(true)
   createdAt      DateTime     @default(now())
   organisation   Organisation @relation(fields: [organisationId], references: [id])
   programme      Programme    @relation(fields: [programmeId], references: [id])

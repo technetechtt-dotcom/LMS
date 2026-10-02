@@ -122,7 +122,9 @@ export class PoeService {
       uploadedById,
     });
     const now = new Date().toISOString();
-    const doc = await this.prisma.$transaction(async (tx) => {
+    let doc;
+    try {
+      doc = await this.prisma.$transaction(async (tx) => {
       const upload = await tx.uploadRecord.findUnique({
         where: { id: stored.uploadId },
         select: { retentionUntil: true },
@@ -166,8 +168,12 @@ export class PoeService {
           data: { storageKey: stored.key, url: stored.url },
         });
       }
-      return created;
-    });
+        return created;
+      });
+    } catch (error) {
+      await this.files.rollbackUpload?.(stored.uploadId);
+      throw error;
+    }
     return this.mapDocument(doc, ctx);
   }
 
@@ -181,11 +187,15 @@ export class PoeService {
         id: documentId,
         deletedAt: null,
         OR: [
-          { organisationId },
+          {
+            organisationId,
+            ...(docEnrollmentScope(user)),
+          },
           {
             enrollment: {
               deletedAt: null,
               ...enrollmentOrgWhere(organisationId),
+              ...enrollmentActorWhere(user),
             },
           },
         ],
@@ -317,4 +327,9 @@ export class PoeService {
       documents: docs.map((d) => this.mapDocument(d, ctx)),
     };
   }
+}
+
+function docEnrollmentScope(user?: AuthUser) {
+  const scope = enrollmentActorWhere(user);
+  return Object.keys(scope).length ? { enrollment: scope } : {};
 }

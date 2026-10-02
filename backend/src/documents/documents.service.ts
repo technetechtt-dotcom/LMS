@@ -32,6 +32,7 @@ export class DocumentsService {
           id: enrollmentId,
           deletedAt: null,
           ...enrollmentOrgWhere(organisationId),
+          ...enrollmentActorWhere(user),
         },
         select: { learnerId: true, metadata: true },
       });
@@ -57,6 +58,7 @@ export class DocumentsService {
           id: dto.enrollmentId,
           deletedAt: null,
           ...enrollmentOrgWhere(organisationId),
+          ...enrollmentActorWhere(user),
         },
         select: { learnerId: true, metadata: true },
       });

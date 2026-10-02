@@ -4,7 +4,6 @@ import {
   assessmentActorWhere,
   assertEnrollmentAccess,
   isLearnerOnly,
-  isStaffUser,
   requireOrganisationId,
   enrollmentOrgWhere,
 } from '../common/tenant/tenant-scope';
@@ -199,9 +198,6 @@ export class AssessmentsService {
     if (!a) throw new NotFoundException('Assessment not found');
     assertEnrollmentAccess(user, a.enrollment, 'Assessment');
 
-    // Learners never receive answer keys; staff may.
-    const includeAnswers = isStaffUser(user);
-
     const published = await this.prisma.assessmentInstrument.findFirst({
       where: {
         unitStandardId: a.unitStandardId,
@@ -238,7 +234,38 @@ export class AssessmentsService {
       },
       orderBy: { orderIndex: 'asc' },
     });
-    return rows.map((q) => mapQuestionToApi(q, assessmentId, includeAnswers));
+    return rows.map((q) => mapQuestionToApi(q, assessmentId, false));
+  }
+
+  /** Explicit allocation-scoped reviewer view; ordinary reads never expose keys. */
+  async answerKey(assessmentId: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const assessment = await this.prisma.assessment.findFirst({
+      where: {
+        id: assessmentId,
+        deletedAt: null,
+        ...assessmentActorWhere(user),
+        enrollment: enrollmentOrgWhere(organisationId),
+      },
+      select: { id: true, unitStandardId: true },
+    });
+    if (!assessment) throw new NotFoundException('Assessment not found');
+
+    const instrument = await this.prisma.assessmentInstrument.findFirst({
+      where: {
+        organisationId,
+        unitStandardId: assessment.unitStandardId,
+        status: 'PUBLISHED',
+      },
+      orderBy: { version: 'desc' },
+      select: { id: true },
+    });
+    if (!instrument) throw new NotFoundException('Published instrument not found');
+    const rows = await this.prisma.assessmentQuestion.findMany({
+      where: { instrumentId: instrument.id, deletedAt: null },
+      orderBy: { orderIndex: 'asc' },
+    });
+    return rows.map((q) => mapQuestionToApi(q, assessmentId, true));
   }
 
   /**
@@ -247,6 +274,11 @@ export class AssessmentsService {
   async startAttempt(assessmentId: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     if (!user?.userId) throw new ForbiddenException('Authentication required');
+    if (!isLearnerOnly(user)) {
+      throw new ForbiddenException(
+        'Assessment attempts may only be started by the enrolled learner',
+      );
+    }
 
     const a = await this.prisma.assessment.findFirst({
       where: {

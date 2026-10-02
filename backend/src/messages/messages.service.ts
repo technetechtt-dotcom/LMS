@@ -138,44 +138,51 @@ export class MessagesService {
       uploadId: string;
       checksum: string;
     }> = [];
-    if (files?.length && this.files) {
-      for (const file of files) {
-        const stored = await this.files.uploadStaged(file, {
-          prefix: 'messages',
-          organisationId,
-          uploadedById: fromId,
-        });
-        attachments.push({
-          storageKey: stored.key,
-          fileName: file.originalname,
-          mimeType: stored.mimeType,
-          url: stored.url,
-          uploadId: stored.uploadId,
-          checksum: stored.sha256,
-        });
+    let row;
+    try {
+      if (files?.length && this.files) {
+        for (const file of files) {
+          const stored = await this.files.uploadStaged(file, {
+            prefix: 'messages',
+            organisationId,
+            uploadedById: fromId,
+          });
+          attachments.push({
+            storageKey: stored.key,
+            fileName: file.originalname,
+            mimeType: stored.mimeType,
+            url: stored.url,
+            uploadId: stored.uploadId,
+            checksum: stored.sha256,
+          });
+        }
       }
-    }
 
-    const row = await this.prisma.message.create({
-      data: {
-        organisationId,
-        fromId,
-        toId,
-        content: content.trim(),
-        metadata: attachments.length ? { attachments } : undefined,
-      },
-      include: {
-        from: {
-          include: {
-            memberships: {
-              where: { organisationId, deletedAt: null },
-              include: { role: true },
+      row = await this.prisma.message.create({
+        data: {
+          organisationId,
+          fromId,
+          toId,
+          content: content.trim(),
+          metadata: attachments.length ? { attachments } : undefined,
+        },
+        include: {
+          from: {
+            include: {
+              memberships: {
+                where: { organisationId, deletedAt: null },
+                include: { role: true },
+              },
             },
           },
+          to: true,
         },
-        to: true,
-      },
-    });
+      });
+    } catch (error) {
+      await Promise.all(attachments.map((item) => this.files?.rollbackUpload(item.uploadId)));
+      await Promise.all((files ?? []).map((file) => this.files?.discardStaged(file)));
+      throw error;
+    }
 
     await this.notifications?.notify(
       toId,
@@ -186,6 +193,41 @@ export class MessagesService {
     );
 
     return this.mapMessage(row);
+  }
+
+  async attachmentDownload(
+    user: AuthUser | undefined,
+    messageId: string,
+    uploadId: string,
+  ) {
+    const userId = user?.userId;
+    if (!userId || !this.files) throw new ForbiddenException('Authentication required');
+    const organisationId = requireOrganisationId(user);
+    const message = await this.prisma.message.findFirst({
+      where: {
+        id: messageId,
+        organisationId,
+        OR: [{ fromId: userId }, { toId: userId }],
+      },
+      select: { metadata: true },
+    });
+    if (!message) throw new NotFoundException('Message not found');
+    const metadata = (message.metadata as { attachments?: unknown } | null) ?? {};
+    const attachments = Array.isArray(metadata.attachments)
+      ? metadata.attachments as Array<Record<string, unknown>>
+      : [];
+    const attachment = attachments.find((item) => String(item.uploadId ?? '') === uploadId);
+    if (!attachment) throw new NotFoundException('Message attachment not found');
+    const storageKey = await this.files.assertValidStorageKey(
+      String(attachment.storageKey ?? ''),
+      organisationId,
+      ['messages'],
+    );
+    return {
+      downloadUrl: await this.files.getSignedDownloadUrl(storageKey),
+      fileName: String(attachment.fileName ?? 'attachment'),
+      mimeType: String(attachment.mimeType ?? 'application/octet-stream'),
+    };
   }
 
   async markFromPeerRead(user: AuthUser | undefined, fromId: string) {

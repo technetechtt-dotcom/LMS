@@ -98,17 +98,31 @@ export function LearnerCertificatesPage() {
                   Download PDF
                 </Button>
                 {c.verificationCode && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    leftIcon={<ExternalLink className="h-4 w-4" />}
-                    onClick={() => {
-                      const url = `${window.location.origin}/certificates/verify/${c.verificationCode}`;
-                      void navigator.clipboard.writeText(url);
-                      toast.success('Verification link copied');
-                    }}>
-                    Share verify link
-                  </Button>
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      leftIcon={<ExternalLink className="h-4 w-4" />}
+                      onClick={() => {
+                        window.open(
+                          `/certificates/verify/${c.verificationCode}`,
+                          '_blank',
+                          'noopener',
+                        );
+                      }}>
+                      Verify
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const url = `${window.location.origin}/certificates/verify/${c.verificationCode}`;
+                        void navigator.clipboard.writeText(url);
+                        toast.success('Verification link copied');
+                      }}>
+                      Copy Link
+                    </Button>
+                  </>
                 )}
               </div>
             </Card>

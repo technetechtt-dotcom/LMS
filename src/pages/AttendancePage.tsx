@@ -94,6 +94,7 @@ export function AttendancePage() {
     Array<{ id: string; title: string }>
   >([]);
   const [selectedProgrammeId, setSelectedProgrammeId] = useState('');
+  const [sessionMandatory, setSessionMandatory] = useState(true);
   const [attendanceData, setAttendanceData] = useState<AttendanceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [manualLearners, setManualLearners] = useState<
@@ -397,6 +398,10 @@ export function AttendancePage() {
           </p>
         </div>
         <div className="flex space-x-3">
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={sessionMandatory} onChange={(event) => setSessionMandatory(event.target.checked)} />
+            Mandatory session
+          </label>
           <Button
             variant="outline"
             leftIcon={<Download className="h-4 w-4" />}
@@ -415,6 +420,7 @@ export function AttendancePage() {
                 const res = await attendanceService.openSession(
                   selectedProgrammeId,
                   30,
+                  sessionMandatory,
                 );
                 setQrPayload(res.data);
                 setShowQrModal(true);
@@ -573,7 +579,7 @@ export function AttendancePage() {
           <Card title="Attendance summary">
             <p className="text-sm text-gray-600">
               {attendanceSummary
-                ? `${attendanceSummary.present} present of ${attendanceSummary.expectedCount || attendanceSummary.present + attendanceSummary.absent} scheduled seats (${attendanceSummary.rate}% of scheduled sessions).`
+                ? `${attendanceSummary.present} present of ${attendanceSummary.expectedCount} mandatory scheduled seats (${attendanceSummary.rate}% of mandatory sessions).`
                 : attendanceData.length === 0
                   ? 'No attendance records yet for the selected programme.'
                   : `${attendanceData.filter((r) => r.status === 'Present').length} present of ${attendanceData.length} register entries loaded.`}

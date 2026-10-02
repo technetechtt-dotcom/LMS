@@ -4,7 +4,7 @@
 
 1. Default objectives: RPO at most 24 hours and RTO at most 4 hours.
 2. The platform owner confirms database PITR and encrypted backup retention with the provider.
-3. Quarterly, run the `Operational drills` workflow against a dedicated restore database. Never use the production database as the restore target.
+3. Quarterly, run the `Operational drills` restore, rollback, monitoring-alert, and load jobs. The restore target must be a dedicated database; never use production as the restore target.
 4. Validate migrations, representative tenant/user counts, authentication, evidence downloads, and credential verification.
 5. Attach workflow output to the release ticket and update `RESTORE_DRILL_AT` and `RESTORE_DRILL_RESULT` only after review.
 6. For failover, promote the verified database target, update `DATABASE_URL`/`DIRECT_URL`, deploy the exact release SHA, verify `/health/ready`, and notify tenants.
@@ -36,7 +36,7 @@ The global limit is 200 requests per 60 seconds. Authentication, activation, att
 
 ## Security testing
 
-Schedule an annual independent web/API penetration test covering tenant isolation, IDOR, assignment escalation, uploads, invitation/reset/MFA, and credential integrity. Critical or high findings block production.
+Schedule an independent web/API penetration test for every material security release and at least annually, covering tenant isolation, IDOR, assignment escalation, uploads, invitation/reset/MFA/break-glass, and credential integrity. Critical or high findings block production. Record the report URL, tested SHA, completion date, and passing result in the protected production environment variables; the release workflow rejects missing, stale, or mismatched evidence.
 
 Run the bounded load job against staging and capture request count, error rate, and p95 latency. Increase limits only through an approved drill; the repository script caps concurrency and duration.
 

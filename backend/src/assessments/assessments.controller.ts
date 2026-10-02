@@ -16,6 +16,7 @@ export class AssessmentsController {
     private readonly instances: AssessmentInstancesService,
   ) {}
 
+  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER', 'SETA', 'LEARNER')
   @Get()
   list(@Req() req: Request & { user?: AuthUser }) {
     return this.assessments.list(req.user);
@@ -24,7 +25,8 @@ export class AssessmentsController {
   @Roles('ASSESSOR', 'ADMIN', 'FACILITATOR', 'MODERATOR')
   @Post('auto-grade')
   async autoGrade(
-    @Body() body: { responses?: unknown[]; instrumentId?: string },
+    @Body() body: { responses?: unknown[]; instrumentId?: string; assessmentId?: string },
+    @Req() req: Request & { user?: AuthUser },
   ) {
     const responses = Array.isArray(body.responses)
       ? body.responses.map((raw) => {
@@ -37,18 +39,21 @@ export class AssessmentsController {
           };
         })
       : [];
-    if (!body.instrumentId) {
+    if (!body.instrumentId || !body.assessmentId) {
       throw new BadRequestException(
-        'instrumentId is required — grade only the bound instrument',
+        'assessmentId and instrumentId are required; grading is limited to the bound instrument',
       );
     }
-    const result = await this.instances.autoGradeAgainstInstrument(
+    const result = await this.instances.autoGradeForReview(
+      body.assessmentId,
       body.instrumentId,
       responses,
+      req.user,
     );
     return { success: true, data: result.graded, percentage: result.percentage };
   }
 
+  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER', 'SETA', 'LEARNER')
   @Get(':id/questions')
   questions(
     @Param('id') id: string,
@@ -57,7 +62,7 @@ export class AssessmentsController {
     return this.assessments.questions(id, req.user);
   }
 
-  @Roles('LEARNER', 'ASSESSOR', 'ADMIN', 'FACILITATOR')
+  @Roles('LEARNER')
   @Post(':id/start-attempt')
   startAttempt(
     @Param('id') id: string,
@@ -76,6 +81,16 @@ export class AssessmentsController {
     return this.assessments.finaliseResult(id, body, req.user);
   }
 
+  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER')
+  @Get(':id/answer-key')
+  answerKey(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.assessments.answerKey(id, req.user);
+  }
+
+  @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER', 'SETA', 'LEARNER')
   @Get(':id')
   byId(
     @Param('id') id: string,

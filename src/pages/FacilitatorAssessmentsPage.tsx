@@ -102,13 +102,13 @@ export function FacilitatorAssessmentsPage() {
   };
 
   const handleNewInstrument = () => {
-    if (!defaultUnitId) {
-      toast.error('No unit standards available — create a programme module first');
-      return;
+    if (defaultUnitId) {
+      navigate(
+        `/assessment-builder/new?unitStandardId=${encodeURIComponent(defaultUnitId)}`,
+      );
+    } else {
+      navigate('/assessment-builder/new');
     }
-    navigate(
-      `/assessment-builder/new?unitStandardId=${encodeURIComponent(defaultUnitId)}`,
-    );
   };
 
   return (

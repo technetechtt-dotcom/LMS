@@ -61,6 +61,7 @@ describe('CertificatesService authoritative credential lifecycle', () => {
       assertUploadAvailable: jest.fn().mockResolvedValue(undefined),
       storageLocator: jest.fn().mockReturnValue('storage://private/certificates/org/cert.pdf'),
       getSignedDownloadUrl: jest.fn().mockResolvedValue('https://signed.example.test/file'),
+      rollbackUpload: jest.fn().mockResolvedValue(undefined),
     };
     const poe = {
       enrollmentReadyForCertificate: jest.fn().mockResolvedValue({ ready: true, reasons: [] }),
@@ -182,14 +183,20 @@ describe('CertificatesService authoritative credential lifecycle', () => {
       .rejects.toThrow('already revoked');
   });
 
-  it('reissues only an existing non-revoked credential', async () => {
+  it('reissues an existing credential, including a revoked credential', async () => {
     const missing = setup();
     await expect(missing.service.reissue('missing', user)).rejects.toThrow('Credential not found');
 
     const revoked = setup();
     revoked.prisma.credential.findFirst.mockResolvedValue({ ...row, status: 'REVOKED' });
+    const revokedIssue = jest.spyOn(revoked.service, 'issue').mockResolvedValue({ id: 'revoked-replacement' } as never);
     await expect(revoked.service.reissue('credential-1', user))
-      .rejects.toThrow('Cannot reissue a revoked credential');
+      .resolves.toEqual({
+        priorId: 'credential-1', replacement: { id: 'revoked-replacement' },
+      });
+    expect(revokedIssue).toHaveBeenCalledWith(
+      { enrollmentId: 'enrollment-1' }, user, 'credential-1',
+    );
 
     const valid = setup();
     valid.prisma.credential.findFirst.mockResolvedValue(row);

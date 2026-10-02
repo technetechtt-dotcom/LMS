@@ -70,6 +70,10 @@ export class InvitationsService {
       expiresAt: expiresAt.toISOString(),
       mailStatus: refreshed.mailStatus,
       mailAttempts: refreshed.mailAttempts,
+      ...(this.config.get<string>('E2E_EXPOSE_INVITATION_TOKEN') === '1'
+        && this.config.get<string>('NODE_ENV') !== 'production'
+        ? { activationToken: raw }
+        : {}),
     };
   }
 
@@ -144,6 +148,7 @@ export class InvitationsService {
       });
       await this.mailQueue?.enqueue({
         organisationId: invite?.organisationId,
+        invitationId,
         recipient: email,
         template: 'account-activation',
         actionUrl: url,

@@ -20,6 +20,7 @@ export function mapProgrammeToApi(p: ProgrammeWithRelations): Record<string, unk
   return {
     id: p.id,
     organisationId: p.organisationId,
+    qualificationId: p.qualificationId,
     title: p.title,
     code: p.code,
     programmeKind: p.programmeKind,

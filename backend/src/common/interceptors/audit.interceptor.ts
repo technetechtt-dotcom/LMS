@@ -4,7 +4,7 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
-import { Observable, tap } from 'rxjs';
+import { from, map, mergeMap, Observable } from 'rxjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { redactAuditValue } from '../../audit/audit-redact';
 
@@ -34,8 +34,8 @@ export class AuditInterceptor implements NestInterceptor {
     }
 
     return next.handle().pipe(
-      tap(async (afterValue) => {
-        await this.prisma.auditLog.create({
+      mergeMap((afterValue) =>
+        from(this.prisma.auditLog.create({
           data: {
             organisationId: req.user?.organisationId,
             actorId: req.user?.userId,
@@ -49,8 +49,8 @@ export class AuditInterceptor implements NestInterceptor {
                 ? req.headers['user-agent']
                 : undefined,
           },
-        });
-      }),
+        })).pipe(map(() => afterValue)),
+      ),
     );
   }
 }

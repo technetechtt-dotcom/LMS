@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
 import { toast } from 'sonner';
-import { auditService } from '../../services/api';
+import { feedbackService } from '../../services/api';
 
 export function FeedbackWidget() {
   const [isOpen, setIsOpen] = useState(false);
@@ -14,13 +14,12 @@ export function FeedbackWidget() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await auditService.log(
-        'USER_FEEDBACK',
-        'feedback',
-        type,
-        `rating=${rating}; ${message.trim()}`,
-      );
-      toast.success('Thank you for your feedback!');
+      await feedbackService.submit({
+        category: type,
+        rating: rating || undefined,
+        message: message.trim(),
+      });
+      toast.success('Thank you — your feedback was submitted.');
       setIsOpen(false);
       setRating(0);
       setType('general');

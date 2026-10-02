@@ -722,6 +722,56 @@ export class FileStorageService {
     }
   }
 
+  /**
+   * Compensating cleanup for a verified object whose owning database write failed.
+   * Callers must only invoke this for an upload they have just created and could
+   * not attach to the domain record. Cleanup is idempotent and never masks the
+   * original transaction error.
+   */
+  async rollbackUpload(uploadId: string): Promise<void> {
+    try {
+      const record = await this.prisma.uploadRecord.findUnique({
+        where: { id: uploadId },
+        select: { storageKey: true, quarantineKey: true, provider: true },
+      });
+      if (!record) return;
+
+      const keys = [record.storageKey, record.quarantineKey].filter(
+        (key): key is string => Boolean(key),
+      );
+      if (record.provider === 's3' && keys.length) {
+        const { client, bucket } = this.s3();
+        await Promise.all(
+          keys.map((key) => client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))),
+        );
+      } else {
+        await Promise.all(
+          keys.flatMap((key) => {
+            const path = this.absolutePath(key);
+            return [
+              unlink(path).catch(() => undefined),
+              unlink(this.metaPath(path)).catch(() => undefined),
+            ];
+          }),
+        );
+      }
+
+      await this.prisma.uploadRecord.update({
+        where: { id: uploadId },
+        data: {
+          status: 'PURGED',
+          storageKey: null,
+          quarantineKey: null,
+          failureReason: 'Owning database transaction failed; object rolled back',
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to roll back upload ${uploadId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
   async getUploadState(id: string, organisationId?: string) {
     const row = await this.prisma.uploadRecord.findFirst({
       where: {

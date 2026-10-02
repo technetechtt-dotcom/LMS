@@ -251,4 +251,20 @@ describe('FileStorageService verified local lifecycle', () => {
     }]);
     await expect(service.purgeExpired()).resolves.toEqual({ examined: 1, purged: 0 });
   });
+
+  it('compensates a failed owning transaction by deleting the verified object', async () => {
+    const stored = await service.upload(
+      'orphan.txt', Buffer.from('uncommitted evidence'), 'text/plain',
+      { prefix: 'poe', organisationId: 'organisation-1' },
+    );
+    await expect(service.rollbackUpload(stored.uploadId)).resolves.toBeUndefined();
+    expect(current).toEqual(expect.objectContaining({
+      status: 'PURGED',
+      storageKey: null,
+      quarantineKey: null,
+      failureReason: expect.stringContaining('rolled back'),
+    }));
+    await expect(service.assertUploadAvailable(stored.uploadId, 'organisation-1'))
+      .rejects.toThrow('unavailable');
+  });
 });

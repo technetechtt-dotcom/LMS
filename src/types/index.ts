@@ -149,6 +149,7 @@ export interface LoginCredentials {
   email: string;
   password: string;
   totpCode?: string;
+  recoveryCode?: string;
 }
 
 // --- Learner ---
@@ -437,6 +438,11 @@ export interface ComplianceDocument extends BaseEntity {
   expiryDate?: string;
   fileUrl?: string;
   uploadedBy?: string;
+  uploadStatus?: string;
+  scanResult?: string;
+  scannedAt?: string;
+  verifiedAt?: string;
+  retentionUntil?: string;
 }
 
 export interface SETASubmission extends BaseEntity {

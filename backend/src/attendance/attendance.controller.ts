@@ -51,7 +51,7 @@ export class AttendanceController {
   @Roles('ADMIN', 'FACILITATOR')
   @Post('sessions')
   async openSession(
-    @Body() body: { programmeId: string; ttlMinutes?: number; title?: string },
+    @Body() body: { programmeId: string; ttlMinutes?: number; title?: string; mandatory?: boolean },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const organisationId = requireOrganisationId(req.user);
@@ -88,6 +88,7 @@ export class AttendanceController {
         scheduledAt: new Date(),
         expectedCount,
         title: body.title ?? programme.title,
+        mandatory: body.mandatory !== false,
       },
     });
     return {
@@ -96,6 +97,7 @@ export class AttendanceController {
       qrToken: raw,
       expectedCount: session.expectedCount,
       title: session.title,
+      mandatory: session.mandatory,
     };
   }
 

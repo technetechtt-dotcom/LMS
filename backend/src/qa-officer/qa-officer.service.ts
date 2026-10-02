@@ -128,8 +128,10 @@ export class QaOfficerService {
       organisationId,
       uploadedById: user.userId,
     });
-    const doc = await this.prisma.document.create({
-      data: {
+    let doc;
+    try {
+      doc = await this.prisma.document.create({
+        data: {
         organisationId,
         uploadId: stored.uploadId,
         category: CONTRACT_CATEGORY[dto.contractType],
@@ -147,9 +149,13 @@ export class QaOfficerService {
           registeredAt: new Date().toISOString(),
           checksum: stored.sha256,
           scanResult: stored.status,
+          },
         },
-      },
-    });
+      });
+    } catch (error) {
+      await this.files.rollbackUpload?.(stored.uploadId);
+      throw error;
+    }
     return this.listContracts(user).then((all) =>
       all.find((c) => c.id === doc.id),
     );

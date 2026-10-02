@@ -19,7 +19,22 @@ async function bootstrap() {
 
   const expressApp = app.getHttpAdapter().getInstance() as Express;
   expressApp.set('trust proxy', 1);
-  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        formAction: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+        connectSrc: ["'self'", 'https:'],
+      },
+    },
+  }));
 
   const rawOrigins = [
     config.get<string>('FRONTEND_ORIGIN'),

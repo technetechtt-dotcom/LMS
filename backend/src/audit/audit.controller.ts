@@ -20,19 +20,24 @@ export class AuditController {
     return this.audit.list(limit, req.user);
   }
 
-  @Post('log')
-  write(
-    @Body()
-    body: {
-      action: string;
-      entity?: string;
-      entityType?: string;
-      entityId?: string;
-      details?: string;
-      at?: string;
+  @Roles('ADMIN', 'QA_OFFICER', 'SETA')
+  @Get('findings')
+  findings(@Req() req: Request & { user?: AuthUser }) {
+    return this.audit.listFindings(req.user);
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER', 'SETA')
+  @Post('findings')
+  createFinding(
+    @Body() body: {
+      scopeType?: string;
+      scopeId?: string;
+      finding?: string;
+      severity?: string;
+      evidenceDocumentIds?: string[];
     },
     @Req() req: Request & { user?: AuthUser },
   ) {
-    return this.audit.writeLog(body, req.user);
+    return this.audit.createFinding(body, req.user);
   }
 }

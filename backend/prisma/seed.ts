@@ -321,6 +321,16 @@ async function main() {
       },
     }));
 
+  await prisma.enrollment.update({
+    where: { id: enrollment.id },
+    data: {
+      metadata: {
+        ...((enrollment.metadata as Record<string, unknown> | null) ?? {}),
+        workplaceMentorId: mentor.id,
+      },
+    },
+  });
+
   const workflowCount = await prisma.enrollmentWorkflow.count({
     where: { enrollmentId: enrollment.id },
   });

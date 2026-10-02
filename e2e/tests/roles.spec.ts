@@ -22,6 +22,15 @@ async function login(page: import('@playwright/test').Page, email: string) {
   await page.waitForURL((url) => !url.pathname.includes('/login'), {
     timeout: 30_000,
   });
+  const notice = page.getByRole('heading', { name: 'Data Protection Consent' });
+  await page.waitForTimeout(500);
+  if (await notice.isVisible()) {
+    await page.getByRole('checkbox', { name: /processing consent/i }).check();
+    await page.getByRole('checkbox', { name: /your rights/i }).check();
+    await page.getByRole('checkbox', { name: /third-party sharing/i }).check();
+    await page.getByRole('button', { name: /accept & continue/i }).click();
+    await expect(notice).not.toBeVisible();
+  }
 }
 
 test.describe('public routes', () => {
@@ -123,7 +132,7 @@ test.describe('facilitator assessment builder', () => {
     await expect(page.getByText(/assessment settings/i)).toBeVisible();
     await expect(page.getByLabel(/unit standard/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /save draft/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /publish/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /submit for qa review/i })).toBeVisible();
   });
 
   test('Add Question is operable from the keyboard', async ({ page }) => {
@@ -160,8 +169,7 @@ test.describe('independent login sessions', () => {
     await login(page, 'learner@skillforge.co.za');
     await page.evaluate(() => {
       const key = 'skillforge_auth_v1';
-      const saved = JSON.parse(localStorage.getItem(key) ?? '{}') as Record<string, unknown>;
-      localStorage.setItem(key, JSON.stringify({ ...saved, accessToken: 'expired-test-token' }));
+      sessionStorage.setItem(`${key}:access-token`, 'expired-test-token');
     });
     await page.reload();
     await expect(page).toHaveURL(/\/learner-dashboard/);

@@ -5,8 +5,10 @@ import { Button } from '../ui/Button';
 import { Checkbox } from '../ui/Checkbox';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import { privacyService } from '../../services/api';
 export function POPIAConsentModal() {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(true);
   const [consents, setConsents] = useState({
     processing: false,
     rights: false,
@@ -15,17 +17,18 @@ export function POPIAConsentModal() {
   const { logout } = useAuth();
   const navigate = useNavigate();
   useEffect(() => {
-    const hasConsented = localStorage.getItem('popia_consent');
-    if (hasConsented) return;
-    if (import.meta.env.PROD) {
-      setIsOpen(true);
-      return;
-    }
-    localStorage.setItem('popia_consent', 'true');
+    void privacyService.getNotice()
+      .then((notice) => setIsOpen(!notice.acknowledged))
+      .catch(() => setIsOpen(true));
   }, []);
-  const handleAccept = () => {
-    localStorage.setItem('popia_consent', 'true');
-    setIsOpen(false);
+  const handleAccept = async () => {
+    try {
+      await privacyService.acknowledgeNotice();
+      setIsOpen(false);
+      toast.success('Privacy notice acknowledgement recorded');
+    } catch {
+      toast.error('Your acknowledgement was not saved');
+    }
   };
   const handleDecline = async () => {
     await logout();

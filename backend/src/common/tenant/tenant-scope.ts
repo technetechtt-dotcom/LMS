@@ -115,7 +115,7 @@ export function enrollmentActorWhere(
     });
   }
   if (scopes.length) return { AND: [{ OR: scopes }] };
-  return {};
+  return { id: '__no_allocated_enrollment__' };
 }
 
 /** Scope an Assessment itself, so one allocated item does not reveal siblings. */
@@ -139,7 +139,9 @@ export function assessmentActorWhere(
       },
     });
   }
-  return scopes.length ? { AND: [{ OR: scopes }] } : {};
+  return scopes.length
+    ? { AND: [{ OR: scopes }] }
+    : { id: '__no_allocated_assessment__' };
 }
 
 export function poeArtifactActorWhere(
@@ -169,7 +171,9 @@ export function poeArtifactActorWhere(
       },
     });
   }
-  return scopes.length ? { AND: [{ OR: scopes }] } : {};
+  return scopes.length
+    ? { AND: [{ OR: scopes }] }
+    : { id: '__no_allocated_poe_artifact__' };
 }
 
 /** Prisma filter: enrollment belongs to organisation. */

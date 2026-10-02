@@ -227,7 +227,9 @@ export class CertificatesService {
 
     const locator = this.files.storageLocator(stored.key, stored.bucket);
 
-    const credential = await this.prisma.$transaction(async (tx) => {
+    let credential;
+    try {
+      credential = await this.prisma.$transaction(async (tx) => {
       const active = await tx.credential.findFirst({
         where: {
           enrollmentId: enrollment.id,
@@ -239,10 +241,16 @@ export class CertificatesService {
       });
       if (active) throw new BadRequestException('An active credential already exists for this enrollment');
       if (supersedingCredentialId) {
-        await tx.credential.update({
+        const prior = await tx.credential.findUnique({
           where: { id: supersedingCredentialId },
-          data: { status: 'SUPERSEDED' },
+          select: { status: true },
         });
+        if (prior?.status !== 'REVOKED') {
+          await tx.credential.update({
+            where: { id: supersedingCredentialId },
+            data: { status: 'SUPERSEDED' },
+          });
+        }
       }
       const doc = await tx.document.create({
         data: {
@@ -293,8 +301,12 @@ export class CertificatesService {
           },
         });
       }
-      return created;
-    });
+        return created;
+      });
+    } catch (error) {
+      await this.files.rollbackUpload?.(stored.uploadId);
+      throw error;
+    }
 
     await this.notifications?.notify(
       enrollment.learnerId,
@@ -344,10 +356,6 @@ export class CertificatesService {
       where: { id, organisationId },
     });
     if (!prior) throw new NotFoundException('Credential not found');
-    if (prior.status === 'REVOKED') {
-      throw new BadRequestException('Cannot reissue a revoked credential');
-    }
-
     const replacement = await this.issue(
       { enrollmentId: prior.enrollmentId },
       user,

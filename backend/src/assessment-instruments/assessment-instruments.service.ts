@@ -92,6 +92,7 @@ export class AssessmentInstrumentsService {
         maxAttempts: dto.maxAttempts ?? 3,
         passMark: dto.passMark ?? 50,
         timeLimitMinutes: dto.timeLimitMinutes ?? null,
+        createdById: user?.userId,
       },
     });
   }
@@ -171,7 +172,7 @@ export class AssessmentInstrumentsService {
   }
 
   async publish(id: string, user?: AuthUser) {
-    const row = await this.assertDraft(id, user);
+    const row = await this.assertStatus(id, 'APPROVED', user);
     const qCount = await this.prisma.assessmentQuestion.count({
       where: { instrumentId: row.id, deletedAt: null },
     });
@@ -190,7 +191,11 @@ export class AssessmentInstrumentsService {
       });
       return tx.assessmentInstrument.update({
         where: { id: row.id },
-        data: { status: 'PUBLISHED', publishedAt: new Date() },
+        data: {
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          publishedById: user?.userId,
+        },
         include: {
           questions: {
             where: { deletedAt: null },
@@ -198,6 +203,59 @@ export class AssessmentInstrumentsService {
           },
         },
       });
+    });
+  }
+
+  async submitForReview(id: string, user?: AuthUser) {
+    const row = await this.assertDraft(id, user);
+    const qCount = await this.prisma.assessmentQuestion.count({
+      where: { instrumentId: row.id, deletedAt: null },
+    });
+    if (!qCount) {
+      throw new BadRequestException('Cannot submit an instrument without questions');
+    }
+    return this.prisma.assessmentInstrument.update({
+      where: { id: row.id },
+      data: {
+        status: 'IN_REVIEW',
+        submittedById: user?.userId,
+        submittedAt: new Date(),
+        approvedById: null,
+        approvedAt: null,
+        reviewNotes: null,
+      },
+    });
+  }
+
+  async review(
+    id: string,
+    approve: boolean,
+    notes: string | undefined,
+    user?: AuthUser,
+  ) {
+    const row = await this.assertStatus(id, 'IN_REVIEW', user);
+    if (!user?.userId) throw new ForbiddenException('Authentication required');
+    if (row.createdById === user.userId || row.submittedById === user.userId) {
+      throw new ForbiddenException(
+        'Instrument approval must be performed by an independent reviewer',
+      );
+    }
+    if (!approve && !notes?.trim()) {
+      throw new BadRequestException('Rejection notes are required');
+    }
+    return this.prisma.assessmentInstrument.update({
+      where: { id: row.id },
+      data: approve ? {
+        status: 'APPROVED',
+        approvedById: user.userId,
+        approvedAt: new Date(),
+        reviewNotes: notes?.trim() || null,
+      } : {
+        status: 'DRAFT',
+        approvedById: null,
+        approvedAt: null,
+        reviewNotes: notes!.trim(),
+      },
     });
   }
 
@@ -213,13 +271,21 @@ export class AssessmentInstrumentsService {
   }
 
   private async assertDraft(id: string, user?: AuthUser) {
+    return this.assertStatus(id, 'DRAFT', user);
+  }
+
+  private async assertStatus(
+    id: string,
+    status: 'DRAFT' | 'IN_REVIEW' | 'APPROVED',
+    user?: AuthUser,
+  ) {
     const organisationId = requireOrganisationId(user);
     const row = await this.prisma.assessmentInstrument.findFirst({
       where: { id, organisationId },
     });
     if (!row) throw new NotFoundException('Instrument not found');
-    if (row.status !== 'DRAFT') {
-      throw new ForbiddenException('Only DRAFT instruments can be edited');
+    if (row.status !== status) {
+      throw new ForbiddenException(`Instrument must be ${status}`);
     }
     return row;
   }

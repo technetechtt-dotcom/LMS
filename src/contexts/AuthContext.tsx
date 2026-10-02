@@ -15,8 +15,9 @@ import {
 import {
   AUTH_SESSION_INVALIDATED_EVENT,
   getStoredAccessToken,
+  persistAccessToken,
 } from '../config/authStorage';
-import { authService, auditService } from '../services/api';
+import { authService } from '../services/api';
 
 interface PersistedAuth {
   user: User;
@@ -46,17 +47,17 @@ function loadPersisted(): PersistedAuth | null {
     const raw = localStorage.getItem(getAuthStorageKey());
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PersistedAuth;
+    const accessToken = getStoredAccessToken();
     if (
       !parsed?.user?.id ||
       !parsed?.user?.email ||
-      !parsed.accessToken ||
       !isRoleAllowedInPortal(parsed.user.role)
     ) {
       return null;
     }
     return {
       user: parsed.user,
-      accessToken: parsed.accessToken,
+      accessToken: accessToken ?? '',
       linkedLearnerId:
         parsed.linkedLearnerId ??
         linkedLearnerFromUser(parsed.user) ??
@@ -70,8 +71,17 @@ function loadPersisted(): PersistedAuth | null {
 function persistState(state: PersistedAuth | null) {
   try {
     const key = getAuthStorageKey();
-    if (!state) localStorage.removeItem(key);
-    else localStorage.setItem(key, JSON.stringify(state));
+    if (!state) {
+      localStorage.removeItem(key);
+      persistAccessToken(null);
+    } else {
+      persistAccessToken(state.accessToken);
+      const profileState: Omit<PersistedAuth, 'accessToken'> = {
+        user: state.user,
+        linkedLearnerId: state.linkedLearnerId,
+      };
+      localStorage.setItem(key, JSON.stringify(profileState));
+    }
   } catch {
     /* private mode / quota */
   }
@@ -95,7 +105,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const r = await authService.getCurrentUser(persisted.accessToken);
+        const session = persisted.accessToken
+          ? { accessToken: persisted.accessToken, user: undefined }
+          : await authService.refreshSession();
+        const token = session.accessToken;
+        if (!token) throw new Error('Session refresh failed');
+        const r = session.user
+          ? { success: true as const, data: session.user }
+          : await authService.getCurrentUser(token);
         if (r.success && !cancelled) {
           const fresh = r.data;
           if (!isRoleAllowedInPortal(fresh.role)) {
@@ -103,11 +120,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           const learnerId = linkedLearnerFromUser(fresh);
           setUser(fresh);
-          setAccessToken(persisted.accessToken);
+          setAccessToken(token);
           setLinkedLearnerId(learnerId);
           persistState({
             user: fresh,
-            accessToken: persisted.accessToken,
+            accessToken: token,
             linkedLearnerId: learnerId,
           });
         }
@@ -165,7 +182,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         accessToken: token,
         linkedLearnerId: learnerId,
       });
-      await auditService.log('login', 'user', nextUser.id, nextUser.email);
       return nextUser;
     } finally {
       setIsBusy(false);
@@ -175,13 +191,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     setIsBusy(true);
     try {
-      if (user) {
-        try {
-          await auditService.log('logout', 'user', user.id, user.email);
-        } catch {
-          /* logout must proceed even when audit delivery fails */
-        }
-      }
       await authService.logout(accessToken ?? getStoredAccessToken());
     } finally {
       setUser(null);
@@ -190,7 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       persistState(null);
       setIsBusy(false);
     }
-  }, [user, accessToken]);
+  }, [accessToken]);
 
   const value = useMemo(
     () => ({

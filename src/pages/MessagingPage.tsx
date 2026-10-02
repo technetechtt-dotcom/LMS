@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Search, Send, Paperclip, MoreVertical } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -12,6 +13,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
 export function MessagingPage() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const toParam = searchParams.get('to');
+  const nameParam = searchParams.get('name');
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -114,28 +118,53 @@ export function MessagingPage() {
 
   useEffect(() => {
     if (!selectedChat && conversations.length > 0) {
+      if (toParam) {
+        const found = conversations.find((c) => c.peerId === toParam);
+        if (found) {
+          setSelectedChat(found.id);
+          return;
+        }
+      }
       setSelectedChat(conversations[0].id);
     }
-  }, [conversations, selectedChat]);
+  }, [conversations, selectedChat, toParam]);
+
+  useEffect(() => {
+    if (toParam) {
+      const found = conversations.find((c) => c.peerId === toParam);
+      if (found) {
+        setSelectedChat(found.id);
+      } else {
+        // If not found in existing conversations, open compose with recipient preselected
+        setIsComposeOpen(true);
+        setComposeRecipientId(toParam);
+      }
+    }
+  }, [toParam, conversations]);
 
   useEffect(() => {
     if (!isComposeOpen) return;
     directoryService
       .messageRecipients({ pageSize: 50 })
       .then((res) => {
-        const options = (res.data?.items ?? [])
+        let options = (res.data?.items ?? [])
           .filter((u) => u.id !== user?.id)
           .map((u) => ({
             value: u.id,
             label: u.name,
           }));
+        if (toParam && !options.some((o) => o.value === toParam)) {
+          options = [{ value: toParam, label: nameParam || 'Learner' }, ...options];
+        }
         setRecipientOptions(options);
-        if (options.length > 0 && !composeRecipientId) {
+        if (toParam) {
+          setComposeRecipientId(toParam);
+        } else if (options.length > 0 && !composeRecipientId) {
           setComposeRecipientId(options[0].value);
         }
       })
       .catch(() => toast.error('Could not load recipients'));
-  }, [isComposeOpen, user?.id, composeRecipientId]);
+  }, [isComposeOpen, user?.id, composeRecipientId, toParam, nameParam]);
 
   const activeConversation = conversations.find((c) => c.id === selectedChat);
 

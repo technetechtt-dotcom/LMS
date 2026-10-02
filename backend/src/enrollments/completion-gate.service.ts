@@ -161,6 +161,7 @@ export class CompletionGateService {
           programmeId: enrollment.programmeId,
           scheduledAt: { lte: new Date() },
           closedAt: null,
+          mandatory: true,
         },
       });
       checks.mandatoryAttendanceSessionsClosed = openMandatory === 0;
@@ -170,6 +171,7 @@ export class CompletionGateService {
           programmeId: enrollment.programmeId,
           closedAt: { not: null },
           scheduledAt: { lte: new Date() },
+          mandatory: true,
         },
       });
       let rate = 0;
@@ -180,7 +182,7 @@ export class CompletionGateService {
               enrollmentId,
               deletedAt: null,
               sessionId: { not: null },
-              session: { closedAt: { not: null }, scheduledAt: { lte: new Date() } },
+              session: { closedAt: { not: null }, scheduledAt: { lte: new Date() }, mandatory: true },
               status: { in: ['PRESENT', 'LATE'] },
             },
             select: { sessionId: true },
@@ -191,7 +193,7 @@ export class CompletionGateService {
               enrollmentId,
               deletedAt: null,
               sessionId: { not: null },
-              session: { closedAt: { not: null }, scheduledAt: { lte: new Date() } },
+              session: { closedAt: { not: null }, scheduledAt: { lte: new Date() }, mandatory: true },
               status: 'EXCUSED',
             },
             select: { sessionId: true },
@@ -200,15 +202,6 @@ export class CompletionGateService {
         ]);
         const requiredSessions = Math.max(0, scheduledSessions - excused.length);
         rate = requiredSessions > 0 ? (present.length / requiredSessions) * 100 : 100;
-      } else {
-        const rows = await this.prisma.attendance.findMany({
-          where: { enrollmentId, deletedAt: null },
-        });
-        const present = rows.filter(
-          (r) => r.status === 'PRESENT' || r.status === 'LATE',
-        ).length;
-        const requiredRows = rows.filter((r) => r.status !== 'EXCUSED').length;
-        rate = requiredRows > 0 ? (present / requiredRows) * 100 : rows.length ? 100 : 0;
       }
       const ok = rate >= minAttendanceRate;
       checks.attendanceRate = ok;

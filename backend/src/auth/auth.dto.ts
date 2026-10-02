@@ -17,6 +17,11 @@ export class LoginDto {
   @IsString()
   @Matches(/^\d{6}$/)
   totpCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Fa-f0-9-]{16,19}$/)
+  recoveryCode?: string;
 }
 
 export class RegisterDto {
@@ -103,6 +108,35 @@ export class MfaCodeDto {
 }
 
 export class DisableMfaDto extends MfaCodeDto {
+  @IsString()
+  @MinLength(8)
+  password!: string;
+}
+
+export class BreakGlassRequestDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @MinLength(8)
+  password!: string;
+
+  @IsString()
+  @MinLength(20)
+  reason!: string;
+}
+
+export class BreakGlassRedeemDto {
+  @IsString()
+  requestId!: string;
+
+  @IsString()
+  @MinLength(20)
+  token!: string;
+
+  @IsEmail()
+  email!: string;
+
   @IsString()
   @MinLength(8)
   password!: string;

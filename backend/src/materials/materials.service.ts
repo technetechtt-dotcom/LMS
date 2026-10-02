@@ -210,8 +210,10 @@ export class MaterialsService {
     const fileSizeBytes = up.size;
     const fileName = file.originalname;
 
-    const stored = await this.prisma.learningMaterial.create({
-      data: {
+    let stored;
+    try {
+      stored = await this.prisma.learningMaterial.create({
+        data: {
         organisationId,
         programmeId: dto.programmeId,
         title: dto.title.trim(),
@@ -235,10 +237,14 @@ export class MaterialsService {
         completionCount: dto.completionCount ?? 0,
         isApproved: dto.isApproved !== false,
         isAIEnhanced: dto.isAIEnhanced ?? false,
-        uploadedById,
-      },
-      include: { programme: { select: { id: true, title: true } } },
-    });
+          uploadedById,
+        },
+        include: { programme: { select: { id: true, title: true } } },
+      });
+    } catch (error) {
+      await this.files.rollbackUpload?.(up.uploadId);
+      throw error;
+    }
 
     return {
       success: true,

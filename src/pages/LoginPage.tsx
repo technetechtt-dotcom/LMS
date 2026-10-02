@@ -15,6 +15,7 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
   const [errors, setErrors] = useState({
     email: '',
     password: '',
@@ -42,7 +43,12 @@ export function LoginPage() {
     e.preventDefault();
     if (!validate()) return;
     try {
-      const profile = await login({ email, password, totpCode: totpCode.trim() || undefined });
+      const profile = await login({
+        email,
+        password,
+        totpCode: recoveryCode.trim() ? undefined : (totpCode.trim() || undefined),
+        recoveryCode: recoveryCode.trim() || undefined,
+      });
       if (profile.role === 'Platform Admin') {
         toast.error('Platform operators must use the Ops Console.');
         await logout();
@@ -83,6 +89,20 @@ export function LoginPage() {
               error={errors.email}
               required
             />
+
+            <details className="text-sm text-gray-600">
+              <summary className="cursor-pointer font-medium text-brand-blue">Use a recovery code</summary>
+              <div className="mt-3">
+                <Input
+                  label="One-time recovery code"
+                  type="text"
+                  autoComplete="one-time-code"
+                  placeholder="XXXX-XXXX-XXXX-XXXX"
+                  value={recoveryCode}
+                  onChange={(e) => setRecoveryCode(e.target.value.toUpperCase().replace(/[^A-F0-9-]/g, '').slice(0, 19))}
+                />
+              </div>
+            </details>
 
             <Input
               label="Password"

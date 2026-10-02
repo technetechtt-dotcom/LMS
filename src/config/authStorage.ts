@@ -15,12 +15,13 @@ function storageKey() {
   return getAuthStorageKey();
 }
 
+function accessTokenKey() {
+  return `${storageKey()}:access-token`;
+}
+
 export function getStoredAccessToken(): string | undefined {
   try {
-    const raw = localStorage.getItem(storageKey());
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as StoredAuth;
-    const t = parsed?.accessToken;
+    const t = sessionStorage.getItem(accessTokenKey());
     return typeof t === 'string' && t.length > 0 ? t : undefined;
   } catch {
     return undefined;
@@ -53,13 +54,23 @@ export function applyRefreshedTokens(
     const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
     const next: Record<string, unknown> = {
       ...prev,
-      accessToken,
       ...(user !== undefined ? { user } : {}),
     };
+    sessionStorage.setItem(accessTokenKey(), accessToken);
+    delete next.accessToken;
     delete next.refreshToken;
     localStorage.setItem(storageKey(), JSON.stringify(next));
   } catch {
     /* quota / private mode */
+  }
+}
+
+export function persistAccessToken(accessToken?: string | null) {
+  try {
+    if (accessToken) sessionStorage.setItem(accessTokenKey(), accessToken);
+    else sessionStorage.removeItem(accessTokenKey());
+  } catch {
+    /* private mode / quota */
   }
 }
 

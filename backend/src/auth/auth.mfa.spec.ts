@@ -16,6 +16,7 @@ describe('AuthService TOTP MFA', () => {
       deletedAt: null,
       isActive: true,
     };
+    const recoveryRows: Array<{ codeHash: string; usedAt: Date | null }> = [];
     const prisma = {
       user: {
         findUnique: jest.fn().mockResolvedValue(user),
@@ -30,6 +31,28 @@ describe('AuthService TOTP MFA', () => {
       refreshToken: {
         create: jest.fn().mockResolvedValue({ id: 'session-1' }),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      mfaRecoveryCode: {
+        deleteMany: jest.fn().mockImplementation(() => {
+          const count = recoveryRows.length;
+          recoveryRows.splice(0);
+          return Promise.resolve({ count });
+        }),
+        createMany: jest.fn().mockImplementation(({ data }) => {
+          recoveryRows.push(...data.map((item: { codeHash: string }) => ({
+            codeHash: item.codeHash,
+            usedAt: null,
+          })));
+          return Promise.resolve({ count: data.length });
+        }),
+        updateMany: jest.fn().mockImplementation(({ where, data }) => {
+          const row = recoveryRows.find((item) =>
+            item.codeHash === where.codeHash && item.usedAt === null,
+          );
+          if (!row) return Promise.resolve({ count: 0 });
+          row.usedAt = data.usedAt;
+          return Promise.resolve({ count: 1 });
+        }),
       },
       auditLog: { create: jest.fn().mockResolvedValue({}) },
       $transaction: jest.fn((operations: Array<Promise<unknown>>) => Promise.all(operations)),
@@ -60,16 +83,31 @@ describe('AuthService TOTP MFA', () => {
 
     await expect(service.confirmMfaEnrollment(user.id, '000000'))
       .rejects.toThrow('Invalid authenticator code');
-    await expect(service.confirmMfaEnrollment(user.id, totpCode(setup.secret)))
-      .resolves.toEqual({ enabled: true });
+    const confirmation = await service.confirmMfaEnrollment(user.id, totpCode(setup.secret));
+    expect(confirmation).toEqual(expect.objectContaining({
+        enabled: true,
+        recoveryCodes: expect.arrayContaining([expect.any(String)]),
+      }));
     expect(user.totpEnabled).toBe(true);
 
     await expect(service.login({ email: user.email, password, totpCode: '000000' }))
-      .rejects.toThrow('valid authenticator code');
+      .rejects.toThrow('valid authenticator or recovery code');
     await expect(service.login({
       email: user.email,
       password,
       totpCode: totpCode(setup.secret),
     })).resolves.toEqual(expect.objectContaining({ accessToken: 'access-token' }));
+
+    const recoveryCode = confirmation.recoveryCodes[0];
+    await expect(service.login({
+      email: user.email,
+      password,
+      recoveryCode,
+    })).resolves.toEqual(expect.objectContaining({ accessToken: 'access-token' }));
+    await expect(service.login({
+      email: user.email,
+      password,
+      recoveryCode,
+    })).rejects.toThrow('valid authenticator or recovery code');
   });
 });

@@ -295,9 +295,15 @@ export function LearnersPage() {
             <Edit className="h-4 w-4" />
           </button>
           <button
-        className="hover:text-brand-blue"
-        onClick={() => navigate('/messages')}>
-        
+            className="hover:text-brand-blue"
+            title="Send Message"
+            onClick={() =>
+              navigate(
+                `/messages?to=${encodeURIComponent(row.id)}&name=${encodeURIComponent(
+                  row.name,
+                )}`,
+              )
+            }>
             <Mail className="h-4 w-4" />
           </button>
         </div>

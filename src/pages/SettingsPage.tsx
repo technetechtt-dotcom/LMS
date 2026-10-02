@@ -77,6 +77,7 @@ export function SettingsPage() {
   const [mfaSetup, setMfaSetup] = useState<{ secret: string; otpauthUri: string } | null>(null);
   const [mfaCode, setMfaCode] = useState('');
   const [mfaPassword, setMfaPassword] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [prefs, setPrefs] = useState<UserPrefs>(DEFAULT_PREFS);
   const [logFrom, setLogFrom] = useState('');
   const [logTo, setLogTo] = useState('');
@@ -93,7 +94,7 @@ export function SettingsPage() {
     if (!user?.id) return;
     authService
       .getPreferences<UserPrefs>()
-      .then((res) => setPrefs({ ...DEFAULT_PREFS, ...res.data }))
+      .then((res) => setPrefs({ ...DEFAULT_PREFS, ...res.data, language: 'en' }))
       .catch(() => toast.error('Could not load saved preferences'));
   }, [user?.id]);
 
@@ -141,12 +142,6 @@ export function SettingsPage() {
         phone: profilePhone.trim(),
         jobTitle: profileJobTitle.trim(),
       });
-      await auditService.log(
-        'PROFILE_UPDATE',
-        'user',
-        user?.id ?? 'self',
-        `Profile saved for ${profileEmail}`,
-      );
       toast.success('Settings saved successfully');
     } catch {
       toast.error('Could not save profile');
@@ -203,13 +198,24 @@ export function SettingsPage() {
 
   const confirmMfa = async () => {
     try {
-      await authService.confirmMfaEnrollment(mfaCode);
+      const result = await authService.confirmMfaEnrollment(mfaCode);
       setMfaEnabled(true);
+      setRecoveryCodes(result.recoveryCodes);
       setMfaSetup(null);
       setMfaCode('');
       toast.success('Multi-factor authentication enabled');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Invalid authenticator code');
+    }
+  };
+
+  const regenerateRecoveryCodes = async () => {
+    try {
+      const result = await authService.regenerateMfaRecoveryCodes(mfaPassword, mfaCode);
+      setRecoveryCodes(result.recoveryCodes);
+      toast.success('New one-time recovery codes generated');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not regenerate recovery codes');
     }
   };
 
@@ -585,6 +591,14 @@ export function SettingsPage() {
                 )}
                 {mfaEnabled && (
                   <div className="space-y-3">
+                    {recoveryCodes.length > 0 && (
+                      <div className="rounded-md border border-amber-300 bg-amber-50 p-4">
+                        <p className="text-sm font-medium text-amber-900">Save these one-time recovery codes now. They will not be shown again.</p>
+                        <code className="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
+                          {recoveryCodes.map((recoveryCode) => <span key={recoveryCode}>{recoveryCode}</span>)}
+                        </code>
+                      </div>
+                    )}
                     <Input
                       label="Current password"
                       type="password"
@@ -598,6 +612,11 @@ export function SettingsPage() {
                       value={mfaCode}
                       onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     />
+                    <Button
+                      disabled={mfaPassword.length < 8 || mfaCode.length !== 6}
+                      onClick={() => void regenerateRecoveryCodes()}>
+                      Regenerate recovery codes
+                    </Button>
                     <Button
                       variant="outline"
                       disabled={mfaPassword.length < 8 || mfaCode.length !== 6}
@@ -795,21 +814,17 @@ export function SettingsPage() {
                 <Select
                 label="Language"
                 value={prefs.language}
+                disabled
                 onChange={(e) => setPrefs((p) => ({ ...p, language: e.target.value }))}
                 options={[
                 {
                   value: 'en',
                   label: 'English'
-                },
-                {
-                  value: 'af',
-                  label: 'Afrikaans'
-                },
-                {
-                  value: 'zu',
-                  label: 'isiZulu'
                 }]
                 } />
+                <p className="text-xs text-gray-500 md:col-span-2 -mt-4">
+                  English is the only installed interface language in this release.
+                </p>
               
                 <Select
                 label="Timezone"

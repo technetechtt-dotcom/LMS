@@ -48,6 +48,17 @@ export class AssessmentInstancesService {
     );
   }
 
+  private assertLearnerAttemptOwner(
+    user: AuthUser | undefined,
+    learnerId: string,
+  ): void {
+    if (!isLearnerOnly(user) || user?.userId !== learnerId) {
+      throw new ForbiddenException(
+        'Assessment attempts may only be changed by the enrolled learner',
+      );
+    }
+  }
+
   private mapSubmission(row: {
     id: string;
     enrollmentId: string;
@@ -141,8 +152,6 @@ export class AssessmentInstancesService {
       throw new NotFoundException('assessmentId is required');
     }
 
-    let enrollmentId = String(body.enrollmentId ?? body.learnerId ?? '');
-
     const assessment = await this.prisma.assessment.findFirst({
       where: {
         id: assessmentId,
@@ -154,33 +163,8 @@ export class AssessmentInstancesService {
       },
     });
     if (!assessment) throw new NotFoundException('Assessment not found');
-
-    if (isLearnerOnly(user)) {
-      if (assessment.enrollment.learnerId !== user.userId) {
-        throw new ForbiddenException(
-          'You may only submit assessments for your own enrolment',
-        );
-      }
-      enrollmentId = assessment.enrollmentId;
-    } else {
-      if (!enrollmentId) enrollmentId = assessment.enrollmentId;
-      const enrollment = await this.prisma.enrollment.findFirst({
-        where: {
-          id: enrollmentId,
-          deletedAt: null,
-          ...enrollmentOrgWhere(organisationId),
-        },
-        select: { id: true, learnerId: true },
-      });
-      if (!enrollment) {
-        throw new ForbiddenException('Enrollment not in organisation');
-      }
-      if (enrollment.id !== assessment.enrollmentId) {
-        throw new ForbiddenException(
-          'Assessment does not belong to the given enrolment',
-        );
-      }
-    }
+    this.assertLearnerAttemptOwner(user, assessment.enrollment.learnerId);
+    const enrollmentId = assessment.enrollmentId;
 
     const inProgress = await this.prisma.assessmentSubmission.findFirst({
       where: {
@@ -216,7 +200,11 @@ export class AssessmentInstancesService {
     }
 
     const instrument = await this.prisma.assessmentInstrument.findFirst({
-      where: { id: instrumentId },
+      where: {
+        id: instrumentId,
+        organisationId,
+        unitStandardId: assessment.unitStandardId,
+      },
     });
     if (!instrument) {
       throw new BadRequestException('Bound assessment instrument not found');
@@ -571,9 +559,7 @@ export class AssessmentInstancesService {
       },
     });
     if (!row) throw new NotFoundException('Submission not found');
-    if (row.enrollment.learnerId !== user?.userId) {
-      throw new ForbiddenException('You may only upload files for your own attempt');
-    }
+    this.assertLearnerAttemptOwner(user, row.enrollment.learnerId);
     this.assertAttemptNotExpired(row);
     const question = row.instrument?.questions[0];
     if (!question || question.questionType !== 'file_upload') {
@@ -608,16 +594,22 @@ export class AssessmentInstancesService {
       },
     ];
 
-    // Scanning may take long enough for the attempt to expire.
-    this.assertAttemptNotExpired(row);
-    const updated = await this.prisma.assessmentSubmission.update({
-      where: { id: submissionId },
-      data: { responses: next as object[] },
-      include: {
-        enrollment: { include: { learner: true } },
-        assessment: { include: { unitStandard: true } },
-      },
-    });
+    let updated;
+    try {
+      // Scanning may take long enough for the attempt to expire.
+      this.assertAttemptNotExpired(row);
+      updated = await this.prisma.assessmentSubmission.update({
+        where: { id: submissionId },
+        data: { responses: next as object[] },
+        include: {
+          enrollment: { include: { learner: true } },
+          assessment: { include: { unitStandard: true } },
+        },
+      });
+    } catch (error) {
+      await this.files.rollbackUpload?.(stored.uploadId);
+      throw error;
+    }
     return { ...this.mapSubmission(updated), uploaded: payload };
   }
 
@@ -642,9 +634,7 @@ export class AssessmentInstancesService {
       },
     });
     if (!row) throw new NotFoundException('In-progress submission not found');
-    if (isLearnerOnly(user) && row.enrollment.learnerId !== user.userId) {
-      throw new ForbiddenException('You may only save your own attempt');
-    }
+    this.assertLearnerAttemptOwner(user, row.enrollment.learnerId);
     this.assertAttemptNotExpired(row);
 
     const sanitized = (Array.isArray(responses) ? responses : []).map((raw) => {
@@ -732,6 +722,34 @@ export class AssessmentInstancesService {
       },
     });
     return this.mapSubmission(updated);
+  }
+
+  /** Tenant- and allocation-scoped reviewer grading entry point. */
+  async autoGradeForReview(
+    assessmentId: string,
+    instrumentId: string,
+    responses: ResponseInput[],
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    const assessment = await this.prisma.assessment.findFirst({
+      where: {
+        id: assessmentId,
+        deletedAt: null,
+        ...assessmentActorWhere(user),
+        enrollment: enrollmentOrgWhere(organisationId),
+        unitStandard: {
+          assessmentInstruments: {
+            some: { id: instrumentId, organisationId },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    if (!assessment) {
+      throw new NotFoundException('Allocated assessment instrument not found');
+    }
+    return this.autoGradeAgainstInstrument(instrumentId, responses);
   }
 
   /** Grade only against the bound instrument; omitted questions still count in maxScore. */

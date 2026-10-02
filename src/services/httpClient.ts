@@ -105,6 +105,7 @@ function invalidateLocalSession(path: string, status: number) {
   }
   try {
     localStorage.removeItem(getAuthStorageKey());
+    sessionStorage.removeItem(`${getAuthStorageKey()}:access-token`);
   } catch {
     /* private mode */
   }

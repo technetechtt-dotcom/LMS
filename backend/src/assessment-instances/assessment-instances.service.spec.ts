@@ -53,6 +53,44 @@ describe('AssessmentInstancesService.uploadAnswerFile', () => {
     );
   });
 
+  it('rejects mixed staff/learner identities even when the enrollment user id matches', async () => {
+    const uploadStaged = jest.fn();
+    const service = new AssessmentInstancesService(
+      {
+        assessmentSubmission: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'submission-1',
+            createdAt: new Date(),
+            responses: [],
+            enrollment: { learnerId: 'dual-role-1' },
+            instrument: {
+              timeLimitMinutes: null,
+              questions: [{ questionType: 'file_upload' }],
+            },
+          }),
+        },
+      } as never,
+      { uploadStaged } as never,
+    );
+
+    await expect(service.uploadAnswerFile(
+      'submission-1',
+      'question-1',
+      {
+        originalname: 'answer.pdf',
+        mimetype: 'application/pdf',
+        buffer: Buffer.from('answer'),
+      } as Express.Multer.File,
+      {
+        userId: 'dual-role-1',
+        email: 'dual-role@example.test',
+        organisationId: 'organisation-1',
+        roleCodes: ['LEARNER', 'FACILITATOR'],
+      },
+    )).rejects.toThrow('Assessment attempts may only be changed by the enrolled learner');
+    expect(uploadStaged).not.toHaveBeenCalled();
+  });
+
   it('rejects file uploads after a timed attempt expires without storing bytes', async () => {
     const upload = jest.fn();
     const service = new AssessmentInstancesService(
@@ -101,6 +139,25 @@ describe('AssessmentInstancesService.saveProgress expiry enforcement', () => {
     organisationId: 'organisation-1',
     roleCodes: ['LEARNER'],
   };
+
+  it('rejects a learner who does not own the attempt', async () => {
+    const update = jest.fn();
+    const service = new AssessmentInstancesService({
+      assessmentSubmission: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'submission-1',
+          createdAt: new Date(),
+          enrollment: { learnerId: 'different-learner' },
+          instrument: { timeLimitMinutes: null },
+        }),
+        update,
+      },
+    } as never);
+
+    await expect(service.saveProgress('submission-1', [], learner))
+      .rejects.toThrow('Assessment attempts may only be changed by the enrolled learner');
+    expect(update).not.toHaveBeenCalled();
+  });
 
   it('rejects autosave after expiry and performs no mutation', async () => {
     const update = jest.fn();

@@ -180,7 +180,7 @@ export function DashboardPage() {
     cell: (row: ProgramRow) =>
     <div
       className="cursor-pointer hover:text-brand-blue"
-      onClick={() => navigate('/programmes')}>
+      onClick={() => navigate(row.id ? `/programmes/${row.id}` : '/programmes')}>
       
           <div className="font-medium text-gray-900">{row.name}</div>
           <div className="text-xs text-gray-500">{row.seta}</div>
@@ -245,11 +245,10 @@ export function DashboardPage() {
           <Card
             title="Learnership Programs"
             action={
-            <Button
-              size="sm"
-              leftIcon={<Plus className="h-4 w-4" />}
-              onClick={() => navigate('/programmes')}>
-              
+              <Button
+                size="sm"
+                leftIcon={<Plus className="h-4 w-4" />}
+                onClick={() => navigate('/programmes?action=new')}>
                 Add Program
               </Button>
             }

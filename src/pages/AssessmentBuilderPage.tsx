@@ -20,8 +20,8 @@ import { Select } from '../components/ui/Select';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
-import type { QuestionType } from '../types';
-import { instrumentService } from '../services/api';
+import type { QuestionType, Programme } from '../types';
+import { instrumentService, programmeService } from '../services/api';
 
 type BuilderMcOption = {
   id: string;
@@ -122,6 +122,7 @@ export function AssessmentBuilderPage() {
   const [unitStandards, setUnitStandards] = useState<
     Array<{ id: string; code: string; title: string }>
   >([]);
+  const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [showPreview, setShowPreview] = useState(false);
 
   const effectiveUnitStandardId = settings.unitStandard || unitStandardId;
@@ -131,6 +132,11 @@ export function AssessmentBuilderPage() {
       .listUnitStandards()
       .then((res) => setUnitStandards(res.data ?? []))
       .catch(() => toast.error('Could not load unit standards'));
+
+    programmeService
+      .getAll()
+      .then((res) => setProgrammes(res.data ?? []))
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -171,7 +177,13 @@ export function AssessmentBuilderPage() {
           ...s,
           title: data.title ?? s.title,
           unitStandard: data.unitStandardId ?? unitStandardId,
-          status: data.status === 'PUBLISHED' ? 'Published' : 'Draft',
+          status: data.status === 'PUBLISHED'
+            ? 'Published'
+            : data.status === 'APPROVED'
+              ? 'Approved'
+              : data.status === 'IN_REVIEW'
+                ? 'In review'
+                : 'Draft',
           maxAttempts: data.maxAttempts ?? s.maxAttempts,
           passMark: data.passMark ?? s.passMark,
           timeLimit: data.timeLimitMinutes ?? s.timeLimit,
@@ -271,8 +283,8 @@ export function AssessmentBuilderPage() {
       }));
       await instrumentService.replaceQuestions(activeId, apiQuestions);
       if (publish) {
-        await instrumentService.publish(activeId);
-        toast.success('Instrument published');
+        await instrumentService.submitForReview(activeId);
+        toast.success('Instrument submitted for independent QA approval');
       } else {
         toast.success('Draft saved');
       }
@@ -320,50 +332,42 @@ export function AssessmentBuilderPage() {
             <Select
               label="Programme"
               value={settings.programme}
-              onChange={(e) =>
-              setSettings({
-                ...settings,
-                programme: e.target.value
-              })
-              }
+              onChange={(e) => {
+                const progId = e.target.value;
+                setSettings((s) => ({
+                  ...s,
+                  programme: progId,
+                  module: '',
+                }));
+              }}
               options={[
-              {
-                value: 'it',
-                label: 'IT Skills Program'
-              },
-              {
-                value: 'business',
-                label: 'Business Administration'
-              },
-              {
-                value: 'safety',
-                label: 'Workplace Safety'
-              }]
-              } />
-            
+                { value: '', label: 'Select Programme' },
+                ...programmes.map((p) => ({
+                  value: p.id,
+                  label: `${p.code ? p.code + ' - ' : ''}${p.title}`,
+                })),
+              ]}
+            />
+
             <Select
               label="Module"
               value={settings.module}
               onChange={(e) =>
-              setSettings({
-                ...settings,
-                module: e.target.value
-              })
+                setSettings({
+                  ...settings,
+                  module: e.target.value,
+                })
               }
               options={[
-              {
-                value: 'm1',
-                label: 'Module 1'
-              },
-              {
-                value: 'm2',
-                label: 'Module 2'
-              },
-              {
-                value: 'm3',
-                label: 'Module 3'
-              }]
-              } />
+                { value: '', label: 'Select Module' },
+                ...(
+                  programmes.find((p) => p.id === settings.programme)?.modules ?? []
+                ).map((m) => ({
+                  value: m.id,
+                  label: `${m.code ? m.code + ' - ' : ''}${m.title}`,
+                })),
+              ]}
+            />
             
             <Select
               label="Unit Standard"
@@ -478,7 +482,7 @@ export function AssessmentBuilderPage() {
               </label>
               <Badge
                 variant={
-                settings.status === 'Published' ? 'success' : 'warning'
+                ['Published', 'Approved'].includes(settings.status) ? 'success' : 'warning'
                 }>
                 
                 {settings.status}
@@ -520,7 +524,7 @@ export function AssessmentBuilderPage() {
             <Button
               leftIcon={<Save className="h-4 w-4" />}
               onClick={() => void handleSave(true)}>
-              Publish
+              Submit for QA review
             </Button>
           </div>
         </div>

@@ -69,7 +69,18 @@ jobs:
           PLAYWRIGHT_API_URL: ${{ vars.STAGING_API_URL }}
           PLAYWRIGHT_OPS_URL: ${{ vars.STAGING_OPS_URL }}
           EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          STAGING_ROLE_CREDENTIALS_JSON: ${{ secrets.STAGING_ROLE_CREDENTIALS_JSON }}
         run: npx playwright test -c e2e/playwright.config.ts staging-acceptance.spec.ts
+      - name: Upload staging acceptance diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-acceptance-${{ github.event.workflow_run.head_sha }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            playwright-report
+            test-results
       - name: Roll back staging on acceptance failure
         if: failure()
         env:
@@ -94,17 +105,38 @@ jobs:
           node-version: '22'
       - name: Enforce operational launch approvals
         env:
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
           RESTORE_DRILL_AT: ${{ vars.RESTORE_DRILL_AT }}
           RESTORE_DRILL_RESULT: ${{ vars.RESTORE_DRILL_RESULT }}
+          ROLLBACK_DRILL_AT: ${{ vars.ROLLBACK_DRILL_AT }}
+          ROLLBACK_DRILL_RESULT: ${{ vars.ROLLBACK_DRILL_RESULT }}
+          MONITORING_DRILL_AT: ${{ vars.MONITORING_DRILL_AT }}
+          MONITORING_DRILL_RESULT: ${{ vars.MONITORING_DRILL_RESULT }}
+          LOAD_TEST_AT: ${{ vars.LOAD_TEST_AT }}
+          LOAD_TEST_RESULT: ${{ vars.LOAD_TEST_RESULT }}
           EIGHT_ROLE_SIGNOFF: ${{ vars.STAGING_EIGHT_ROLE_SIGNOFF }}
+          EIGHT_ROLE_SIGNOFF_SHA: ${{ vars.STAGING_EIGHT_ROLE_SIGNOFF_SHA }}
           SECURITY_PRIVACY_SIGNOFF: ${{ vars.SECURITY_PRIVACY_SIGNOFF }}
+          SECURITY_PRIVACY_SIGNOFF_SHA: ${{ vars.SECURITY_PRIVACY_SIGNOFF_SHA }}
+          PEN_TEST_RESULT: ${{ vars.PEN_TEST_RESULT }}
+          PEN_TEST_AT: ${{ vars.PEN_TEST_AT }}
+          PEN_TEST_SHA: ${{ vars.PEN_TEST_SHA }}
+          PEN_TEST_REPORT_URL: ${{ vars.PEN_TEST_REPORT_URL }}
           MONITORING_HEALTHCHECK_URL: ${{ secrets.MONITORING_HEALTHCHECK_URL }}
         run: |
           test "$RESTORE_DRILL_RESULT" = "passed"
+          test "$ROLLBACK_DRILL_RESULT" = "passed"
+          test "$MONITORING_DRILL_RESULT" = "passed"
+          test "$LOAD_TEST_RESULT" = "passed"
           test "$EIGHT_ROLE_SIGNOFF" = "approved"
           test "$SECURITY_PRIVACY_SIGNOFF" = "approved"
+          test "$PEN_TEST_RESULT" = "passed"
+          test "$EIGHT_ROLE_SIGNOFF_SHA" = "$EXPECTED_SHA"
+          test "$SECURITY_PRIVACY_SIGNOFF_SHA" = "$EXPECTED_SHA"
+          test "$PEN_TEST_SHA" = "$EXPECTED_SHA"
+          test -n "$PEN_TEST_REPORT_URL"
           test -n "$MONITORING_HEALTHCHECK_URL"
-          node -e "const t=Date.parse(process.env.RESTORE_DRILL_AT||''); const age=Date.now()-t; if(!Number.isFinite(t)||age<0||age>90*86400000) process.exit(1)"
+          node -e "for(const k of ['RESTORE_DRILL_AT','ROLLBACK_DRILL_AT','MONITORING_DRILL_AT','LOAD_TEST_AT','PEN_TEST_AT']){const t=Date.parse(process.env[k]||'');const age=Date.now()-t;if(!Number.isFinite(t)||age<0||age>90*86400000){console.error(k+' is missing or older than 90 days');process.exit(1)}}"
           curl --fail --silent --show-error "$MONITORING_HEALTHCHECK_URL" >/dev/null
       - name: Trigger production services after approval
         env:

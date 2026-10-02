@@ -96,6 +96,12 @@ type RemoteLoginEnvelope = {
 };
 
 export const authService = {
+  refreshSession: async (): Promise<RemoteLoginEnvelope> =>
+    apiFetchJSON<RemoteLoginEnvelope>('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
   login: async (
     credentials: LoginCredentials,
   ): Promise<
@@ -200,11 +206,19 @@ export const authService = {
     otpauthUri: string;
   }> => apiFetchJSON('/auth/mfa/enroll', { method: 'POST' }),
 
-  confirmMfaEnrollment: async (code: string): Promise<{ enabled: true }> =>
+  confirmMfaEnrollment: async (code: string): Promise<{ enabled: true; recoveryCodes: string[] }> =>
     apiFetchJSON('/auth/mfa/verify', {
       method: 'POST',
       body: JSON.stringify({ code }),
     }),
+
+  regenerateMfaRecoveryCodes: async (
+    password: string,
+    code: string,
+  ): Promise<{ recoveryCodes: string[] }> => apiFetchJSON('/auth/mfa/recovery-codes', {
+    method: 'POST',
+    body: JSON.stringify({ password, code }),
+  }),
 
   disableMfa: async (password: string, code: string): Promise<{ enabled: false }> =>
     apiFetchJSON('/auth/mfa', {
@@ -557,6 +571,35 @@ export const instrumentService = {
     );
   },
 
+  submitForReview: async (
+    id: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>(
+      `/assessment-instruments/${encodeURIComponent(id)}/submit-review`,
+      {},
+    );
+  },
+
+  approve: async (
+    id: string,
+    notes?: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>(
+      `/assessment-instruments/${encodeURIComponent(id)}/approve`,
+      { notes },
+    );
+  },
+
+  reject: async (
+    id: string,
+    notes: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    return remotePostJson<Record<string, unknown>>(
+      `/assessment-instruments/${encodeURIComponent(id)}/reject`,
+      { notes },
+    );
+  },
+
   retire: async (
     id: string,
   ): Promise<ApiResponse<Record<string, unknown>>> => {
@@ -773,6 +816,17 @@ export const documentService = {
 };
 
 export const privacyService = {
+  getNotice: async (): Promise<{
+    policyVersion: string;
+    acknowledged: boolean;
+    acknowledgedAt?: string;
+  }> => apiFetchJSON('/privacy/notice'),
+
+  acknowledgeNotice: async (): Promise<{
+    policyVersion: string;
+    acknowledgedAt: string;
+  }> => apiFetchJSON('/privacy/notice/acknowledge', { method: 'POST' }),
+
   requestAccessExport: async (): Promise<ApiResponse<Record<string, unknown>>> => {
     return remotePostJson<Record<string, unknown>>('/privacy/dsar', {
       type: 'ACCESS',
@@ -924,6 +978,7 @@ export const complianceService = {
       controlKey: string;
       status: 'NOT_REVIEWED' | 'IN_REVIEW' | 'SATISFIED' | 'ACTION_REQUIRED';
       notes?: string;
+      evidenceDocumentIds?: string[];
       decidedAt: string;
     }>>
   > => {
@@ -936,10 +991,11 @@ export const complianceService = {
     controlKey: string,
     status: 'NOT_REVIEWED' | 'IN_REVIEW' | 'SATISFIED' | 'ACTION_REQUIRED',
     notes?: string,
+    evidenceDocumentIds: string[] = [],
   ): Promise<ApiResponse<unknown>> => {
     return remotePostJson<unknown>(
       `/compliance/decisions/${encodeURIComponent(controlKey)}`,
-      { status, notes },
+      { status, notes, evidenceDocumentIds },
       'PUT',
     );
   },
@@ -959,6 +1015,38 @@ export const complianceService = {
     const list = unwrapData(raw);
     return { data: Array.isArray(list) ? list : [], success: true };
   },
+
+  getAlerts: async (): Promise<ApiResponse<Array<{
+    id: string;
+    controlKey: string;
+    title: string;
+    details?: string;
+    status: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
+    acknowledgedById?: string;
+    acknowledgedAt?: string;
+    resolvedById?: string;
+    resolvedAt?: string;
+    resolutionNotes?: string;
+    evidenceDocumentIds?: string[];
+    createdAt: string;
+  }>>> => {
+    const raw = await apiFetchJSON<unknown>('/compliance/alerts');
+    const data = unwrapData(raw);
+    return { data: Array.isArray(data) ? data : [], success: true };
+  },
+
+  acknowledgeAlert: async (id: string): Promise<ApiResponse<unknown>> =>
+    remotePostJson(`/compliance/alerts/${encodeURIComponent(id)}/acknowledge`, {}),
+
+  resolveAlert: async (
+    id: string,
+    notes: string,
+    evidenceDocumentIds: string[],
+  ): Promise<ApiResponse<unknown>> =>
+    remotePostJson(`/compliance/alerts/${encodeURIComponent(id)}/resolve`, {
+      notes,
+      evidenceDocumentIds,
+    }),
 
   uploadDocument: async (
     file: File,
@@ -1569,6 +1657,7 @@ export const attendanceService = {
   openSession: async (
     programmeId: string,
     ttlMinutes?: number,
+    mandatory = true,
   ): Promise<
     ApiResponse<{ sessionId: string; expiresAt: string; qrToken: string }>
   > => {
@@ -1576,7 +1665,7 @@ export const attendanceService = {
       sessionId: string;
       expiresAt: string;
       qrToken: string;
-    }>('/attendance/sessions', { programmeId, ttlMinutes });
+    }>('/attendance/sessions', { programmeId, ttlMinutes, mandatory });
   },
 
   checkIn: async (
@@ -1828,39 +1917,29 @@ export const notificationService = {
 };
 
 export const auditService = {
-  log: async (
-    action: string,
-    entity: string,
-    entityId: string,
-    details: string,
-  ): Promise<void> => {
-    const entry = {
-      action,
-      entity,
-      entityId,
-      details,
-      at: new Date().toISOString(),
-    };
-    try {
-      await apiFetchJSON<unknown>('/audit/log', {
-        method: 'POST',
-        body: JSON.stringify(entry),
-      });
-    } catch {
-      /* non-blocking */
-    }
+  list: async (limit = 100): Promise<unknown[]> => {
+    const raw = await apiFetchJSON<unknown>(
+      `/audit?limit=${encodeURIComponent(String(limit))}`,
+    );
+    return Array.isArray(raw) ? raw : [];
   },
 
-  list: async (limit = 100): Promise<unknown[]> => {
-    try {
-      const raw = await apiFetchJSON<unknown>(
-        `/audit?limit=${encodeURIComponent(String(limit))}`,
-      );
-      return Array.isArray(raw) ? raw : [];
-    } catch {
-      return [];
-    }
-  },
+  createFinding: async (body: {
+    scopeType: string;
+    scopeId?: string;
+    finding: string;
+    severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+    evidenceDocumentIds?: string[];
+  }): Promise<ApiResponse<unknown>> => remotePostJson('/audit/findings', body),
+};
+
+export const feedbackService = {
+  submit: async (body: {
+    category: string;
+    rating?: number;
+    message: string;
+  }): Promise<ApiResponse<{ id: string; status: string; createdAt: string }>> =>
+    remotePostJson('/feedback', body),
 };
 
 export const api = {
