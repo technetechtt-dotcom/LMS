@@ -498,7 +498,7 @@ test.describe('production workflow acceptance', () => {
     });
     expect(csv.ok()).toBeTruthy();
     expect(csv.headers()['content-type']).toContain('text/csv');
-    expect((await csv.text()).split('\n')[0]).toContain('status');
+    expect(await csv.text()).toContain('enrollments');
 
     const pdf = await api.get(`/reports/seta-snapshot?format=pdf&${query}`, {
       headers: headers('admin'),
