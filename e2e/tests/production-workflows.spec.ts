@@ -75,6 +75,7 @@ test.describe('production workflow acceptance', () => {
   const headers = (role: Role, organisationId = ORG_ID) => ({
     Authorization: `Bearer ${tokens.get(role)}`,
     'X-Organisation-Id': organisationId,
+    ...(role === 'platform' ? { 'X-Auth-Portal': 'ops' } : {}),
   });
 
   test.beforeAll(async () => {
