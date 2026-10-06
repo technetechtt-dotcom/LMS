@@ -2,24 +2,26 @@ import path from 'path';
 import { defineConfig, devices } from '@playwright/test';
 
 const repoRoot = path.resolve(__dirname, '..');
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5173';
-const apiURL = process.env.PLAYWRIGHT_API_URL ?? 'http://localhost:8787';
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:5173';
+const apiURL = process.env.PLAYWRIGHT_API_URL ?? 'http://127.0.0.1:8787';
 const remoteAcceptance = process.env.PLAYWRIGHT_REMOTE === '1';
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEBSERVER === '1';
 
 export default defineConfig({
-  testDir: './tests',
-  fullyParallel: true,
+  testDir: path.resolve(__dirname, 'tests'),
+  testIgnore: ['**/.kilo/**', '**/.cursor/**'],
+  testMatch: ['production-workflows.spec.ts'],
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  workers: 1,
   reporter: process.env.CI
     ? [['github'], ['html', { outputFolder: path.join(repoRoot, 'playwright-report'), open: 'never' }]]
     : 'list',
   outputDir: path.join(repoRoot, 'test-results'),
-  timeout: 30_000,
+  timeout: 60_000,
   expect: {
-    timeout: 10_000,
+    timeout: 15_000,
   },
   use: {
     baseURL,

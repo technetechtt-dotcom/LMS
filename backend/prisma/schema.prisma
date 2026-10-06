@@ -136,6 +136,7 @@ model User {
   popiaAcknowledgements            PopiaAcknowledgement[]
   breakGlassRequests               BreakGlassAccess[]      @relation("BreakGlassRequester")
   breakGlassApprovals              BreakGlassAccess[]      @relation("BreakGlassApprover")
+  facilitatorAssignments           FacilitatorAssignment[] @relation("FacilitatorAssignments")
 }
 
 model Role {
@@ -182,6 +183,7 @@ model Organisation {
   auditorFindings        AuditorFinding[]
   popiaAcknowledgements  PopiaAcknowledgement[]
   breakGlassRequests     BreakGlassAccess[]
+  facilitatorAssignments FacilitatorAssignment[]
 }
 
 model UserOrganisation {
@@ -207,6 +209,7 @@ model Qualification {
   nqfLevel      Int
   totalCredits  Int
   field         String?
+  seta          String?
   programmes    Programme[]
   unitStandards UnitStandard[]
   createdAt     DateTime       @default(now())
@@ -227,6 +230,7 @@ model UnitStandard {
   assessmentQuestions   AssessmentQuestion[]
   assessmentInstruments AssessmentInstrument[]
   evidence              Evidence[]
+  programmeModules      ProgrammeModule[]
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   deletedAt             DateTime?
@@ -260,25 +264,77 @@ enum FacilitatorRole {
 }
 
 model Programme {
-  id                 String              @id @default(uuid()) @db.Uuid
-  organisationId     String              @db.Uuid
-  qualificationId    String              @db.Uuid
-  code               String
-  title              String
-  programmeKind      ProgrammeKind       @default(OCCUPATIONAL_PROGRAMME)
-  startDate          DateTime?
-  endDate            DateTime?
-  metadata           Json?
-  organisation       Organisation        @relation(fields: [organisationId], references: [id])
-  qualification      Qualification       @relation(fields: [qualificationId], references: [id])
-  enrollments        Enrollment[]
-  learningMaterials  LearningMaterial[]
-  attendanceSessions AttendanceSession[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  deletedAt          DateTime?
+  id                     String                  @id @default(uuid()) @db.Uuid
+  organisationId         String                  @db.Uuid
+  qualificationId        String                  @db.Uuid
+  code                   String
+  title                  String
+  status                 String                  @default("draft")
+  programmeKind          ProgrammeKind           @default(OCCUPATIONAL_PROGRAMME)
+  startDate              DateTime?
+  endDate                DateTime?
+  metadata               Json?
+  organisation           Organisation            @relation(fields: [organisationId], references: [id])
+  qualification          Qualification           @relation(fields: [qualificationId], references: [id])
+  enrollments            Enrollment[]
+  learningMaterials      LearningMaterial[]
+  attendanceSessions     AttendanceSession[]
+  modules                ProgrammeModule[]
+  facilitatorAssignments FacilitatorAssignment[]
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  deletedAt              DateTime?
 
   @@unique([organisationId, code])
+}
+
+enum ModuleType {
+  KNOWLEDGE
+  PRACTICAL
+  WORKPLACE
+}
+
+model ProgrammeModule {
+  id             String        @id @default(uuid()) @db.Uuid
+  programmeId    String        @db.Uuid
+  unitStandardId String?       @db.Uuid
+  code           String
+  title          String
+  moduleType     ModuleType    @map("type")
+  credits        Int
+  order          Int           @default(1)
+  description    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+  programme      Programme     @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  unitStandard   UnitStandard? @relation(fields: [unitStandardId], references: [id], onDelete: SetNull)
+
+  @@unique([programmeId, code])
+  @@index([programmeId, order])
+}
+
+model FacilitatorAssignment {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @db.Uuid
+  facilitatorId  String       @db.Uuid
+  programmeId    String       @db.Uuid
+  cohortId       String?
+  moduleId       String?      @db.Uuid
+  learnerId      String?      @db.Uuid
+  startDate      DateTime?
+  endDate        DateTime?
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  facilitator    User         @relation("FacilitatorAssignments", fields: [facilitatorId], references: [id], onDelete: Cascade)
+  programme      Programme    @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId, facilitatorId])
+  @@index([programmeId, isActive])
+  @@index([facilitatorId, programmeId])
 }
 
 model Enrollment {

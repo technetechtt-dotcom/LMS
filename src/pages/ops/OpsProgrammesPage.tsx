@@ -14,16 +14,25 @@ import { useOpsOrganisation } from '../../hooks/useOpsOrganisation';
 export function OpsProgrammesPage() {
   const { selectedOrgId } = useOpsOrganisation();
   const [programmes, setProgrammes] = useState<Programme[]>([]);
+  const [qualifications, setQualifications] = useState<any[]>([]);
+  const [selectedQualificationId, setSelectedQualificationId] = useState('');
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const res = await programmeService.getAll();
+      const [res, qRes] = await Promise.all([
+        programmeService.getAll(),
+        programmeService.getQualifications(),
+      ]);
       setProgrammes(res.data ?? []);
+      setQualifications(qRes.data ?? []);
+      if (qRes.data?.length && !selectedQualificationId) {
+        setSelectedQualificationId(qRes.data[0].id);
+      }
     } catch {
-      toast.error('Could not load programmes');
+      toast.error('Could not load programmes or qualifications');
     } finally {
       setLoading(false);
     }
@@ -71,8 +80,14 @@ export function OpsProgrammesPage() {
   const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const qId = String(fd.get('qualificationId') || selectedQualificationId);
+    if (!qId) {
+      toast.error('SAQA Qualification is required.');
+      return;
+    }
     try {
       await programmeService.create({
+        qualificationId: qId,
         title: String(fd.get('title') ?? ''),
         code: String(fd.get('code') ?? ''),
         programmeKind: String(
@@ -82,7 +97,7 @@ export function OpsProgrammesPage() {
         credits: Number(fd.get('credits') ?? 120),
         seta: String(fd.get('seta') ?? 'MICT SETA'),
         description: String(fd.get('description') ?? ''),
-        status: 'active',
+        status: 'draft',
       });
       toast.success('Programme created');
       setShowModal(false);
@@ -120,6 +135,19 @@ export function OpsProgrammesPage() {
         onClose={() => setShowModal(false)}
         title="Create programme">
         <form onSubmit={handleCreate} className="space-y-4">
+          <Select
+            name="qualificationId"
+            label="SAQA Qualification *"
+            value={selectedQualificationId}
+            onChange={(e) => setSelectedQualificationId(e.target.value)}
+            options={[
+              { value: '', label: 'Select SAQA qualification...' },
+              ...qualifications.map((q) => ({
+                value: q.id,
+                label: `SAQA ${q.saqaId} - ${q.title} (Level ${q.nqfLevel})`,
+              })),
+            ]}
+          />
           <Input name="title" label="Title" required />
           <Input name="code" label="Code" required placeholder="ITS-NQF5" />
           <Select

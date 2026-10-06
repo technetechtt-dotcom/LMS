@@ -109,5 +109,33 @@ describe('AuthService TOTP MFA', () => {
       password,
       recoveryCode,
     })).rejects.toThrow('valid authenticator or recovery code');
+
+    // Test regenerateRecoveryCodes
+    await expect(service.regenerateRecoveryCodes(user.id, 'WrongPassword!', totpCode(setup.secret)))
+      .rejects.toThrow('Invalid recovery-code regeneration credentials');
+    await expect(service.regenerateRecoveryCodes(user.id, password, '000000'))
+      .rejects.toThrow('Invalid recovery-code regeneration credentials');
+
+    const regen = await service.regenerateRecoveryCodes(user.id, password, totpCode(setup.secret));
+    expect(regen.recoveryCodes).toHaveLength(10);
+    expect(recoveryRows).toHaveLength(10);
+
+    // Test disableMfa
+    await expect(service.disableMfa(user.id, 'WrongPassword!', totpCode(setup.secret)))
+      .rejects.toThrow('Invalid MFA disable credentials');
+    await expect(service.disableMfa(user.id, password, '000000'))
+      .rejects.toThrow('Invalid MFA disable credentials');
+
+    const disabled = await service.disableMfa(user.id, password, totpCode(setup.secret));
+    expect(disabled).toEqual({ enabled: false });
+    expect(user.totpEnabled).toBe(false);
+    expect(user.totpSecret).toBeNull();
+    expect(recoveryRows).toHaveLength(0);
+
+    // Now that MFA is disabled, regenerate and disable should reject with BadRequestException
+    await expect(service.regenerateRecoveryCodes(user.id, password, '123456'))
+      .rejects.toThrow('MFA is not enabled');
+    await expect(service.disableMfa(user.id, password, '123456'))
+      .rejects.toThrow('MFA is not enabled');
   });
 });

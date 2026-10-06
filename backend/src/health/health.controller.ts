@@ -74,6 +74,7 @@ export class HealthController {
       checks.database = { ok: false, detail: error instanceof Error ? error.message : 'unavailable' };
     }
     try {
+      const latestRequiredMigration = '20260912100000_modules_facilitator_allocations';
       const migrationState = await this.prisma.$queryRaw<Array<{
         failed: bigint;
         latest_applied: boolean;
@@ -84,7 +85,7 @@ export class HealthController {
           )::bigint AS failed,
           COALESCE(
             BOOL_OR(
-              "migration_name" = '20260909120000_security_release_blockers'
+              "migration_name" = ${latestRequiredMigration}
               AND "finished_at" IS NOT NULL
               AND "rolled_back_at" IS NULL
             ),

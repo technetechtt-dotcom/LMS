@@ -196,6 +196,7 @@ export type ProgrammeKind = 'SKILLS_PROGRAMME' | 'OCCUPATIONAL_PROGRAMME';
 
 /** Fields collected in the “New programme” flow (UI + reference API). */
 export interface CreateProgrammePayload {
+  qualificationId?: string;
   title: string;
   code: string;
   programmeKind: ProgrammeKind;

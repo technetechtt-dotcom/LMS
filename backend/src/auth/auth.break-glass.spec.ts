@@ -28,7 +28,12 @@ describe('AuthService break-glass recovery', () => {
 
     const prisma = {
       user: {
-        findUnique: jest.fn().mockResolvedValue(requester),
+        findUnique: jest.fn().mockImplementation(({ where }) => {
+          if (where.email === requester.email || where.id === requester.id) {
+            return Promise.resolve(requester);
+          }
+          return Promise.resolve(null);
+        }),
       },
       userOrganisation: {
         findFirst: jest.fn().mockResolvedValue({
@@ -45,6 +50,7 @@ describe('AuthService break-glass recovery', () => {
           status: request.status,
           requestedAt: request.requestedAt,
         }),
+        findMany: jest.fn().mockResolvedValue([request]),
         findFirst: jest.fn().mockImplementation(({ where, include }) => {
           if (where.id !== request.id || where.status !== request.status) {
             return Promise.resolve(null);
@@ -85,6 +91,20 @@ describe('AuthService break-glass recovery', () => {
       password,
       request.reason,
     )).resolves.toEqual(expect.objectContaining({ id: request.id }));
+
+    await expect(service.requestBreakGlass(
+      'nobody@example.com',
+      password,
+      request.reason,
+    )).rejects.toThrow('Break-glass request credentials are invalid');
+
+    await expect(service.requestBreakGlass(
+      requester.email,
+      'wrong-password',
+      request.reason,
+    )).rejects.toThrow('Break-glass request credentials are invalid');
+
+    await expect(service.listBreakGlassRequests()).resolves.toHaveLength(1);
 
     await expect(service.approveBreakGlass(request.id, 'outsider-1'))
       .rejects.toThrow('Platform approval is required');

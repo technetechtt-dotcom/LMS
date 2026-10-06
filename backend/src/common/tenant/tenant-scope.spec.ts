@@ -192,6 +192,71 @@ describe('tenant-scope', () => {
     expect(poeArtifactActorWhere(admin)).toEqual({});
   });
 
+  it('restricts pure facilitators to allocated programmes and denies unassigned access', () => {
+    const pureFacilitator: AuthUser = {
+      userId: 'f1',
+      email: 'f1@skillforge.co.za',
+      organisationId: 'org1',
+      roleCodes: ['FACILITATOR'],
+    };
+    expect(enrollmentActorWhere(pureFacilitator)).toEqual({
+      AND: [{
+        OR: [{
+          programme: {
+            facilitatorAssignments: {
+              some: {
+                facilitatorId: 'f1',
+                isActive: true,
+                deletedAt: null,
+              },
+            },
+          },
+        }],
+      }],
+    });
+    expect(assessmentActorWhere(pureFacilitator)).toEqual({
+      AND: [{
+        OR: [{
+          enrollment: {
+            programme: {
+              facilitatorAssignments: {
+                some: {
+                  facilitatorId: 'f1',
+                  isActive: true,
+                  deletedAt: null,
+                },
+              },
+            },
+          },
+        }],
+      }],
+    });
+    expect(() =>
+      assertEnrollmentAccess(
+        pureFacilitator,
+        {
+          learnerId: 'learner-1',
+          programme: {
+            facilitatorAssignments: [{ facilitatorId: 'f2', isActive: true }],
+          },
+        },
+        'Attendance',
+      ),
+    ).toThrow('not allocated to this programme');
+    expect(() =>
+      assertEnrollmentAccess(
+        pureFacilitator,
+        {
+          learnerId: 'learner-1',
+          programme: {
+            facilitatorAssignments: [{ facilitatorId: 'f1', isActive: true }],
+          },
+        },
+        'Attendance',
+      ),
+    ).not.toThrow();
+  });
+
   it('never permits moderator allocation bypass, including admins', () => {
     expect(() => assertAllocatedModerator(admin, null)).toThrow('No moderator');
     expect(() => assertAllocatedModerator(admin, 'another')).toThrow('allocated moderator');

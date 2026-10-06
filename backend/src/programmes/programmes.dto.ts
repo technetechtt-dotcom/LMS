@@ -1,8 +1,9 @@
-import { ProgrammeKind } from '@prisma/client';
+import { ModuleType, ProgrammeKind } from '@prisma/client';
 import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -25,12 +26,118 @@ export class CreateProgrammeDto {
   programmeKind?: ProgrammeKind;
 
   @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
   @IsDateString()
   startDate?: string;
 
   @IsOptional()
   @IsDateString()
   endDate?: string;
+}
+
+export class CreateProgrammeModuleDto {
+  @IsString()
+  code!: string;
+
+  @IsString()
+  title!: string;
+
+  @IsEnum(ModuleType)
+  moduleType!: ModuleType;
+
+  @IsInt()
+  @Min(1)
+  credits!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  order?: number;
+
+  @IsOptional()
+  @IsUUID()
+  unitStandardId?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+export class UpdateProgrammeModuleDto {
+  @IsOptional()
+  @IsString()
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsEnum(ModuleType)
+  moduleType?: ModuleType;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  credits?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  order?: number;
+
+  @IsOptional()
+  @IsUUID()
+  unitStandardId?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+export class UpdateProgrammeStatusDto {
+  @IsString()
+  status!: string;
+}
+
+export class ReorderModulesDto {
+  @IsString({ each: true })
+  moduleIds!: string[];
+}
+
+export class FacilitatorAssignmentDto {
+  @IsUUID()
+  facilitatorId!: string;
+
+  @IsUUID()
+  programmeId!: string;
+
+  @IsOptional()
+  @IsString()
+  cohortId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  moduleId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  learnerId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
 
 /** Programme-specific completion rules stored in Programme.metadata.completionRequirements */

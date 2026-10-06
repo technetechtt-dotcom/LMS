@@ -1189,6 +1189,30 @@ export const materialService = {
 };
 
 export const programmeService = {
+  getQualifications: async (): Promise<ApiResponse<Array<{
+    id: string;
+    saqaId: string;
+    title: string;
+    nqfLevel: number;
+    totalCredits: number;
+    field: string | null;
+    seta: string | null;
+    unitStandards: Array<{
+      id: string;
+      code: string;
+      title: string;
+      credits: number;
+      level: number;
+    }>;
+  }>>> => {
+    const raw = await apiFetchJSON<any>('/qualifications');
+    const list = unwrapData(raw);
+    return {
+      data: Array.isArray(list) ? list : [],
+      success: true,
+    };
+  },
+
   getAll: async (): Promise<ApiResponse<Programme[]>> => {
     const raw = await apiFetchJSON<ApiResponse<Programme[]> | Programme[]>(
       '/programmes',
@@ -1220,6 +1244,42 @@ export const programmeService = {
     );
     const data = unwrapData(raw);
     return { data, success: true };
+  },
+
+  addModule: async (
+    programmeId: string,
+    payload: {
+      code: string;
+      title: string;
+      moduleType: 'KNOWLEDGE' | 'PRACTICAL' | 'WORKPLACE';
+      credits: number;
+      order?: number;
+      unitStandardId?: string;
+      description?: string;
+    },
+  ): Promise<ApiResponse<any>> => {
+    const raw = await apiFetchJSON<any>(
+      `/programmes/${encodeURIComponent(programmeId)}/modules`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    );
+    return { data: unwrapData(raw), success: true };
+  },
+
+  updateStatus: async (
+    programmeId: string,
+    status: 'draft' | 'active' | 'archived',
+  ): Promise<ApiResponse<any>> => {
+    const raw = await apiFetchJSON<any>(
+      `/programmes/${encodeURIComponent(programmeId)}/status`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      },
+    );
+    return { data: unwrapData(raw), success: true };
   },
 };
 

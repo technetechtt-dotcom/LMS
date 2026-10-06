@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AdminOnlyEndpoint } from '../common/decorators/admin-only-endpoint.decorator';
@@ -6,22 +15,32 @@ import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   CreateProgrammeDto,
+  CreateProgrammeModuleDto,
+  FacilitatorAssignmentDto,
   ProgrammeCompletionRequirementsDto,
+  ReorderModulesDto,
+  UpdateProgrammeModuleDto,
+  UpdateProgrammeStatusDto,
 } from './programmes.dto';
 import { ProgrammesService } from './programmes.service';
 
 @ApiTags('Programmes & Qualifications')
 @ApiBearerAuth()
-@Controller('programmes')
+@Controller()
 export class ProgrammesController {
   constructor(private readonly programmes: ProgrammesService) {}
 
-  @Get()
+  @Get('qualifications')
+  listQualifications() {
+    return this.programmes.listQualifications();
+  }
+
+  @Get('programmes')
   list(@Req() req: Request & { user?: AuthUser }) {
     return this.programmes.list(req.user);
   }
 
-  @Get(':id')
+  @Get('programmes/:id')
   byId(
     @Param('id') id: string,
     @Req() req: Request & { user?: AuthUser },
@@ -30,7 +49,7 @@ export class ProgrammesController {
   }
 
   @Roles('ADMIN', 'QA_OFFICER', 'FACILITATOR')
-  @Get(':id/completion-requirements')
+  @Get('programmes/:id/completion-requirements')
   getCompletionRequirements(
     @Param('id') id: string,
     @Req() req: Request & { user?: AuthUser },
@@ -39,7 +58,7 @@ export class ProgrammesController {
   }
 
   @Roles('ADMIN', 'QA_OFFICER')
-  @Patch(':id/completion-requirements')
+  @Patch('programmes/:id/completion-requirements')
   setCompletionRequirements(
     @Param('id') id: string,
     @Body() dto: ProgrammeCompletionRequirementsDto,
@@ -50,11 +69,96 @@ export class ProgrammesController {
 
   @AdminOnlyEndpoint()
   @Roles('ADMIN')
-  @Post()
+  @Post('programmes')
   create(
     @Body() dto: CreateProgrammeDto,
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.programmes.create(dto, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Post('programmes/:id/modules')
+  addModule(
+    @Param('id') id: string,
+    @Body() dto: CreateProgrammeModuleDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.addModule(id, dto, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Patch('programmes/:id/modules/:moduleId')
+  updateModule(
+    @Param('id') id: string,
+    @Param('moduleId') moduleId: string,
+    @Body() dto: UpdateProgrammeModuleDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.updateModule(id, moduleId, dto, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Delete('programmes/:id/modules/:moduleId')
+  removeModule(
+    @Param('id') id: string,
+    @Param('moduleId') moduleId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.removeModule(id, moduleId, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Post('programmes/:id/modules/reorder')
+  reorderModules(
+    @Param('id') id: string,
+    @Body() dto: ReorderModulesDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.reorderModules(id, dto, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Patch('programmes/:id/status')
+  updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateProgrammeStatusDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.updateStatus(id, dto, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Post('facilitator-assignments')
+  assignFacilitator(
+    @Body() dto: FacilitatorAssignmentDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.assignFacilitator(dto, req.user);
+  }
+
+  @Roles('ADMIN', 'FACILITATOR', 'QA_OFFICER')
+  @Get('programmes/:id/facilitator-assignments')
+  listFacilitatorAssignments(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.listFacilitatorAssignments(id, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Delete('facilitator-assignments/:id')
+  removeFacilitatorAssignment(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.removeFacilitatorAssignment(id, req.user);
   }
 }

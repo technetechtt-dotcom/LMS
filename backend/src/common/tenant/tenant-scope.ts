@@ -76,6 +76,27 @@ export function isMentorOnly(user?: AuthUser | null): boolean {
   );
 }
 
+export function isFacilitatorOnly(user?: AuthUser | null): boolean {
+  if (!user?.roleCodes?.includes('FACILITATOR')) return false;
+  return !user.roleCodes.some((code) =>
+    ['ADMIN', 'PLATFORM_ADMIN', 'QA_OFFICER'].includes(code),
+  );
+}
+
+export function isAssessorOnly(user?: AuthUser | null): boolean {
+  if (!user?.roleCodes?.includes('ASSESSOR')) return false;
+  return !user.roleCodes.some((code) =>
+    ['ADMIN', 'PLATFORM_ADMIN', 'QA_OFFICER'].includes(code),
+  );
+}
+
+export function isModeratorOnly(user?: AuthUser | null): boolean {
+  if (!user?.roleCodes?.includes('MODERATOR')) return false;
+  return !user.roleCodes.some((code) =>
+    ['ADMIN', 'PLATFORM_ADMIN', 'QA_OFFICER'].includes(code),
+  );
+}
+
 /** Actor-specific enrollment scope layered on top of the active tenant. */
 export function enrollmentActorWhere(
   user?: AuthUser | null,
@@ -91,10 +112,23 @@ export function enrollmentActorWhere(
   }
   if (!user?.userId) return { id: '__no_authenticated_actor__' };
   if (isPlatformAdmin(user) || user.roleCodes.some((code) =>
-    ['ADMIN', 'FACILITATOR', 'QA_OFFICER'].includes(code))) {
+    ['ADMIN', 'QA_OFFICER'].includes(code))) {
     return {};
   }
   const scopes: Prisma.EnrollmentWhereInput[] = [];
+  if (user.roleCodes.includes('FACILITATOR')) {
+    scopes.push({
+      programme: {
+        facilitatorAssignments: {
+          some: {
+            facilitatorId: user.userId,
+            isActive: true,
+            deletedAt: null,
+          },
+        },
+      },
+    });
+  }
   if (user.roleCodes.includes('ASSESSOR')) {
     scopes.push(
       { assessments: { some: { assessorId: user.userId, deletedAt: null } } },
@@ -124,10 +158,25 @@ export function assessmentActorWhere(
 ): Prisma.AssessmentWhereInput {
   if (!user?.userId || isLearnerOnly(user)) return {};
   if (isPlatformAdmin(user) || user.roleCodes.some((code) =>
-    ['ADMIN', 'FACILITATOR', 'QA_OFFICER'].includes(code))) {
+    ['ADMIN', 'QA_OFFICER'].includes(code))) {
     return {};
   }
   const scopes: Prisma.AssessmentWhereInput[] = [];
+  if (user.roleCodes.includes('FACILITATOR')) {
+    scopes.push({
+      enrollment: {
+        programme: {
+          facilitatorAssignments: {
+            some: {
+              facilitatorId: user.userId,
+              isActive: true,
+              deletedAt: null,
+            },
+          },
+        },
+      },
+    });
+  }
   if (user.roleCodes.includes('ASSESSOR')) scopes.push({ assessorId: user.userId });
   if (user.roleCodes.includes('MODERATOR')) scopes.push({ moderatorId: user.userId });
   if (user.roleCodes.includes('SETA')) {
@@ -149,10 +198,25 @@ export function poeArtifactActorWhere(
 ): Prisma.PoeLearningArtifactWhereInput {
   if (!user?.userId || isLearnerOnly(user)) return {};
   if (isPlatformAdmin(user) || user.roleCodes.some((code) =>
-    ['ADMIN', 'FACILITATOR', 'QA_OFFICER'].includes(code))) {
+    ['ADMIN', 'QA_OFFICER'].includes(code))) {
     return {};
   }
   const scopes: Prisma.PoeLearningArtifactWhereInput[] = [];
+  if (user.roleCodes.includes('FACILITATOR')) {
+    scopes.push({
+      enrollment: {
+        programme: {
+          facilitatorAssignments: {
+            some: {
+              facilitatorId: user.userId,
+              isActive: true,
+              deletedAt: null,
+            },
+          },
+        },
+      },
+    });
+  }
   if (user.roleCodes.includes('ASSESSOR')) scopes.push({ assessorId: user.userId });
   if (user.roleCodes.includes('MODERATOR')) scopes.push({ moderatorId: user.userId });
   if (user.roleCodes.includes('MENTOR')) {
@@ -189,11 +253,18 @@ export function enrollmentOrgWhere(organisationId: string) {
 
 /**
  * Learners may only access their own enrollment ids.
- * Staff may access any enrollment in the active organisation.
+ * Staff may access any enrollment in the active organisation, unless restricted by role allocation.
  */
 export function assertEnrollmentAccess(
   user: AuthUser | undefined,
-  enrollment: { learnerId: string; metadata?: unknown } | null,
+  enrollment: {
+    learnerId: string;
+    metadata?: unknown;
+    programme?: {
+      facilitatorAssignments?: Array<{ facilitatorId: string; isActive: boolean }>;
+      [key: string]: unknown;
+    } | null;
+  } | null,
   label = 'Resource',
 ): void {
   if (!enrollment) {
@@ -209,6 +280,17 @@ export function assertEnrollmentAccess(
         : {};
     if (metadata.workplaceMentorId !== user?.userId) {
       throw new ForbiddenException(`${label} access denied`);
+    }
+  }
+  if (isFacilitatorOnly(user) && enrollment.programme && 'facilitatorAssignments' in enrollment.programme) {
+    const assignments = enrollment.programme.facilitatorAssignments;
+    if (Array.isArray(assignments)) {
+      const assigned = assignments.some(
+        (fa) => fa.facilitatorId === user?.userId && fa.isActive,
+      );
+      if (!assigned) {
+        throw new ForbiddenException(`${label} access denied: not allocated to this programme`);
+      }
     }
   }
 }

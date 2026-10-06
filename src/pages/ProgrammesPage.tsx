@@ -14,6 +14,7 @@ import { exportRecordsAsJson } from '../utils/exportData';
 import { PROGRAMME_KIND_LABELS, PROGRAMME_POE_ARTIFACTS_NOTE } from '../utils/programmeKind';
 
 type NewProgrammeForm = {
+  qualificationId: string;
   title: string;
   code: string;
   credits: string;
@@ -25,6 +26,7 @@ type NewProgrammeForm = {
 
 function emptyNewProgrammeForm(): NewProgrammeForm {
   return {
+    qualificationId: '',
     title: '',
     code: '',
     credits: '120',
@@ -43,9 +45,19 @@ const SETA_SELECT_OPTIONS = [
 
 export function ProgrammesPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [programmes, setProgrammes] = useState<Programme[]>([]);
-  const [kindFilter, setKindFilter] = useState<'all' | ProgrammeKind>('all');
+  const [qualifications, setQualifications] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('q') || '');
+  const [kindFilter, setKindFilter] = useState<'all' | ProgrammeKind>(
+    () => (searchParams.get('type') as ProgrammeKind) || 'all',
+  );
+  const [statusFilter, setStatusFilter] = useState<string>(
+    () => searchParams.get('status') || 'all',
+  );
+  const [setaFilter, setSetaFilter] = useState<string>(
+    () => searchParams.get('seta') || 'all',
+  );
   const [showAddProgramme, setShowAddProgramme] = useState(
     () => searchParams.get('action') === 'new',
   );
@@ -54,59 +66,45 @@ export function ProgrammesPage() {
   );
   const [creatingProgramme, setCreatingProgramme] = useState(false);
   const [modules, setModules] = useState([
-  {
-    id: 1,
-    name: '',
-    unitStandard: ''
-  }]
-  );
-  const unitStandardOptions = [
-  {
-    value: '',
-    label: 'Select Unit Standard'
-  },
-  {
-    value: 'us1',
-    label: 'US 115753 - Use a GUI-based word processor'
-  },
-  {
-    value: 'us2',
-    label: 'US 115790 - Use electronic mail'
-  },
-  {
-    value: 'us3',
-    label: 'US 116940 - Apply computing fundamentals'
-  },
-  {
-    value: 'us4',
-    label: 'US 117924 - Database design'
-  },
-  {
-    value: 'us5',
-    label: 'US 7468 - Use a spreadsheet application'
-  },
-  {
-    value: 'us6',
-    label: 'US 117925 - Install and configure a computer'
-  },
-  {
-    value: 'us7',
-    label: 'US 115789 - Use a presentation application'
-  },
-  {
-    value: 'us8',
-    label: 'US 116942 - Networking fundamentals'
-  }];
+    {
+      id: 1,
+      name: '',
+      code: 'KM-01',
+      moduleType: 'KNOWLEDGE' as const,
+      credits: '15',
+      unitStandardId: '',
+    },
+  ]);
+
+  const unitStandardOptions = useMemo(() => {
+    const selectedQ = qualifications.find((q) => q.id === newProgrammeForm.qualificationId);
+    if (!selectedQ || !selectedQ.unitStandards?.length) {
+      return [{ value: '', label: 'Select Unit Standard (Optional)' }];
+    }
+    return [
+      { value: '', label: 'Select Unit Standard (Optional)' },
+      ...selectedQ.unitStandards.map((us: any) => ({
+        value: us.id,
+        label: `${us.code} - ${us.title} (${us.credits} cr)`,
+      })),
+    ];
+  }, [qualifications, newProgrammeForm.qualificationId]);
 
   const addModule = () => {
+    const nextIdx = modules.length + 1;
+    const defaultType = nextIdx === 2 ? 'PRACTICAL' : nextIdx === 3 ? 'WORKPLACE' : 'KNOWLEDGE';
+    const defaultCode = nextIdx === 2 ? 'PM-01' : nextIdx === 3 ? 'WM-01' : `KM-0${nextIdx}`;
     setModules([
-    ...modules,
-    {
-      id: Date.now(),
-      name: '',
-      unitStandard: ''
-    }]
-    );
+      ...modules,
+      {
+        id: Date.now(),
+        name: '',
+        code: defaultCode,
+        moduleType: defaultType as any,
+        credits: '10',
+        unitStandardId: '',
+      },
+    ]);
   };
   const removeModule = (id: number) => {
     if (modules.length > 1) {
@@ -116,41 +114,92 @@ export function ProgrammesPage() {
   const updateModule = (id: number, field: string, value: string) => {
     setModules(
       modules.map((m) =>
-      m.id === id ?
-      {
-        ...m,
-        [field]: value
-      } :
-      m
-      )
+        m.id === id
+          ? {
+              ...m,
+              [field]: value,
+            }
+          : m,
+      ),
     );
   };
   useEffect(() => {
     programmeService.getAll().then((r) => {
       if (r.success && r.data) setProgrammes(r.data);
     });
+    programmeService.getQualifications().then((r) => {
+      if (r.success && r.data) setQualifications(r.data);
+    });
   }, []);
 
+  useEffect(() => {
+    const p = new URLSearchParams(searchParams);
+    if (searchTerm) p.set('q', searchTerm);
+    else p.delete('q');
+
+    if (kindFilter !== 'all') p.set('type', kindFilter);
+    else p.delete('type');
+
+    if (statusFilter !== 'all') p.set('status', statusFilter);
+    else p.delete('status');
+
+    if (setaFilter !== 'all') p.set('seta', setaFilter);
+    else p.delete('seta');
+
+    setSearchParams(p, { replace: true });
+  }, [searchTerm, kindFilter, statusFilter, setaFilter]);
+
   const filteredProgrammes = useMemo(() => {
-    if (kindFilter === 'all') return programmes;
-    return programmes.filter((p) => p.programmeKind === kindFilter);
-  }, [programmes, kindFilter]);
+    return programmes.filter((p) => {
+      if (kindFilter !== 'all' && p.programmeKind !== kindFilter) return false;
+      if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+      if (setaFilter !== 'all' && p.seta !== setaFilter) return false;
+      if (searchTerm.trim()) {
+        const q = searchTerm.trim().toLowerCase();
+        const blob = `${p.title} ${p.code} ${p.seta} ${p.description}`.toLowerCase();
+        if (!blob.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [programmes, kindFilter, statusFilter, setaFilter, searchTerm]);
 
   const openCreateProgrammeModal = () => {
     setNewProgrammeForm(emptyNewProgrammeForm());
-    setModules([{ id: 1, name: '', unitStandard: '' }]);
+    setModules([
+      {
+        id: 1,
+        name: '',
+        code: 'KM-01',
+        moduleType: 'KNOWLEDGE',
+        credits: '15',
+        unitStandardId: '',
+      },
+    ]);
     setShowAddProgramme(true);
   };
 
   const closeCreateProgrammeModal = () => {
     setShowAddProgramme(false);
     setNewProgrammeForm(emptyNewProgrammeForm());
-    setModules([{ id: 1, name: '', unitStandard: '' }]);
+    setModules([
+      {
+        id: 1,
+        name: '',
+        code: 'KM-01',
+        moduleType: 'KNOWLEDGE',
+        credits: '15',
+        unitStandardId: '',
+      },
+    ]);
   };
 
   const handleCreateProgramme = async () => {
     const title = newProgrammeForm.title.trim();
     const code = newProgrammeForm.code.trim();
+    if (!newProgrammeForm.qualificationId) {
+      toast.error('SAQA Qualification is required.');
+      return;
+    }
     if (!title || !code) {
       toast.error('Programme name and programme code are required.');
       return;
@@ -163,6 +212,7 @@ export function ProgrammesPage() {
     setCreatingProgramme(true);
     try {
       const res = await programmeService.create({
+        qualificationId: newProgrammeForm.qualificationId,
         title,
         code,
         programmeKind: newProgrammeForm.programmeKind,
@@ -173,16 +223,26 @@ export function ProgrammesPage() {
         status: 'draft',
       });
       if (res.success && res.data) {
-        toast.success('Programme created');
+        const createdProg = res.data;
+        for (const m of modules) {
+          if (m.name.trim()) {
+            await programmeService.addModule(createdProg.id, {
+              title: m.name.trim(),
+              code: m.code.trim() || 'KM-01',
+              moduleType: m.moduleType,
+              credits: parseInt(m.credits, 10) || 10,
+              unitStandardId: m.unitStandardId || undefined,
+            });
+          }
+        }
+        toast.success('Programme and modules created successfully');
         const list = await programmeService.getAll();
         if (list.success && list.data) setProgrammes(list.data);
         closeCreateProgrammeModal();
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      toast.error(
-        'Could not create the programme. If you use the Nest API, create programmes there with organisation and qualification IDs, or run the reference server (npm run dev:lms-api).',
-      );
+      toast.error(e.message || 'Could not create the programme.');
     } finally {
       setCreatingProgramme(false);
     }
@@ -289,11 +349,15 @@ export function ProgrammesPage() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col sm:flex-row gap-4 items-end">
+      <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col md:flex-row gap-3 items-end">
         <div className="flex-1 w-full">
-          <Input placeholder="Search programmes..." />
+          <Input
+            placeholder="Search by title, code, SETA..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
-        <div className="w-full sm:w-48">
+        <div className="w-full sm:w-44">
           <Select
             value={kindFilter}
             onChange={(e) => {
@@ -314,38 +378,39 @@ export function ProgrammesPage() {
               },
             ]}
           />
-          
         </div>
-        <div className="w-full sm:w-48">
+        <div className="w-full sm:w-40">
           <Select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
             options={[
-            {
-              value: 'all',
-              label: 'All Statuses'
-            },
-            {
-              value: 'active',
-              label: 'Active'
-            },
-            {
-              value: 'pending',
-              label: 'Pending'
-            },
-            {
-              value: 'draft',
-              label: 'Draft'
-            }]
-            } />
-          
+              { value: 'all', label: 'All Statuses' },
+              { value: 'active', label: 'Active' },
+              { value: 'draft', label: 'Draft' },
+              { value: 'archived', label: 'Archived' },
+            ]}
+          />
+        </div>
+        <div className="w-full sm:w-44">
+          <Select
+            value={setaFilter}
+            onChange={(e) => setSetaFilter(e.target.value)}
+            options={[
+              { value: 'all', label: 'All SETAs' },
+              ...SETA_SELECT_OPTIONS,
+            ]}
+          />
         </div>
         <Button
           variant="secondary"
           leftIcon={<Filter className="h-4 w-4" />}
-          onClick={() =>
-            toast.info('Filters apply automatically when you change a dropdown')
-          }>
-          
-          Filter
+          onClick={() => {
+            setSearchTerm('');
+            setKindFilter('all');
+            setStatusFilter('all');
+            setSetaFilter('all');
+          }}>
+          Reset
         </Button>
       </div>
 
@@ -364,8 +429,33 @@ export function ProgrammesPage() {
         size="lg">
         
         <div className="space-y-4">
+          <Select
+            label="SAQA Qualification *"
+            value={newProgrammeForm.qualificationId}
+            onChange={(e) => {
+              const qId = e.target.value;
+              const q = qualifications.find((item) => item.id === qId);
+              setNewProgrammeForm((f) => ({
+                ...f,
+                qualificationId: qId,
+                title: f.title || (q ? q.title : ''),
+                code: f.code || (q ? q.saqaId : ''),
+                nqfLevel: q ? String(q.nqfLevel) : f.nqfLevel,
+                credits: q ? String(q.totalCredits) : f.credits,
+                seta: q?.seta || f.seta,
+              }));
+            }}
+            options={[
+              { value: '', label: 'Select SAQA Qualification...' },
+              ...qualifications.map((q) => ({
+                value: q.id,
+                label: `SAQA ${q.saqaId} - ${q.title} (Level ${q.nqfLevel}, ${q.totalCredits} cr)`,
+              })),
+            ]}
+          />
+
           <Input
-            label="Programme name"
+            label="Programme name *"
             placeholder="e.g. Occupational Certificate: Welding"
             value={newProgrammeForm.title}
             onChange={(e) =>
@@ -374,7 +464,7 @@ export function ProgrammesPage() {
           />
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Programme code / SAQA ref"
+              label="Programme code / SAQA ref *"
               placeholder="e.g. 48872 or SP-002"
               value={newProgrammeForm.code}
               onChange={(e) =>
@@ -496,21 +586,32 @@ export function ProgrammesPage() {
                   <div className="flex items-center justify-center h-7 w-7 rounded-full bg-brand-navy/10 text-brand-navy text-xs font-bold flex-shrink-0 mt-1">
                     {index + 1}
                   </div>
-                  <div className="flex-1 grid grid-cols-2 gap-3">
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <Input
-                    placeholder={`Module ${index + 1} name`}
-                    value={mod.name}
-                    onChange={(e) =>
-                    updateModule(mod.id, 'name', e.target.value)
-                    } />
-                  
+                      placeholder={`Module ${index + 1} name`}
+                      value={mod.name}
+                      onChange={(e) =>
+                        updateModule(mod.id, 'name', e.target.value)
+                      }
+                    />
                     <Select
-                    value={mod.unitStandard}
-                    onChange={(e) =>
-                    updateModule(mod.id, 'unitStandard', e.target.value)
-                    }
-                    options={unitStandardOptions} />
-                  
+                      value={mod.moduleType}
+                      onChange={(e) =>
+                        updateModule(mod.id, 'moduleType', e.target.value)
+                      }
+                      options={[
+                        { value: 'KNOWLEDGE', label: 'Knowledge (KM)' },
+                        { value: 'PRACTICAL', label: 'Practical (PM)' },
+                        { value: 'WORKPLACE', label: 'Workplace (WM)' },
+                      ]}
+                    />
+                    <Select
+                      value={mod.unitStandardId}
+                      onChange={(e) =>
+                        updateModule(mod.id, 'unitStandardId', e.target.value)
+                      }
+                      options={unitStandardOptions}
+                    />
                   </div>
                   <button
                   onClick={() => removeModule(mod.id)}

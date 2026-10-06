@@ -274,13 +274,73 @@ async function main() {
 
   const programme = await prisma.programme.upsert({
     where: { organisationId_code: { organisationId: sdio.id, code: 'ITS-NQF5' } },
-    update: { programmeKind: ProgrammeKind.OCCUPATIONAL_PROGRAMME },
+    update: { programmeKind: ProgrammeKind.OCCUPATIONAL_PROGRAMME, status: 'active' },
     create: {
       organisationId: sdio.id,
       qualificationId: qualification.id,
       code: 'ITS-NQF5',
       title: 'IT Systems Development Learnership',
+      status: 'active',
       programmeKind: ProgrammeKind.OCCUPATIONAL_PROGRAMME,
+    },
+  });
+
+  await prisma.programmeModule.upsert({
+    where: { programmeId_code: { programmeId: programme.id, code: 'KM-01' } },
+    update: {},
+    create: {
+      programmeId: programme.id,
+      unitStandardId: unit.id,
+      code: 'KM-01',
+      title: 'Systems Development Fundamentals',
+      moduleType: 'KNOWLEDGE',
+      credits: 15,
+      order: 1,
+      description: 'Knowledge module on software design and lifecycle.',
+    },
+  });
+
+  await prisma.programmeModule.upsert({
+    where: { programmeId_code: { programmeId: programme.id, code: 'PM-01' } },
+    update: {},
+    create: {
+      programmeId: programme.id,
+      code: 'PM-01',
+      title: 'Programming Practical Lab',
+      moduleType: 'PRACTICAL',
+      credits: 20,
+      order: 2,
+      description: 'Practical coding assignments and lab simulations.',
+    },
+  });
+
+  await prisma.programmeModule.upsert({
+    where: { programmeId_code: { programmeId: programme.id, code: 'WM-01' } },
+    update: {},
+    create: {
+      programmeId: programme.id,
+      code: 'WM-01',
+      title: 'Workplace Development Experience',
+      moduleType: 'WORKPLACE',
+      credits: 30,
+      order: 3,
+      description: 'Workplace logging, mentor guidance, and production project.',
+    },
+  });
+
+  await prisma.facilitatorAssignment.deleteMany({
+    where: {
+      organisationId: sdio.id,
+      facilitatorId: facilitator.id,
+      programmeId: programme.id,
+    },
+  });
+  await prisma.facilitatorAssignment.create({
+    data: {
+      organisationId: sdio.id,
+      facilitatorId: facilitator.id,
+      programmeId: programme.id,
+      isActive: true,
     },
   });
   await prisma.programme.update({

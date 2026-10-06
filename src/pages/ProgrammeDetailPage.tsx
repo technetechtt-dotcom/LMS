@@ -339,6 +339,41 @@ export function ProgrammeDetailPage() {
         </p>
       </Card>
 
+      <Card title="Curriculum & Programme Modules">
+        <p className="text-sm text-gray-600 mb-4">
+          Structured into Knowledge (KM), Practical (PM), and Workplace (WM) modules with assigned unit standards and credit values.
+        </p>
+        {!programme.modules || programme.modules.length === 0 ? (
+          <p className="text-sm text-gray-500 py-6 text-center border border-dashed rounded-lg">
+            No modules registered yet for this programme.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {programme.modules.map((m: any, idx: number) => (
+              <div
+                key={m.id || idx}
+                className="flex items-start justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-900">{m.code}: {m.title}</span>
+                    <Badge variant={m.moduleType === 'KNOWLEDGE' ? 'info' : m.moduleType === 'PRACTICAL' ? 'warning' : 'success'}>
+                      {m.moduleType || (m.code.startsWith('KM') ? 'KNOWLEDGE' : m.code.startsWith('PM') ? 'PRACTICAL' : 'WORKPLACE')}
+                    </Badge>
+                  </div>
+                  {m.description && (
+                    <p className="text-xs text-gray-600 mt-1">{m.description}</p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-semibold text-gray-500 uppercase">Credits</span>
+                  <p className="text-sm font-bold text-gray-900">{m.credits}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <Card title="Quality & compliance">
         <div className="flex items-start gap-2 text-sm text-gray-600">
           <Shield className="h-5 w-5 text-gray-400 shrink-0 mt-0.5" />

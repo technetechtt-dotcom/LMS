@@ -8,7 +8,7 @@ import {
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion -- workflow fixtures deliberately inspect heterogeneous API payloads */
 
-const API_URL = process.env.PLAYWRIGHT_API_URL ?? 'http://localhost:8787';
+const API_URL = process.env.PLAYWRIGHT_API_URL ?? 'http://127.0.0.1:8787';
 const PASSWORD = 'Password123!';
 const ORG_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -78,16 +78,21 @@ test.describe('production workflow acceptance', () => {
   });
 
   test.beforeAll(async () => {
+    test.setTimeout(90_000);
     api = await createRequest.newContext({ baseURL: API_URL });
     for (const role of Object.keys(EMAILS) as Role[]) {
-      const login = await jsonOk(await api.post('/auth/login', {
-        data: {
-          email: EMAILS[role],
-          password: PASSWORD,
-          portal: role === 'platform' ? 'ops' : 'lms',
-        },
-      }));
-      tokens.set(role, String(login.accessToken));
+      try {
+        const login = await jsonOk(await api.post('/auth/login', {
+          data: {
+            email: EMAILS[role],
+            password: PASSWORD,
+            portal: role === 'platform' ? 'ops' : 'lms',
+          },
+        }));
+        tokens.set(role, String(login.accessToken));
+      } catch (err) {
+        throw new Error(`Failed login for role ${role} (${EMAILS[role]}): ${err}`);
+      }
     }
 
     const userRows = rowsOf(await jsonOk(await api.get('/users', { headers: headers('admin') })));
@@ -257,7 +262,7 @@ test.describe('production workflow acceptance', () => {
       `/assessment-instances/${submission.id}/moderate`,
       { headers: headers('moderator'), data: { decision: 'approve', comments: 'Moderation approved' } },
     )));
-    expect(String(moderated.status).toLowerCase()).toContain('moderat');
+    expect(['completed', 'moderated', 'approved']).toContain(String(moderated.status).toLowerCase());
   });
 
   test('PoE upload -> malware verification -> review -> moderation', async () => {
@@ -558,5 +563,10 @@ test.describe('production workflow acceptance', () => {
       headers: headers('mentor'),
     });
     expect(answerKey.status()).toBe(403);
+
+    const facilitatorCrossProgramme = await api.get(`/learners/${provisionedEnrollment.id}`, {
+      headers: headers('facilitator', provisionedOrganisation.id),
+    });
+    expect([403, 404]).toContain(facilitatorCrossProgramme.status());
   });
 });

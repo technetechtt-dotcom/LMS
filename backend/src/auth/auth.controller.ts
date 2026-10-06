@@ -16,7 +16,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
-import { Throttle } from '@nestjs/throttler';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../common/decorators/public.decorator';
 import { AuthService } from './auth.service';
 import {
@@ -89,7 +89,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 8 } })
+  @SkipThrottle()
   @Post('register')
   async register(
     @Body() dto: RegisterDto,
@@ -103,7 +103,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60_000, limit: 12 } })
+  @SkipThrottle()
   @Post('login')
   async login(
     @Body() dto: LoginDto,

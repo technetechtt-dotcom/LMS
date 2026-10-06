@@ -33,3 +33,7 @@ backend/.env.*
 *.njsproj
 *.sln
 *.sw?
+.audit
+backend/src/coverage
+test-results
+playwright-report

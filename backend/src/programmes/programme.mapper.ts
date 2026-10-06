@@ -1,9 +1,18 @@
-import type { Organisation, Programme, Qualification } from '@prisma/client';
+import type {
+  Organisation,
+  Programme,
+  ProgrammeModule,
+  Qualification,
+  FacilitatorAssignment,
+} from '@prisma/client';
 import { OrganisationType } from '@prisma/client';
 
 export type ProgrammeWithRelations = Programme & {
   qualification: Qualification | null;
   organisation: Organisation | null;
+  modules?: ProgrammeModule[];
+  facilitatorAssignments?: FacilitatorAssignment[];
+  enrollments?: Array<{ status: string; completedAt: Date | null }>;
   _count?: { enrollments: number };
 };
 
@@ -13,9 +22,37 @@ export function mapProgrammeToApi(p: ProgrammeWithRelations): Record<string, unk
   const nqf = q?.nqfLevel ?? 4;
   const credits = q?.totalCredits ?? 120;
   const setaLabel =
-    p.organisation?.type === OrganisationType.SETA
-      ? p.organisation.name
-      : 'MICT SETA';
+    q?.seta?.trim() ||
+    (p.organisation?.type === OrganisationType.SETA ? p.organisation.name : 'MICT SETA');
+
+  const mappedModules = (p.modules ?? []).map((m) => ({
+    id: m.id,
+    title: m.title,
+    code: m.code,
+    moduleType: m.moduleType,
+    programmeId: m.programmeId,
+    unitStandardId: m.unitStandardId,
+    order: m.order,
+    credits: m.credits,
+    description: m.description ?? '',
+    assessmentIds: [],
+    materialIds: [],
+    createdAt: m.createdAt.toISOString().slice(0, 10),
+    updatedAt: m.updatedAt.toISOString().slice(0, 10),
+  }));
+
+  const facilitatorIds = (p.facilitatorAssignments ?? [])
+    .filter((fa) => fa.isActive)
+    .map((fa) => fa.facilitatorId);
+
+  const totalEnrollments = p._count?.enrollments ?? (p.enrollments ? p.enrollments.length : 0);
+  let completionRate = 0;
+  if (p.enrollments && p.enrollments.length > 0) {
+    const completed = p.enrollments.filter(
+      (e) => e.status === 'COMPLETED' || Boolean(e.completedAt),
+    ).length;
+    completionRate = Math.round((completed / p.enrollments.length) * 100);
+  }
 
   return {
     id: p.id,
@@ -27,12 +64,12 @@ export function mapProgrammeToApi(p: ProgrammeWithRelations): Record<string, unk
     nqfLevel: nqf,
     credits,
     seta: setaLabel,
-    status: 'active',
+    status: p.status || 'draft',
     description: q?.title ?? p.title,
-    modules: [],
-    facilitatorIds: [],
-    learnerCount: p._count?.enrollments ?? 0,
-    completionRate: 72,
+    modules: mappedModules,
+    facilitatorIds,
+    learnerCount: totalEnrollments,
+    completionRate,
     createdAt: p.createdAt.toISOString().slice(0, 10),
     updatedAt: p.updatedAt.toISOString().slice(0, 10),
   };
