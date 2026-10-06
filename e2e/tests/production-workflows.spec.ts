@@ -375,6 +375,18 @@ test.describe('production workflow acceptance', () => {
         minAttendanceRatePercent: 0,
       },
     }));
+    await jsonOk(await api.post(`/enrollments/${invitedEnrollment.id}/transition`, {
+      headers: headers('qa'),
+      data: { action: 'START_TRAINING' },
+    }));
+    await jsonOk(await api.post(`/enrollments/${invitedEnrollment.id}/transition`, {
+      headers: headers('qa'),
+      data: { action: 'START_ASSESSMENT' },
+    }));
+    await jsonOk(await api.post(`/enrollments/${invitedEnrollment.id}/transition`, {
+      headers: headers('qa'),
+      data: { action: 'COMPLETE_ENROLLMENT' },
+    }));
     let credential = dataOf(await jsonOk(await api.post('/certificates/issue', {
       headers: headers('qa'), data: { enrollmentId: invitedEnrollment.id },
     })));
