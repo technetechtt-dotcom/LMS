@@ -65,7 +65,7 @@ export function mapProgrammeToApi(p: ProgrammeWithRelations): Record<string, unk
     credits,
     seta: setaLabel,
     status: p.status || 'draft',
-    description: q?.title ?? p.title,
+    description: p.description?.trim() || q?.title || p.title,
     modules: mappedModules,
     facilitatorIds,
     learnerCount: totalEnrollments,

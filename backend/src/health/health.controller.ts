@@ -26,6 +26,8 @@ export class HealthController {
 
   private revision() {
     return this.config.get<string>('APP_VERSION')?.trim()
+      || this.config.get<string>('EXPECTED_SHA')?.trim()
+      || this.config.get<string>('GITHUB_SHA')?.trim()
       || this.config.get<string>('GIT_SHA')?.trim()
       || this.config.get<string>('RENDER_GIT_COMMIT')?.trim()
       || (this.config.get<string>('NODE_ENV') === 'production' ? '' : 'development');

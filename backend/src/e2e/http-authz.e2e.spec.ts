@@ -56,4 +56,28 @@ describe('HTTP authorization matrix (guard-level E2E)', () => {
     ).toThrow(ForbiddenException);
     expect(runRolesGuard(['ADMIN', 'FACILITATOR'], ['FACILITATOR'])).toBe(true);
   });
+
+  it('programme creation is blocked for Facilitator, Assessor, Moderator and Learner', () => {
+    expect(() => runRolesGuard(['ADMIN'], ['FACILITATOR'])).toThrow(ForbiddenException);
+    expect(() => runRolesGuard(['ADMIN'], ['ASSESSOR'])).toThrow(ForbiddenException);
+    expect(() => runRolesGuard(['ADMIN'], ['MODERATOR'])).toThrow(ForbiddenException);
+    expect(() => runRolesGuard(['ADMIN'], ['LEARNER'])).toThrow(ForbiddenException);
+    expect(runRolesGuard(['ADMIN'], ['ADMIN'])).toBe(true);
+  });
+
+  it('attendance session opening is blocked for Learner, Assessor and Moderator', () => {
+    expect(() => runRolesGuard(['ADMIN', 'FACILITATOR'], ['LEARNER'])).toThrow(ForbiddenException);
+    expect(() => runRolesGuard(['ADMIN', 'FACILITATOR'], ['ASSESSOR'])).toThrow(ForbiddenException);
+    expect(() => runRolesGuard(['ADMIN', 'FACILITATOR'], ['MODERATOR'])).toThrow(ForbiddenException);
+    expect(runRolesGuard(['ADMIN', 'FACILITATOR'], ['FACILITATOR'])).toBe(true);
+    expect(runRolesGuard(['ADMIN', 'FACILITATOR'], ['ADMIN'])).toBe(true);
+  });
+
+  it('audit logs access is restricted to Admin, QA Officer, and SETA Official', () => {
+    expect(() => runRolesGuard(['ADMIN', 'QA_OFFICER', 'SETA'], ['FACILITATOR'])).toThrow(ForbiddenException);
+    expect(() => runRolesGuard(['ADMIN', 'QA_OFFICER', 'SETA'], ['LEARNER'])).toThrow(ForbiddenException);
+    expect(runRolesGuard(['ADMIN', 'QA_OFFICER', 'SETA'], ['ADMIN'])).toBe(true);
+    expect(runRolesGuard(['ADMIN', 'QA_OFFICER', 'SETA'], ['QA_OFFICER'])).toBe(true);
+    expect(runRolesGuard(['ADMIN', 'QA_OFFICER', 'SETA'], ['SETA'])).toBe(true);
+  });
 });

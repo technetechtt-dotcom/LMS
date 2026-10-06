@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -16,7 +17,7 @@ import type { AuthUser } from '../common/types/request-with-user';
 import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDto } from './attendance.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { requireOrganisationId } from '../common/tenant/tenant-scope';
+import { programmeActorWhere, requireOrganisationId } from '../common/tenant/tenant-scope';
 import { generateOpaqueRefreshToken, hashOpaqueToken } from '../common/crypto/token-crypto';
 
 @ApiTags('Attendance')
@@ -60,9 +61,10 @@ export class AttendanceController {
         id: body.programmeId,
         organisationId,
         deletedAt: null,
+        ...programmeActorWhere(req.user),
       },
     });
-    if (!programme) throw new BadRequestException('Programme not found');
+    if (!programme) throw new NotFoundException('Programme not found');
     const raw = generateOpaqueRefreshToken();
     const ttl = Math.min(Math.max(body.ttlMinutes ?? 30, 5), 180);
     const expectedCount = await this.prisma.enrollment.count({

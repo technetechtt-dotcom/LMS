@@ -1205,7 +1205,7 @@ export const programmeService = {
       level: number;
     }>;
   }>>> => {
-    const raw = await apiFetchJSON<any>('/qualifications');
+    const raw = await apiFetchJSON<unknown>('/qualifications');
     const list = unwrapData(raw);
     return {
       data: Array.isArray(list) ? list : [],
@@ -1257,8 +1257,8 @@ export const programmeService = {
       unitStandardId?: string;
       description?: string;
     },
-  ): Promise<ApiResponse<any>> => {
-    const raw = await apiFetchJSON<any>(
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
       `/programmes/${encodeURIComponent(programmeId)}/modules`,
       {
         method: 'POST',
@@ -1271,12 +1271,114 @@ export const programmeService = {
   updateStatus: async (
     programmeId: string,
     status: 'draft' | 'active' | 'archived',
-  ): Promise<ApiResponse<any>> => {
-    const raw = await apiFetchJSON<any>(
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
       `/programmes/${encodeURIComponent(programmeId)}/status`,
       {
         method: 'PATCH',
         body: JSON.stringify({ status }),
+      },
+    );
+    return { data: unwrapData(raw), success: true };
+  },
+
+  updateDetails: async (
+    programmeId: string,
+    payload: {
+      title?: string;
+      code?: string;
+      description?: string;
+      startDate?: string;
+      endDate?: string;
+    },
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
+      `/programmes/${encodeURIComponent(programmeId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      },
+    );
+    return { data: unwrapData(raw), success: true };
+  },
+
+  updateModule: async (
+    programmeId: string,
+    moduleId: string,
+    payload: {
+      title?: string;
+      code?: string;
+      moduleType?: 'KNOWLEDGE' | 'PRACTICAL' | 'WORKPLACE';
+      credits?: number;
+      description?: string;
+    },
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
+      `/programmes/${encodeURIComponent(programmeId)}/modules/${encodeURIComponent(moduleId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      },
+    );
+    return { data: unwrapData(raw), success: true };
+  },
+
+  deleteModule: async (
+    programmeId: string,
+    moduleId: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
+      `/programmes/${encodeURIComponent(programmeId)}/modules/${encodeURIComponent(moduleId)}`,
+      {
+        method: 'DELETE',
+      },
+    );
+    return { data: unwrapData(raw), success: true };
+  },
+
+  reorderModules: async (
+    programmeId: string,
+    moduleIds: string[],
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
+      `/programmes/${encodeURIComponent(programmeId)}/modules/reorder`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ moduleIds }),
+      },
+    );
+    return { data: unwrapData(raw), success: true };
+  },
+
+  assignFacilitator: async (
+    programmeId: string,
+    payload: {
+      facilitatorId: string;
+      moduleId?: string;
+      cohortId?: string;
+      learnerId?: string;
+      startDate?: string;
+      endDate?: string;
+    },
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
+      `/programmes/${encodeURIComponent(programmeId)}/facilitators`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    );
+    return { data: unwrapData(raw), success: true };
+  },
+
+  removeFacilitatorAssignment: async (
+    programmeId: string,
+    assignmentId: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
+      `/programmes/${encodeURIComponent(programmeId)}/facilitators/${encodeURIComponent(assignmentId)}`,
+      {
+        method: 'DELETE',
       },
     );
     return { data: unwrapData(raw), success: true };
@@ -1620,6 +1722,43 @@ export type ReportFilters = {
   asOf?: string;
 };
 
+export type ProgrammeComplianceRow = {
+  programmeId: string;
+  programmeTitle: string;
+  programmeCode: string;
+  providerName: string;
+  seta: string;
+  nqfLevel: number;
+  credits: number;
+  totalEnrolments: number;
+  activeEnrolments: number;
+  completedEnrolments: number;
+  programmeCompletionRate: number;
+  averageLearnerProgress: number;
+  regulatoryComplianceRate: number;
+  status: 'Compliant' | 'Review Required' | 'Non-Compliant';
+  metrics: {
+    verifiedDocumentsRate: number;
+    attendanceRate: number;
+    assessmentRate: number;
+    moderationRate: number;
+  };
+};
+
+export type SetaComplianceReport = {
+  calculationDate: string;
+  dataSource: string;
+  disclaimer: string;
+  summary: {
+    totalProgrammes: number;
+    totalEnrolments: number;
+    overallCompletionRate: number;
+    overallAverageProgress: number;
+    overallRegulatoryCompliance: number;
+  };
+  programmes: ProgrammeComplianceRow[];
+};
+
 export type GeneratedReportRow = {
   id: string;
   name: string;
@@ -1672,6 +1811,28 @@ export const reportsService = {
       if (value) query.set(key, value);
     });
     const file = await apiFetchBlob(`/reports/seta-snapshot?${query.toString()}`);
+    return { blob: file.blob, filename: file.filename };
+  },
+
+  getSetaCompliance: async (
+    filters: ReportFilters = {},
+  ): Promise<ApiResponse<SetaComplianceReport>> => {
+    const raw = await apiFetchJSON<ApiResponse<SetaComplianceReport> | SetaComplianceReport>(
+      `/reports/seta-compliance${buildQuery(filters)}`,
+    );
+    const data = unwrapData(raw);
+    return { data, success: true };
+  },
+
+  downloadSetaCompliance: async (
+    format: 'csv' | 'pdf',
+    filters: ReportFilters = {},
+  ): Promise<{ blob: Blob; filename: string }> => {
+    const query = new URLSearchParams({ format });
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) query.set(key, value);
+    });
+    const file = await apiFetchBlob(`/reports/seta-compliance?${query.toString()}`);
     return { blob: file.blob, filename: file.filename };
   },
 

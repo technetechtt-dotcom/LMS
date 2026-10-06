@@ -272,4 +272,23 @@ describe('tenant-scope', () => {
     expect(canModerateSubmission({ ...staff, roleCodes: ['QA_OFFICER'] })).toBe(true);
     expect(canModerateSubmission(learner)).toBe(false);
   });
+
+  it('scopes programmes correctly across all roles via programmeActorWhere', async () => {
+    const { programmeActorWhere } = await import('./tenant-scope');
+    expect(programmeActorWhere(admin)).toEqual({});
+    expect(programmeActorWhere({ ...staff, roleCodes: ['QA_OFFICER'] })).toEqual({});
+    expect(programmeActorWhere(learner)).toEqual({
+      AND: [{
+        OR: [{
+          enrollments: {
+            some: {
+              learnerId: learner.userId,
+              deletedAt: null,
+            },
+          },
+        }],
+      }],
+    });
+    expect(programmeActorWhere(undefined)).toEqual({ id: '__no_authenticated_actor__' });
+  });
 });

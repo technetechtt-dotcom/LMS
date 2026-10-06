@@ -5,7 +5,6 @@ import {
   Download,
   UserPlus,
   Search,
-  Bot,
   Eye,
   Edit,
   Mail,
@@ -39,7 +38,7 @@ export type LearnerTableRow = {
   progress: number;
   status: string;
   lastActive: string;
-  aiRisk: string;
+  academicRisk: string;
   programCount: number;
 };
 
@@ -56,7 +55,7 @@ function displayStatus(s: Learner['status']): string {
   }
 }
 
-function aiRiskFromLearner(s: Learner['status']): string {
+function academicRiskFromLearner(s: Learner['status']): string {
   if (s === 'completed') return 'N/A';
   if (s === 'at_risk') return 'High';
   return 'Low';
@@ -146,7 +145,7 @@ export function LearnersPage() {
       progress: l.progress,
       status: displayStatus(l.status),
       lastActive: l.lastActivity,
-      aiRisk: aiRiskFromLearner(l.status),
+      academicRisk: academicRiskFromLearner(l.status),
       programCount: enrollmentCountByUser.get(l.userId) ?? 1,
     }));
   }, [apiLearners, enrollmentCountByUser]);
@@ -254,25 +253,24 @@ export function LearnersPage() {
 
   },
   {
-    header: 'AI RISK',
-    accessorKey: 'aiRisk' as const,
+    header: 'ACADEMIC RISK',
+    accessorKey: 'academicRisk' as const,
     cell: (row: LearnerTableRow) => {
-      if (row.aiRisk === 'N/A')
-      return <span className="text-xs text-gray-400">N/A</span>;
+      if (row.academicRisk === 'N/A')
+        return <span className="text-xs text-gray-400">N/A</span>;
       return (
         <Badge
-          variant={row.aiRisk === 'Low' ? 'success' : 'danger'}
+          variant={row.academicRisk === 'Low' ? 'success' : 'danger'}
           className="flex items-center w-fit">
-          
-            {row.aiRisk === 'High' ?
-          <AlertTriangle className="h-3 w-3 mr-1" /> :
-
-          <CheckCircle className="h-3 w-3 mr-1" />
-          }
-            {row.aiRisk}
-          </Badge>);
-
-    }
+          {row.academicRisk === 'High' ? (
+            <AlertTriangle className="h-3 w-3 mr-1" />
+          ) : (
+            <CheckCircle className="h-3 w-3 mr-1" />
+          )}
+          {row.academicRisk}
+        </Badge>
+      );
+    },
   },
   {
     header: 'ACTIONS',
@@ -506,28 +504,26 @@ export function LearnersPage() {
         </Button>
       </div>
 
-      {/* AI Risk Assessment Banner */}
-      <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex items-center justify-between">
+      {/* Academic Risk Indicators Banner */}
+      <div className="bg-amber-50/70 border border-amber-200 rounded-lg p-4 flex items-center justify-between">
         <div className="flex items-center">
-          <div className="h-10 w-10 rounded-full bg-brand-navy flex items-center justify-center mr-4">
-            <Bot className="h-6 w-6 text-white" />
+          <div className="h-10 w-10 rounded-full bg-amber-600 flex items-center justify-center mr-4">
+            <AlertTriangle className="h-6 w-6 text-white" />
           </div>
           <div>
             <div className="flex items-center">
               <h4 className="text-sm font-bold text-gray-900 mr-2">
-                AI Risk Assessment
+                Academic & Attendance Progress Risk
               </h4>
               <Badge
-                variant="info"
-                className="bg-brand-navy text-white text-[10px] py-0 px-1">
-                
-                AI
+                variant="warning"
+                className="text-[10px] py-0 px-1 font-normal">
+                Verified Indicators
               </Badge>
             </div>
             <p className="text-sm text-gray-600 mt-1">
               {atRiskCount} enrolment{atRiskCount === 1 ? '' : 's'} flagged at
-              risk (from progress and activity in the system). Connect an
-              analytics service for predictive scores.
+              risk based on verified attendance records, module completion thresholds, and submission pacing.
             </p>
           </div>
         </div>
@@ -535,11 +531,10 @@ export function LearnersPage() {
           className="text-sm font-medium text-brand-blue hover:text-blue-700 flex items-center"
           onClick={() => {
             setSelectedLearner(
-              learners.find((l) => l.aiRisk === 'High') || learners[0]
+              learners.find((l) => l.academicRisk === 'High') || learners[0]
             );
             setShowRiskModal(true);
           }}>
-          
           View Details &gt;
         </button>
       </div>
@@ -678,44 +673,69 @@ export function LearnersPage() {
       <Modal
         isOpen={showRiskModal}
         onClose={() => setShowRiskModal(false)}
-        title={`AI Risk Analysis: ${selectedLearner?.name}`}>
-        
+        title={`Academic Risk Indicators: ${selectedLearner?.name}`}>
         <div className="space-y-4">
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <div
+            className={`p-4 border rounded-lg ${
+              selectedLearner?.status === 'At Risk'
+                ? 'bg-amber-50 border-amber-200'
+                : 'bg-emerald-50 border-emerald-200'
+            }`}>
             <div className="flex items-center mb-2">
-              <AlertTriangle className="w-5 h-5 text-amber-600 mr-2" />
-              <h4 className="font-medium text-amber-900">
-                Risk Level:{' '}
-                {selectedLearner?.status === 'At Risk' ? 'High' : 'Low'}
+              {selectedLearner?.status === 'At Risk' ? (
+                <AlertTriangle className="w-5 h-5 text-amber-600 mr-2" />
+              ) : (
+                <CheckCircle className="w-5 h-5 text-emerald-600 mr-2" />
+              )}
+              <h4
+                className={`font-medium ${
+                  selectedLearner?.status === 'At Risk'
+                    ? 'text-amber-900'
+                    : 'text-emerald-900'
+                }`}>
+                Risk Level: {selectedLearner?.academicRisk} (Status: {selectedLearner?.status})
               </h4>
             </div>
-            <p className="text-sm text-amber-800">
-              Based on recent activity, this learner has a{' '}
-              {selectedLearner?.status === 'At Risk' ? '78%' : '12%'}{' '}
-              probability of falling behind in the next 30 days.
+            <p
+              className={`text-sm ${
+                selectedLearner?.status === 'At Risk'
+                  ? 'text-amber-800'
+                  : 'text-emerald-800'
+              }`}>
+              {selectedLearner?.status === 'At Risk'
+                ? `Learner progress (${selectedLearner?.progress}%) is below the cohort pacing standard. Immediate check-in and attendance verification recommended.`
+                : `Learner is actively progressing on schedule (${selectedLearner?.progress}% completed) across enrolled modules.`}
             </p>
           </div>
+
           <div>
-            <h4 className="font-medium text-slate-900 mb-2">Key Factors</h4>
+            <h4 className="font-medium text-slate-900 mb-2">Verified Factual Factors</h4>
             <ul className="space-y-2 text-sm text-slate-600">
-              <li className="flex items-center">
-                <span className="w-2 h-2 bg-red-400 rounded-full mr-2"></span>
-                Missed 2 recent assignments
+              <li className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-200">
+                <span>Enrolled Programme:</span>
+                <span className="font-semibold text-slate-900">{selectedLearner?.program}</span>
               </li>
-              <li className="flex items-center">
-                <span className="w-2 h-2 bg-amber-400 rounded-full mr-2"></span>
-                Login frequency decreased by 40% this week
+              <li className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-200">
+                <span>Academic Module Progress:</span>
+                <span className="font-semibold text-slate-900">{selectedLearner?.progress}% Completed</span>
               </li>
-              <li className="flex items-center">
-                <span className="w-2 h-2 bg-green-400 rounded-full mr-2"></span>
-                High scores on previous module quizzes
+              <li className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-200">
+                <span>Last Recorded Activity:</span>
+                <span className="font-semibold text-slate-900">{selectedLearner?.lastActive || 'Lapsed / No recorded activity'}</span>
+              </li>
+              <li className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-200">
+                <span>Enrolment Scope:</span>
+                <span className="font-semibold text-slate-900">
+                  {selectedLearner && selectedLearner.programCount > 1
+                    ? `Multi-programme enrolment (${selectedLearner.programCount} active programmes)`
+                    : 'Single programme enrolment'}
+                </span>
               </li>
             </ul>
           </div>
+
           <div>
-            <h4 className="font-medium text-slate-900 mb-2">
-              Recommended Actions
-            </h4>
+            <h4 className="font-medium text-slate-900 mb-2">Recommended Actions</h4>
             <div className="space-y-2">
               <Button
                 variant="outline"
@@ -724,7 +744,6 @@ export function LearnersPage() {
                   setShowRiskModal(false);
                   setShowMessageModal(true);
                 }}>
-                
                 <MessageSquare className="w-4 h-4 mr-2" />
                 Send Check-in Message
               </Button>
@@ -736,10 +755,21 @@ export function LearnersPage() {
                   navigate('/materials');
                   toast.info('Browse remedial materials in the library');
                 }}>
-                
                 <BookOpen className="w-4 h-4 mr-2" />
                 Browse Remedial Materials
               </Button>
+              {selectedLearner && (
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={() => {
+                    setShowRiskModal(false);
+                    navigate(`/learner/${selectedLearner.id}`);
+                  }}>
+                  <Eye className="w-4 h-4 mr-2" />
+                  View Full Academic & Attendance Profile
+                </Button>
+              )}
             </div>
           </div>
           <div className="flex justify-end pt-4">

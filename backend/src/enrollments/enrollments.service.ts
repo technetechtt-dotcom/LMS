@@ -8,7 +8,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateEnrollmentDto, TransitionEnrollmentDto } from './enrollments.dto';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
+  assertEnrollmentAccess,
+  enrollmentActorWhere,
   enrollmentOrgWhere,
+  isFacilitatorOnly,
   isLearnerOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
@@ -24,19 +27,19 @@ export class EnrollmentsService {
 
   async list(user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
-    if (isLearnerOnly(user)) {
-      return this.prisma.enrollment.findMany({
-        where: {
-          deletedAt: null,
-          learnerId: user!.userId,
-          ...enrollmentOrgWhere(organisationId),
-        },
-        include: { learner: true, programme: true, employerOrganisation: true },
-      });
-    }
     return this.prisma.enrollment.findMany({
-      where: { deletedAt: null, ...enrollmentOrgWhere(organisationId) },
-      include: { learner: true, programme: true, employerOrganisation: true },
+      where: {
+        deletedAt: null,
+        ...enrollmentOrgWhere(organisationId),
+        ...enrollmentActorWhere(user),
+      },
+      include: {
+        learner: true,
+        programme: true,
+        employerOrganisation: true,
+        cohort: true,
+      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
@@ -44,16 +47,32 @@ export class EnrollmentsService {
     const organisationId = requireOrganisationId(user);
     const programme = await this.prisma.programme.findFirst({
       where: { id: dto.programmeId, deletedAt: null, organisationId },
-      select: { id: true },
+      include: {
+        facilitatorAssignments: {
+          where: { deletedAt: null, isActive: true },
+        },
+      },
     });
     if (!programme) {
-      throw new BadRequestException('Programme not found in your organisation');
+      throw new NotFoundException('Programme not found in your organisation');
     }
+
+    if (isFacilitatorOnly(user)) {
+      const assigned = programme.facilitatorAssignments.some(
+        (fa) => fa.facilitatorId === user?.userId && fa.isActive,
+      );
+      if (!assigned) {
+        throw new ForbiddenException(
+          'Facilitators cannot create enrolments outside their assigned programmes',
+        );
+      }
+    }
+
     const learner = await this.prisma.user.findFirst({
       where: { id: dto.learnerId, deletedAt: null },
       select: { id: true },
     });
-    if (!learner) throw new BadRequestException('Learner user not found');
+    if (!learner) throw new NotFoundException('Learner user not found');
 
     if (dto.employerOrganisationId) {
       const employer = await this.prisma.organisation.findFirst({
@@ -67,6 +86,7 @@ export class EnrollmentsService {
       data: {
         learnerId: dto.learnerId,
         programmeId: dto.programmeId,
+        cohortId: dto.cohortId,
         sdioOrganisationId: organisationId,
         employerOrganisationId: dto.employerOrganisationId,
         status: 'ENROLLED',
@@ -97,9 +117,24 @@ export class EnrollmentsService {
     }
     const organisationId = requireOrganisationId(user);
     const enrollment = await this.prisma.enrollment.findFirst({
-      where: { id, deletedAt: null, ...enrollmentOrgWhere(organisationId) },
+      where: {
+        id,
+        deletedAt: null,
+        ...enrollmentOrgWhere(organisationId),
+        ...enrollmentActorWhere(user),
+      },
+      include: {
+        programme: {
+          include: {
+            facilitatorAssignments: {
+              where: { deletedAt: null, isActive: true },
+            },
+          },
+        },
+      },
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
+    assertEnrollmentAccess(user, enrollment, 'Enrollment');
 
     const toState = resolveEnrollmentTransition(
       enrollment.status,
@@ -163,15 +198,20 @@ export class EnrollmentsService {
         id,
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
+        ...enrollmentActorWhere(user),
       },
-      select: { id: true, learnerId: true },
+      include: {
+        programme: {
+          include: {
+            facilitatorAssignments: {
+              where: { deletedAt: null, isActive: true },
+            },
+          },
+        },
+      },
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
-    if (isLearnerOnly(user)) {
-      if (enrollment.learnerId !== user!.userId) {
-        throw new NotFoundException('Enrollment not found');
-      }
-    }
+    assertEnrollmentAccess(user, enrollment, 'Enrollment');
     return this.completion.evaluate(id, organisationId);
   }
 }

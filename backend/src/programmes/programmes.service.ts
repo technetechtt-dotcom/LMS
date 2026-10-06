@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ProgrammeStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateProgrammeDto,
@@ -11,12 +11,13 @@ import {
   FacilitatorAssignmentDto,
   ProgrammeCompletionRequirementsDto,
   ReorderModulesDto,
+  UpdateProgrammeDetailsDto,
   UpdateProgrammeModuleDto,
   UpdateProgrammeStatusDto,
 } from './programmes.dto';
 import { mapProgrammeToApi, type ProgrammeWithRelations } from './programme.mapper';
 import type { AuthUser } from '../common/types/request-with-user';
-import { requireOrganisationId } from '../common/tenant/tenant-scope';
+import { programmeActorWhere, requireOrganisationId } from '../common/tenant/tenant-scope';
 
 @Injectable()
 export class ProgrammesService {
@@ -37,7 +38,11 @@ export class ProgrammesService {
   async list(user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const rows = await this.prisma.programme.findMany({
-      where: { deletedAt: null, organisationId },
+      where: {
+        deletedAt: null,
+        organisationId,
+        ...programmeActorWhere(user),
+      },
       include: {
         qualification: true,
         organisation: true,
@@ -47,6 +52,14 @@ export class ProgrammesService {
         },
         facilitatorAssignments: {
           where: { deletedAt: null, isActive: true },
+          include: {
+            facilitator: {
+              select: { id: true, firstName: true, lastName: true, email: true },
+            },
+            module: { select: { id: true, code: true, title: true } },
+            cohort: { select: { id: true, name: true } },
+            learner: { select: { id: true, firstName: true, lastName: true, email: true } },
+          },
         },
         enrollments: {
           where: { deletedAt: null },
@@ -54,6 +67,7 @@ export class ProgrammesService {
         },
         _count: { select: { enrollments: true } },
       },
+      orderBy: { createdAt: 'desc' },
     });
     return rows.map((p) => mapProgrammeToApi(p as ProgrammeWithRelations));
   }
@@ -61,7 +75,12 @@ export class ProgrammesService {
   async byId(id: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const row = await this.prisma.programme.findFirst({
-      where: { id, deletedAt: null, organisationId },
+      where: {
+        id,
+        deletedAt: null,
+        organisationId,
+        ...programmeActorWhere(user),
+      },
       include: {
         qualification: true,
         organisation: true,
@@ -71,6 +90,14 @@ export class ProgrammesService {
         },
         facilitatorAssignments: {
           where: { deletedAt: null, isActive: true },
+          include: {
+            facilitator: {
+              select: { id: true, firstName: true, lastName: true, email: true },
+            },
+            module: { select: { id: true, code: true, title: true } },
+            cohort: { select: { id: true, name: true } },
+            learner: { select: { id: true, firstName: true, lastName: true, email: true } },
+          },
         },
         enrollments: {
           where: { deletedAt: null },
@@ -86,30 +113,131 @@ export class ProgrammesService {
   async create(dto: CreateProgrammeDto, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
 
+    const trimmedCode = dto.code.trim().toUpperCase();
+    const existing = await this.prisma.programme.findFirst({
+      where: {
+        organisationId,
+        code: trimmedCode,
+        deletedAt: null,
+      },
+    });
+    if (existing) {
+      throw new BadRequestException({
+        field: 'code',
+        message: `Programme code '${trimmedCode}' is already in use within this organisation.`,
+      });
+    }
+
     const qualification = await this.prisma.qualification.findFirst({
       where: { id: dto.qualificationId, deletedAt: null },
     });
     if (!qualification) {
-      throw new NotFoundException('Selected qualification not found');
+      throw new NotFoundException({
+        field: 'qualificationId',
+        message: 'Selected qualification not found',
+      });
     }
 
-    const created = await this.prisma.programme.create({
+    const created = await this.prisma.$transaction(async (tx) => {
+      const prog = await tx.programme.create({
+        data: {
+          qualificationId: dto.qualificationId,
+          code: trimmedCode,
+          title: dto.title.trim(),
+          description: dto.description?.trim(),
+          status: dto.status || ProgrammeStatus.draft,
+          programmeKind: dto.programmeKind,
+          organisationId,
+          startDate: dto.startDate ? new Date(dto.startDate) : undefined,
+          endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+        },
+      });
+
+      if (dto.modules && dto.modules.length > 0) {
+        let order = 1;
+        for (const mod of dto.modules) {
+          if (!mod.code?.trim() || !mod.title?.trim() || !mod.credits || mod.credits < 1) {
+            throw new BadRequestException({
+              field: 'modules',
+              message: `Module "${mod.title || 'untitled'}" is missing required code, title, or valid credits.`,
+            });
+          }
+          await tx.programmeModule.create({
+            data: {
+              programmeId: prog.id,
+              code: mod.code.trim().toUpperCase(),
+              title: mod.title.trim(),
+              moduleType: mod.moduleType,
+              credits: mod.credits,
+              order: mod.order ?? order++,
+              unitStandardId: mod.unitStandardId,
+              description: mod.description?.trim(),
+            },
+          });
+        }
+      }
+
+      return tx.programme.findUnique({
+        where: { id: prog.id },
+        include: {
+          qualification: true,
+          organisation: true,
+          modules: { where: { deletedAt: null }, orderBy: { order: 'asc' } },
+          facilitatorAssignments: { where: { deletedAt: null, isActive: true } },
+          enrollments: { where: { deletedAt: null }, select: { status: true, completedAt: true } },
+          _count: { select: { enrollments: true } },
+        },
+      });
+    });
+
+    return mapProgrammeToApi(created as ProgrammeWithRelations);
+  }
+
+  async updateDetails(id: string, dto: UpdateProgrammeDetailsDto, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const existing = await this.prisma.programme.findFirst({
+      where: { id, organisationId, deletedAt: null },
+    });
+    if (!existing) throw new NotFoundException('Programme not found');
+
+    if (dto.code && dto.code.trim().toUpperCase() !== existing.code) {
+      const codeDuplicate = await this.prisma.programme.findFirst({
+        where: {
+          organisationId,
+          code: dto.code.trim().toUpperCase(),
+          deletedAt: null,
+          id: { not: id },
+        },
+      });
+      if (codeDuplicate) {
+        throw new BadRequestException({
+          field: 'code',
+          message: `Programme code '${dto.code.trim().toUpperCase()}' is already in use.`,
+        });
+      }
+    }
+
+    const updated = await this.prisma.programme.update({
+      where: { id },
       data: {
-        qualificationId: dto.qualificationId,
-        code: dto.code,
-        title: dto.title,
-        status: dto.status || 'draft',
-        programmeKind: dto.programmeKind,
-        organisationId,
-        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
-        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+        title: dto.title !== undefined ? dto.title.trim() : undefined,
+        code: dto.code !== undefined ? dto.code.trim().toUpperCase() : undefined,
+        description: dto.description !== undefined ? dto.description.trim() : undefined,
+        startDate: dto.startDate !== undefined ? (dto.startDate ? new Date(dto.startDate) : null) : undefined,
+        endDate: dto.endDate !== undefined ? (dto.endDate ? new Date(dto.endDate) : null) : undefined,
+        programmeKind: dto.programmeKind !== undefined ? dto.programmeKind : undefined,
       },
       include: {
         qualification: true,
         organisation: true,
+        modules: { where: { deletedAt: null }, orderBy: { order: 'asc' } },
+        facilitatorAssignments: { where: { deletedAt: null, isActive: true } },
+        enrollments: { where: { deletedAt: null }, select: { status: true, completedAt: true } },
+        _count: { select: { enrollments: true } },
       },
     });
-    return mapProgrammeToApi(created as ProgrammeWithRelations);
+
+    return mapProgrammeToApi(updated as ProgrammeWithRelations);
   }
 
   async addModule(
@@ -208,6 +336,32 @@ export class ProgrammesService {
     });
     if (!programme) throw new NotFoundException('Programme not found');
 
+    const uniqueIds = new Set(dto.moduleIds);
+    if (uniqueIds.size !== dto.moduleIds.length) {
+      throw new BadRequestException('Duplicate module IDs provided in reorder list');
+    }
+
+    const existingModules = await this.prisma.programmeModule.findMany({
+      where: {
+        programmeId,
+        deletedAt: null,
+        programme: { organisationId },
+      },
+      select: { id: true },
+    });
+
+    const existingIdSet = new Set(existingModules.map((m) => m.id));
+    if (dto.moduleIds.length !== existingModules.length) {
+      throw new BadRequestException(
+        `Reorder list must contain exactly all ${existingModules.length} programme modules without omissions or additions.`,
+      );
+    }
+    for (const id of dto.moduleIds) {
+      if (!existingIdSet.has(id)) {
+        throw new BadRequestException(`Module ID ${id} does not belong to this programme and organisation.`);
+      }
+    }
+
     await this.prisma.$transaction(
       dto.moduleIds.map((id, index) =>
         this.prisma.programmeModule.update({
@@ -235,7 +389,14 @@ export class ProgrammesService {
     });
     if (!programme) throw new NotFoundException('Programme not found');
 
-    if (dto.status === 'active') {
+    const currentStatus = programme.status as ProgrammeStatus;
+    const targetStatus = dto.status;
+
+    if (currentStatus === ProgrammeStatus.archived && targetStatus === ProgrammeStatus.draft) {
+      throw new BadRequestException('Archived programmes cannot be transitioned back to draft.');
+    }
+
+    if (targetStatus === ProgrammeStatus.active) {
       const types = new Set(programme.modules.map((m) => m.moduleType));
       if (!types.has('KNOWLEDGE') || !types.has('PRACTICAL') || !types.has('WORKPLACE')) {
         throw new BadRequestException(
@@ -246,7 +407,7 @@ export class ProgrammesService {
 
     return this.prisma.programme.update({
       where: { id: programmeId },
-      data: { status: dto.status },
+      data: { status: targetStatus },
     });
   }
 
@@ -298,7 +459,94 @@ export class ProgrammesService {
 
   async assignFacilitator(dto: FacilitatorAssignmentDto, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
-    return this.prisma.facilitatorAssignment.create({
+
+    const programme = await this.prisma.programme.findFirst({
+      where: { id: dto.programmeId, organisationId, deletedAt: null },
+    });
+    if (!programme) {
+      throw new NotFoundException('Programme not found in active organisation');
+    }
+
+    const membership = await this.prisma.userOrganisation.findFirst({
+      where: {
+        userId: dto.facilitatorId,
+        organisationId,
+        role: { code: 'FACILITATOR' },
+        deletedAt: null,
+      },
+      include: { user: true },
+    });
+    if (!membership || !membership.user || membership.user.deletedAt) {
+      throw new BadRequestException('Selected user is not an active Facilitator in this organisation');
+    }
+
+    if (dto.moduleId) {
+      const mod = await this.prisma.programmeModule.findFirst({
+        where: { id: dto.moduleId, programmeId: dto.programmeId, deletedAt: null },
+      });
+      if (!mod) {
+        throw new BadRequestException('Selected module does not belong to this programme');
+      }
+    }
+
+    if (dto.cohortId) {
+      const cohort = await this.prisma.cohort.findFirst({
+        where: { id: dto.cohortId, programmeId: dto.programmeId, organisationId, deletedAt: null },
+      });
+      if (!cohort) {
+        throw new BadRequestException('Selected cohort does not belong to this programme');
+      }
+    }
+
+    if (dto.learnerId) {
+      const enrollment = await this.prisma.enrollment.findFirst({
+        where: {
+          learnerId: dto.learnerId,
+          programmeId: dto.programmeId,
+          deletedAt: null,
+          OR: [
+            { sdioOrganisationId: organisationId },
+            { employerOrganisationId: organisationId },
+            { programme: { organisationId } },
+          ],
+        },
+      });
+      if (!enrollment) {
+        throw new BadRequestException('Selected learner is not enrolled in this programme');
+      }
+    }
+
+    let startDate: Date | undefined;
+    let endDate: Date | undefined;
+    if (dto.startDate) {
+      startDate = new Date(dto.startDate);
+      if (Number.isNaN(startDate.getTime())) throw new BadRequestException('Invalid startDate');
+    }
+    if (dto.endDate) {
+      endDate = new Date(dto.endDate);
+      if (Number.isNaN(endDate.getTime())) throw new BadRequestException('Invalid endDate');
+    }
+    if (startDate && endDate && startDate > endDate) {
+      throw new BadRequestException('Assignment startDate cannot be after endDate');
+    }
+
+    const duplicate = await this.prisma.facilitatorAssignment.findFirst({
+      where: {
+        organisationId,
+        programmeId: dto.programmeId,
+        facilitatorId: dto.facilitatorId,
+        moduleId: dto.moduleId ?? null,
+        cohortId: dto.cohortId ?? null,
+        learnerId: dto.learnerId ?? null,
+        isActive: true,
+        deletedAt: null,
+      },
+    });
+    if (duplicate) {
+      throw new BadRequestException('An active facilitator assignment with the exact same scope already exists');
+    }
+
+    const assignment = await this.prisma.facilitatorAssignment.create({
       data: {
         organisationId,
         facilitatorId: dto.facilitatorId,
@@ -306,11 +554,36 @@ export class ProgrammesService {
         cohortId: dto.cohortId,
         moduleId: dto.moduleId,
         learnerId: dto.learnerId,
-        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
-        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+        startDate,
+        endDate,
         isActive: dto.isActive ?? true,
       },
+      include: {
+        facilitator: { select: { id: true, firstName: true, lastName: true, email: true } },
+        module: { select: { id: true, code: true, title: true } },
+        cohort: { select: { id: true, name: true } },
+        learner: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
     });
+
+    await this.prisma.auditLog.create({
+      data: {
+        organisationId,
+        actorId: user?.userId,
+        action: 'FACILITATOR_ASSIGNMENT_CREATED',
+        entityType: 'FacilitatorAssignment',
+        entityId: assignment.id,
+        afterValue: {
+          programmeId: dto.programmeId,
+          facilitatorId: dto.facilitatorId,
+          moduleId: dto.moduleId,
+          cohortId: dto.cohortId,
+          learnerId: dto.learnerId,
+        },
+      },
+    });
+
+    return assignment;
   }
 
   async listFacilitatorAssignments(programmeId: string, user?: AuthUser) {
@@ -325,6 +598,9 @@ export class ProgrammesService {
         facilitator: {
           select: { id: true, firstName: true, lastName: true, email: true },
         },
+        module: { select: { id: true, code: true, title: true } },
+        cohort: { select: { id: true, name: true } },
+        learner: { select: { id: true, firstName: true, lastName: true, email: true } },
       },
     });
   }
@@ -336,9 +612,25 @@ export class ProgrammesService {
     });
     if (!existing) throw new NotFoundException('Assignment not found');
 
-    return this.prisma.facilitatorAssignment.update({
+    const updated = await this.prisma.facilitatorAssignment.update({
       where: { id: assignmentId },
       data: { deletedAt: new Date(), isActive: false },
     });
+
+    await this.prisma.auditLog.create({
+      data: {
+        organisationId,
+        actorId: user?.userId,
+        action: 'FACILITATOR_ASSIGNMENT_REMOVED',
+        entityType: 'FacilitatorAssignment',
+        entityId: assignmentId,
+        beforeValue: {
+          programmeId: existing.programmeId,
+          facilitatorId: existing.facilitatorId,
+        },
+      },
+    });
+
+    return updated;
   }
 }

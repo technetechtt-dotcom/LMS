@@ -52,6 +52,7 @@ const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(({
 const ProgrammeDetailPage = lazy(() => import('./pages/ProgrammeDetailPage').then(({ ProgrammeDetailPage }) => ({ default: ProgrammeDetailPage })));
 const CourseDetailPage = lazy(() => import('./pages/CourseDetailPage').then(({ CourseDetailPage }) => ({ default: CourseDetailPage })));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(({ NotFoundPage }) => ({ default: NotFoundPage })));
+const AccessDeniedPage = lazy(() => import('./pages/AccessDeniedPage').then(({ AccessDeniedPage }) => ({ default: AccessDeniedPage })));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage').then(({ NotificationsPage }) => ({ default: NotificationsPage })));
 const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage').then(({ PrivacyPolicyPage }) => ({ default: PrivacyPolicyPage })));
 const TermsPage = lazy(() => import('./pages/TermsPage').then(({ TermsPage }) => ({ default: TermsPage })));
@@ -410,6 +411,7 @@ function App() {
                 </RoleGate>
               }
             />
+            <Route path="access-denied" element={<AccessDeniedPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="messages" element={<MessagingPage />} />
             <Route

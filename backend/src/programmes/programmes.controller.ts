@@ -19,6 +19,7 @@ import {
   FacilitatorAssignmentDto,
   ProgrammeCompletionRequirementsDto,
   ReorderModulesDto,
+  UpdateProgrammeDetailsDto,
   UpdateProgrammeModuleDto,
   UpdateProgrammeStatusDto,
 } from './programmes.dto';
@@ -46,6 +47,17 @@ export class ProgrammesController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.programmes.byId(id, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Patch('programmes/:id')
+  updateDetails(
+    @Param('id') id: string,
+    @Body() dto: UpdateProgrammeDetailsDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.updateDetails(id, dto, req.user);
   }
 
   @Roles('ADMIN', 'QA_OFFICER', 'FACILITATOR')

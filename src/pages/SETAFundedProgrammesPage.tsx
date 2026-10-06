@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Building, Users, Download, BarChart3 } from 'lucide-react';
+import { Search, Building, Users, Download, BarChart3, FileText, Calendar, Database, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -7,176 +7,266 @@ import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
 import { ProgressBar } from '../components/ui/ProgressBar';
-import { learnerService, programmeService, reportsService } from '../services/api';
+import {
+  learnerService,
+  programmeService,
+  reportsService,
+  type SetaComplianceReport,
+  type ProgrammeComplianceRow,
+} from '../services/api';
 import type { Learner, Programme } from '../types';
-import { downloadJson } from '../utils/downloadJson';
-
-type ProviderRow = {
-  id: string;
-  name: string;
-  programme: string;
-  learners: number;
-  activeLearners: number;
-  compliance: number;
-  status: string;
-};
 
 export function SETAFundedProgrammesPage() {
+  const [report, setReport] = useState<SetaComplianceReport | null>(null);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [learners, setLearners] = useState<Learner[]>([]);
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [compRes, pRes, lRes] = await Promise.all([
+        reportsService.getSetaCompliance(),
+        programmeService.getAll(),
+        learnerService.getAll(),
+      ]);
+      if (compRes.success && compRes.data) {
+        setReport(compRes.data);
+      }
+      setProgrammes(pRes.data ?? []);
+      setLearners(lRes.data ?? []);
+    } catch {
+      toast.error('Could not load SETA programme & compliance oversight data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [pRes, lRes, snapRes] = await Promise.all([
-          programmeService.getAll(),
-          learnerService.getAll(),
-          reportsService.getSetaSnapshot(),
-        ]);
-        if (cancelled) return;
-        setProgrammes(pRes.data ?? []);
-        setLearners(lRes.data ?? []);
-        void snapRes;
-      } catch {
-        if (!cancelled) toast.error('Could not load SETA programme data');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    loadData();
   }, []);
 
-  const providers: ProviderRow[] = useMemo(() => {
-    return programmes.map((p) => {
-      const cohort = learners.filter((l) => l.programmeId === p.id);
-      const active = cohort.filter((l) => l.status === 'active').length;
-      const avgProgress =
-        cohort.length > 0
-          ? Math.round(
-              cohort.reduce((s, l) => s + l.progress, 0) / cohort.length,
-            )
-          : 0;
-      return {
-        id: p.id,
-        name: p.seta ?? 'Training provider',
-        programme: p.title,
-        learners: cohort.length,
-        activeLearners: active,
-        compliance: avgProgress,
-        status: avgProgress >= 75 ? 'On Track' : 'At Risk',
-      };
-    });
-  }, [programmes, learners]);
+  const complianceRows: ProgrammeComplianceRow[] = useMemo(() => {
+    if (!report?.programmes) return [];
+    return report.programmes;
+  }, [report]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return providers;
-    return providers.filter(
+    if (!q) return complianceRows;
+    return complianceRows.filter(
       (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.programme.toLowerCase().includes(q),
+        p.providerName.toLowerCase().includes(q) ||
+        p.programmeTitle.toLowerCase().includes(q) ||
+        p.programmeCode.toLowerCase().includes(q) ||
+        p.seta.toLowerCase().includes(q),
     );
-  }, [providers, search]);
+  }, [complianceRows, search]);
 
-  const selected = providers.find((p) => p.id === selectedId) ?? null;
+  const selected = complianceRows.find((p) => p.programmeId === selectedId) ?? null;
   const cohortLearners = selected
-    ? learners.filter((l) => l.programmeId === selected.id)
+    ? learners.filter((l) => l.programmeId === selected.programmeId)
     : [];
 
   const columns = [
-    { header: 'Provider', accessorKey: 'name' as const },
-    { header: 'Programme', accessorKey: 'programme' as const },
-    { header: 'Learners', accessorKey: 'learners' as const },
     {
-      header: 'Compliance',
-      accessorKey: 'compliance' as const,
-      cell: (row: ProviderRow) => (
-        <div className="w-32">
-          <ProgressBar value={row.compliance} size="sm" />
+      header: 'Training Provider',
+      accessorKey: 'providerName' as const,
+      cell: (row: ProgrammeComplianceRow) => (
+        <div>
+          <span className="font-medium text-gray-900">{row.providerName}</span>
+          <p className="text-xs text-gray-500">{row.seta}</p>
         </div>
       ),
     },
     {
-      header: 'Status',
-      accessorKey: 'status' as const,
-      cell: (row: ProviderRow) => (
-        <Badge variant={row.status === 'On Track' ? 'success' : 'warning'}>
-          {row.status}
-        </Badge>
+      header: 'Programme',
+      accessorKey: 'programmeTitle' as const,
+      cell: (row: ProgrammeComplianceRow) => (
+        <div>
+          <span className="font-medium text-gray-900">{row.programmeTitle}</span>
+          <p className="text-xs text-gray-500">
+            {row.programmeCode} • NQF {row.nqfLevel} ({row.credits} cr)
+          </p>
+        </div>
+      ),
+    },
+    {
+      header: 'Enrolments',
+      accessorKey: 'totalEnrolments' as const,
+      cell: (row: ProgrammeComplianceRow) => (
+        <span className="text-sm">
+          {row.totalEnrolments}{' '}
+          <span className="text-xs text-gray-500">({row.activeEnrolments} active)</span>
+        </span>
+      ),
+    },
+    {
+      header: 'Learner Progress',
+      accessorKey: 'averageLearnerProgress' as const,
+      cell: (row: ProgrammeComplianceRow) => (
+        <div className="w-28 space-y-1">
+          <ProgressBar value={row.averageLearnerProgress} size="sm" />
+          <p className="text-[11px] text-gray-500 text-right">{row.averageLearnerProgress}% avg</p>
+        </div>
+      ),
+    },
+    {
+      header: 'Completion Rate',
+      accessorKey: 'programmeCompletionRate' as const,
+      cell: (row: ProgrammeComplianceRow) => (
+        <div className="w-28 space-y-1">
+          <ProgressBar value={row.programmeCompletionRate} size="sm" variant="brand" />
+          <p className="text-[11px] text-gray-500 text-right">{row.programmeCompletionRate}%</p>
+        </div>
+      ),
+    },
+    {
+      header: 'Regulatory Compliance',
+      accessorKey: 'regulatoryComplianceRate' as const,
+      cell: (row: ProgrammeComplianceRow) => (
+        <div className="w-32 space-y-1">
+          <ProgressBar
+            value={row.regulatoryComplianceRate}
+            size="sm"
+            variant={
+              row.status === 'Compliant'
+                ? 'success'
+                : row.status === 'Review Required'
+                ? 'warning'
+                : 'danger'
+            }
+          />
+          <div className="flex justify-between items-center text-[11px]">
+            <Badge
+              variant={
+                row.status === 'Compliant'
+                  ? 'success'
+                  : row.status === 'Review Required'
+                  ? 'warning'
+                  : 'danger'
+              }
+              className="text-[10px] px-1 py-0">
+              {row.status}
+            </Badge>
+            <span className="font-medium">{row.regulatoryComplianceRate}%</span>
+          </div>
+        </div>
       ),
     },
   ];
 
-  const exportData = async () => {
+  const handleExport = async (format: 'csv' | 'pdf') => {
+    setExporting(true);
     try {
-      const [snap, progress] = await Promise.all([
-        reportsService.getSetaSnapshot(),
-        reportsService.getProgress(),
-      ]);
-      downloadJson('seta-funded-export.json', {
-        providers: filtered,
-        learners: cohortLearners.length ? cohortLearners : learners,
-        snapshot: snap.data,
-        progress: progress.data,
-      });
-      toast.success('Export downloaded');
+      const { blob, filename } = await reportsService.downloadSetaCompliance(format);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success(`SETA compliance report (${format.toUpperCase()}) downloaded`);
     } catch {
-      toast.error('Export failed');
+      toast.error(`Failed to download ${format.toUpperCase()} compliance report`);
+    } finally {
+      setExporting(false);
     }
   };
 
   if (loading) {
-    return <p className="text-gray-500 p-6">Loading SETA programmes…</p>;
+    return <p className="text-gray-500 p-6">Loading SETA compliance & oversight data…</p>;
   }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">SETA-funded programmes</h1>
+          <h1 className="text-2xl font-bold text-gray-900">SETA Oversight & Compliance</h1>
           <p className="text-sm text-gray-500">
-            Provider oversight from live programme and enrolment data
+            Authoritative regulatory oversight: genuine multi-factor compliance verification
           </p>
         </div>
-        <Button leftIcon={<Download className="h-4 w-4" />} onClick={() => void exportData()}>
-          Export oversight pack
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            leftIcon={<Download className="h-4 w-4" />}
+            disabled={exporting}
+            onClick={() => void handleExport('csv')}>
+            Export CSV
+          </Button>
+          <Button
+            size="sm"
+            leftIcon={<FileText className="h-4 w-4" />}
+            disabled={exporting}
+            onClick={() => void handleExport('pdf')}>
+            Export Official PDF
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* Authoritative Audit & Calculation Metadata Banner */}
+      {report && (
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 flex flex-wrap items-center justify-between gap-2 shadow-xs">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1 font-medium text-slate-800">
+              <Calendar className="h-3.5 w-3.5 text-slate-500" />
+              Calculation Date: {new Date(report.calculationDate).toLocaleString()}
+            </span>
+            <span className="flex items-center gap-1 text-slate-600">
+              <Database className="h-3.5 w-3.5 text-slate-500" />
+              Data Source: {report.dataSource}
+            </span>
+          </div>
+          <span className="flex items-center gap-1 text-emerald-700 font-medium">
+            <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+            Direct DB Verification Active
+          </span>
+        </div>
+      )}
+
+      {/* Summary Metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <Card className="p-4 flex gap-3 items-center">
           <Building className="h-8 w-8 text-brand-navy" />
           <div>
-            <p className="text-xs text-gray-500">Programmes</p>
-            <p className="text-2xl font-bold">{programmes.length}</p>
+            <p className="text-xs text-gray-500">Funded Programmes</p>
+            <p className="text-2xl font-bold">{report?.summary.totalProgrammes ?? programmes.length}</p>
           </div>
         </Card>
         <Card className="p-4 flex gap-3 items-center">
           <Users className="h-8 w-8 text-brand-navy" />
           <div>
-            <p className="text-xs text-gray-500">Enrolments</p>
-            <p className="text-2xl font-bold">{learners.length}</p>
+            <p className="text-xs text-gray-500">Total Enrolments</p>
+            <p className="text-2xl font-bold">{report?.summary.totalEnrolments ?? learners.length}</p>
           </div>
         </Card>
         <Card className="p-4 flex gap-3 items-center">
-          <BarChart3 className="h-8 w-8 text-brand-navy" />
+          <BarChart3 className="h-8 w-8 text-indigo-600" />
           <div>
-            <p className="text-xs text-gray-500">At risk cohorts</p>
-            <p className="text-2xl font-bold">
-              {providers.filter((p) => p.status === 'At Risk').length}
+            <p className="text-xs text-gray-500">Avg Learner Progress</p>
+            <p className="text-2xl font-bold">{report?.summary.overallAverageProgress ?? 0}%</p>
+          </div>
+        </Card>
+        <Card className="p-4 flex gap-3 items-center">
+          <ShieldCheck className="h-8 w-8 text-emerald-600" />
+          <div>
+            <p className="text-xs text-gray-500">Regulatory Compliance</p>
+            <p className="text-2xl font-bold text-emerald-700">
+              {report?.summary.overallRegulatoryCompliance ?? 0}%
             </p>
           </div>
         </Card>
       </div>
 
       <Input
-        placeholder="Search providers or programmes…"
+        placeholder="Search training providers, programmes, codes, or SETAs…"
         icon={<Search className="h-4 w-4" />}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -184,37 +274,81 @@ export function SETAFundedProgrammesPage() {
       />
 
       <div className="grid lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2" title="Funded programmes" noPadding>
+        <Card className="lg:col-span-2" title="Funded Programmes & Regulatory Compliance" noPadding>
           <DataTable
             data={filtered}
             columns={columns}
-            keyField="id"
-            onRowClick={(row) => setSelectedId(row.id)}
+            keyField="programmeId"
+            onRowClick={(row) => setSelectedId(row.programmeId)}
           />
         </Card>
-        <Card title={selected ? selected.programme : 'Cohort detail'}>
+
+        {/* Drill-down panel */}
+        <Card title={selected ? `${selected.programmeTitle} - Drill-down` : 'Programme Detail'}>
           {!selected ? (
-            <p className="text-sm text-gray-500">Select a programme to view learners.</p>
+            <p className="text-sm text-gray-500">
+              Select a programme row to inspect verified compliance metrics and learners.
+            </p>
           ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-gray-600">
-                {selected.activeLearners} active of {selected.learners} learners
-              </p>
-              <ul className="divide-y max-h-80 overflow-y-auto">
-                {cohortLearners.map((l) => (
-                  <li key={l.id} className="py-2 text-sm flex justify-between">
-                    <span>{l.name}</span>
-                    <span className="text-gray-500">{l.progress}%</span>
-                  </li>
-                ))}
-              </ul>
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full"
-                onClick={() => void exportData()}>
-                Download cohort export
-              </Button>
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase">Provider Organisation</p>
+                <p className="text-base font-bold text-gray-900">{selected.providerName}</p>
+                <p className="text-xs text-gray-500">{selected.seta}</p>
+              </div>
+
+              <div className="p-3 bg-gray-50 rounded-lg space-y-2 border border-gray-200">
+                <p className="text-xs font-semibold text-gray-700 uppercase">
+                  Verified Compliance Factors
+                </p>
+                <div className="space-y-1.5 text-xs text-gray-600">
+                  <div className="flex justify-between items-center">
+                    <span>Verified Documents:</span>
+                    <span className="font-semibold text-gray-900">
+                      {selected.metrics.verifiedDocumentsRate}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Attendance Rate:</span>
+                    <span className="font-semibold text-gray-900">
+                      {selected.metrics.attendanceRate}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Assessment Competency:</span>
+                    <span className="font-semibold text-gray-900">
+                      {selected.metrics.assessmentRate}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Quality Moderation:</span>
+                    <span className="font-semibold text-gray-900">
+                      {selected.metrics.moderationRate}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase mb-1">
+                  Enrolled Learners ({cohortLearners.length})
+                </p>
+                <ul className="divide-y max-h-56 overflow-y-auto border rounded-md">
+                  {cohortLearners.length === 0 ? (
+                    <li className="p-3 text-xs text-gray-500 text-center">No learners enrolled</li>
+                  ) : (
+                    cohortLearners.map((l) => (
+                      <li key={l.id} className="p-2 text-xs flex justify-between items-center">
+                        <div>
+                          <p className="font-medium text-gray-800">{l.name}</p>
+                          <p className="text-[10px] text-gray-500">{l.idNumber}</p>
+                        </div>
+                        <span className="font-medium text-gray-600">{l.progress}% progress</span>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </div>
             </div>
           )}
         </Card>

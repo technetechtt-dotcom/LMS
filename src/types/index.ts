@@ -205,6 +205,14 @@ export interface CreateProgrammePayload {
   seta: string;
   description: string;
   status?: Programme['status'];
+  modules?: Array<{
+    title: string;
+    code: string;
+    moduleType: 'KNOWLEDGE' | 'PRACTICAL' | 'WORKPLACE';
+    credits: number;
+    unitStandardId?: string;
+    description?: string;
+  }>;
 }
 
 export interface Programme extends BaseEntity {
@@ -233,6 +241,8 @@ export interface Module extends BaseEntity {
   assessmentIds: string[];
   materialIds: string[];
   description: string;
+  moduleType?: 'KNOWLEDGE' | 'PRACTICAL' | 'WORKPLACE';
+  unitStandardId?: string | null;
 }
 
 // --- Assessment ---

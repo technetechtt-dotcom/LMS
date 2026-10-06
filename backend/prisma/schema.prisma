@@ -137,6 +137,7 @@ model User {
   breakGlassRequests               BreakGlassAccess[]      @relation("BreakGlassRequester")
   breakGlassApprovals              BreakGlassAccess[]      @relation("BreakGlassApprover")
   facilitatorAssignments           FacilitatorAssignment[] @relation("FacilitatorAssignments")
+  learnerFacilitatorAssignments    FacilitatorAssignment[] @relation("LearnerFacilitatorAssignments")
 }
 
 model Role {
@@ -184,6 +185,7 @@ model Organisation {
   popiaAcknowledgements  PopiaAcknowledgement[]
   breakGlassRequests     BreakGlassAccess[]
   facilitatorAssignments FacilitatorAssignment[]
+  cohorts                Cohort[]
 }
 
 model UserOrganisation {
@@ -263,13 +265,20 @@ enum FacilitatorRole {
   WORKPLACE_COORDINATOR
 }
 
+enum ProgrammeStatus {
+  draft
+  active
+  archived
+}
+
 model Programme {
   id                     String                  @id @default(uuid()) @db.Uuid
   organisationId         String                  @db.Uuid
   qualificationId        String                  @db.Uuid
   code                   String
   title                  String
-  status                 String                  @default("draft")
+  description            String?
+  status                 ProgrammeStatus         @default(draft)
   programmeKind          ProgrammeKind           @default(OCCUPATIONAL_PROGRAMME)
   startDate              DateTime?
   endDate                DateTime?
@@ -281,6 +290,7 @@ model Programme {
   attendanceSessions     AttendanceSession[]
   modules                ProgrammeModule[]
   facilitatorAssignments FacilitatorAssignment[]
+  cohorts                Cohort[]
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   deletedAt              DateTime?
@@ -295,46 +305,71 @@ enum ModuleType {
 }
 
 model ProgrammeModule {
-  id             String        @id @default(uuid()) @db.Uuid
-  programmeId    String        @db.Uuid
-  unitStandardId String?       @db.Uuid
-  code           String
-  title          String
-  moduleType     ModuleType    @map("type")
-  credits        Int
-  order          Int           @default(1)
-  description    String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  deletedAt      DateTime?
-  programme      Programme     @relation(fields: [programmeId], references: [id], onDelete: Cascade)
-  unitStandard   UnitStandard? @relation(fields: [unitStandardId], references: [id], onDelete: SetNull)
+  id                     String                  @id @default(uuid()) @db.Uuid
+  programmeId            String                  @db.Uuid
+  unitStandardId         String?                 @db.Uuid
+  code                   String
+  title                  String
+  moduleType             ModuleType              @map("type")
+  credits                Int
+  order                  Int                     @default(1)
+  description            String?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  deletedAt              DateTime?
+  programme              Programme               @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  unitStandard           UnitStandard?           @relation(fields: [unitStandardId], references: [id], onDelete: SetNull)
+  facilitatorAssignments FacilitatorAssignment[]
 
   @@unique([programmeId, code])
   @@index([programmeId, order])
 }
 
+model Cohort {
+  id                     String                  @id @default(uuid()) @db.Uuid
+  organisationId         String                  @db.Uuid
+  programmeId            String                  @db.Uuid
+  name                   String
+  startDate              DateTime?
+  endDate                DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  deletedAt              DateTime?
+  organisation           Organisation            @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  programme              Programme               @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  facilitatorAssignments FacilitatorAssignment[]
+  enrollments            Enrollment[]
+
+  @@index([organisationId, programmeId])
+}
+
 model FacilitatorAssignment {
-  id             String       @id @default(uuid()) @db.Uuid
-  organisationId String       @db.Uuid
-  facilitatorId  String       @db.Uuid
-  programmeId    String       @db.Uuid
-  cohortId       String?
-  moduleId       String?      @db.Uuid
-  learnerId      String?      @db.Uuid
+  id             String           @id @default(uuid()) @db.Uuid
+  organisationId String           @db.Uuid
+  facilitatorId  String           @db.Uuid
+  programmeId    String           @db.Uuid
+  cohortId       String?          @db.Uuid
+  moduleId       String?          @db.Uuid
+  learnerId      String?          @db.Uuid
   startDate      DateTime?
   endDate        DateTime?
-  isActive       Boolean      @default(true)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
   deletedAt      DateTime?
-  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  facilitator    User         @relation("FacilitatorAssignments", fields: [facilitatorId], references: [id], onDelete: Cascade)
-  programme      Programme    @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  organisation   Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  facilitator    User             @relation("FacilitatorAssignments", fields: [facilitatorId], references: [id], onDelete: Cascade)
+  programme      Programme        @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  cohort         Cohort?          @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+  module         ProgrammeModule? @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  learner        User?            @relation("LearnerFacilitatorAssignments", fields: [learnerId], references: [id], onDelete: SetNull)
 
   @@index([organisationId, facilitatorId])
   @@index([programmeId, isActive])
   @@index([facilitatorId, programmeId])
+  @@index([moduleId])
+  @@index([learnerId])
+  @@index([cohortId])
 }
 
 model Enrollment {
@@ -343,6 +378,7 @@ model Enrollment {
   programmeId            String                 @db.Uuid
   sdioOrganisationId     String                 @db.Uuid
   employerOrganisationId String?                @db.Uuid
+  cohortId               String?                @db.Uuid
   status                 LearnerLifecycleStatus @default(ENROLLED)
   startedAt              DateTime?
   completedAt            DateTime?
@@ -351,6 +387,7 @@ model Enrollment {
   programme              Programme              @relation(fields: [programmeId], references: [id])
   sdioOrganisation       Organisation           @relation("SdioOrganisationEnrollment", fields: [sdioOrganisationId], references: [id])
   employerOrganisation   Organisation?          @relation("EmployerOrganisationEnrollment", fields: [employerOrganisationId], references: [id])
+  cohort                 Cohort?                @relation(fields: [cohortId], references: [id], onDelete: SetNull)
   evidence               Evidence[]
   workplaceLogs          WorkplaceLog[]
   assessments            Assessment[]

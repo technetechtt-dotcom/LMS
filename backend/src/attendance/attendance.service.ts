@@ -11,6 +11,7 @@ import {
   assertEnrollmentAccess,
   enrollmentActorWhere,
   enrollmentOrgWhere,
+  programmeActorWhere,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
 import { hashOpaqueToken } from '../common/crypto/token-crypto';
@@ -29,8 +30,17 @@ export class AttendanceService {
           ...enrollmentOrgWhere(organisationId),
           ...enrollmentActorWhere(user),
         },
-        select: { learnerId: true },
+        include: {
+          programme: {
+            include: {
+              facilitatorAssignments: {
+                where: { deletedAt: null, isActive: true },
+              },
+            },
+          },
+        },
       });
+      if (!enrollment) throw new NotFoundException('Enrollment not found');
       assertEnrollmentAccess(user, enrollment, 'Attendance');
     }
 
@@ -63,8 +73,17 @@ export class AttendanceService {
         id: dto.enrollmentId,
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
+        ...enrollmentActorWhere(user),
       },
-      select: { id: true, learnerId: true, programmeId: true },
+      include: {
+        programme: {
+          include: {
+            facilitatorAssignments: {
+              where: { deletedAt: null, isActive: true },
+            },
+          },
+        },
+      },
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
     assertEnrollmentAccess(user, enrollment, 'Attendance');
@@ -108,8 +127,17 @@ export class AttendanceService {
         deletedAt: null,
         programmeId: session.programmeId,
         ...enrollmentOrgWhere(organisationId),
+        ...enrollmentActorWhere(user),
       },
-      select: { id: true, learnerId: true, programmeId: true },
+      include: {
+        programme: {
+          include: {
+            facilitatorAssignments: {
+              where: { deletedAt: null, isActive: true },
+            },
+          },
+        },
+      },
     });
     if (!enrollment) {
       throw new BadRequestException(
@@ -148,7 +176,15 @@ export class AttendanceService {
   async summary(user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const sessions = await this.prisma.attendanceSession.findMany({
-      where: { organisationId, mandatory: true },
+      where: {
+        organisationId,
+        mandatory: true,
+        programme: {
+          deletedAt: null,
+          organisationId,
+          ...programmeActorWhere(user),
+        },
+      },
       include: {
         checkIns: { where: { deletedAt: null } },
       },
@@ -188,7 +224,15 @@ export class AttendanceService {
   async closeSession(sessionId: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const session = await this.prisma.attendanceSession.findFirst({
-      where: { id: sessionId, organisationId },
+      where: {
+        id: sessionId,
+        organisationId,
+        programme: {
+          deletedAt: null,
+          organisationId,
+          ...programmeActorWhere(user),
+        },
+      },
     });
     if (!session) throw new NotFoundException('Attendance session not found');
     if (session.closedAt) {

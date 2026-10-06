@@ -10,16 +10,26 @@ import { Modal } from '../../components/ui/Modal';
 import { programmeService } from '../../services/api';
 import type { Programme } from '../../types';
 import { useOpsOrganisation } from '../../hooks/useOpsOrganisation';
+import { SETA_SELECT_OPTIONS, NQF_LEVEL_OPTIONS } from '../../constants/saqa-reference';
+
+interface QualificationRow {
+  id: string;
+  saqaId: string;
+  title: string;
+  nqfLevel: number;
+  totalCredits: number;
+  seta: string | null;
+}
 
 export function OpsProgrammesPage() {
   const { selectedOrgId } = useOpsOrganisation();
   const [programmes, setProgrammes] = useState<Programme[]>([]);
-  const [qualifications, setQualifications] = useState<any[]>([]);
+  const [qualifications, setQualifications] = useState<QualificationRow[]>([]);
   const [selectedQualificationId, setSelectedQualificationId] = useState('');
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
 
-  const load = async () => {
+  const load = React.useCallback(async () => {
     setLoading(true);
     try {
       const [res, qRes] = await Promise.all([
@@ -36,11 +46,13 @@ export function OpsProgrammesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedQualificationId]);
 
   useEffect(() => {
     load();
-  }, [selectedOrgId]);
+  }, [load, selectedOrgId]);
+
+  const selectedQual = qualifications.find((q) => q.id === selectedQualificationId);
 
   const columns = [
     { header: 'Title', accessorKey: 'title' as const },
@@ -85,6 +97,8 @@ export function OpsProgrammesPage() {
       toast.error('SAQA Qualification is required.');
       return;
     }
+    const currentQual = qualifications.find((q) => q.id === qId);
+
     try {
       await programmeService.create({
         qualificationId: qId,
@@ -93,9 +107,9 @@ export function OpsProgrammesPage() {
         programmeKind: String(
           fd.get('programmeKind') ?? 'OCCUPATIONAL_PROGRAMME',
         ) as Programme['programmeKind'],
-        nqfLevel: Number(fd.get('nqfLevel') ?? 5),
-        credits: Number(fd.get('credits') ?? 120),
-        seta: String(fd.get('seta') ?? 'MICT SETA'),
+        nqfLevel: currentQual ? currentQual.nqfLevel : Number(fd.get('nqfLevel') ?? 5),
+        credits: currentQual ? currentQual.totalCredits : Number(fd.get('credits') ?? 120),
+        seta: currentQual?.seta ? currentQual.seta : String(fd.get('seta') ?? 'MICT SETA'),
         description: String(fd.get('description') ?? ''),
         status: 'draft',
       });
@@ -144,7 +158,7 @@ export function OpsProgrammesPage() {
               { value: '', label: 'Select SAQA qualification...' },
               ...qualifications.map((q) => ({
                 value: q.id,
-                label: `SAQA ${q.saqaId} - ${q.title} (Level ${q.nqfLevel})`,
+                label: `SAQA ${q.saqaId} - ${q.title} (Level ${q.nqfLevel}, ${q.totalCredits} cr)`,
               })),
             ]}
           />
@@ -159,23 +173,33 @@ export function OpsProgrammesPage() {
             ]}
           />
           <div className="grid grid-cols-2 gap-4">
-            <Input
+            <Select
               name="nqfLevel"
-              type="number"
-              label="NQF level"
+              label={`NQF level ${selectedQual ? '(Derived - read-only)' : ''}`}
+              value={selectedQual ? String(selectedQual.nqfLevel) : undefined}
               defaultValue="5"
-              required
+              disabled={Boolean(selectedQual)}
+              options={NQF_LEVEL_OPTIONS}
             />
             <Input
               name="credits"
               type="number"
-              label="Credits"
+              label={`Credits ${selectedQual ? '(Derived - read-only)' : ''}`}
+              value={selectedQual ? selectedQual.totalCredits : undefined}
               defaultValue="120"
+              disabled={Boolean(selectedQual)}
               required
             />
           </div>
-          <Input name="seta" label="SETA" defaultValue="MICT SETA" />
-          <Input name="description" label="Description" />
+          <Select
+            name="seta"
+            label={`SETA ${selectedQual ? '(Derived - read-only)' : ''}`}
+            value={selectedQual?.seta ? selectedQual.seta : undefined}
+            defaultValue="MICT SETA"
+            disabled={Boolean(selectedQual)}
+            options={SETA_SELECT_OPTIONS}
+          />
+          <Input name="description" label="Description" placeholder="Programme description..." />
           <div className="flex justify-end gap-2">
             <Button
               type="button"

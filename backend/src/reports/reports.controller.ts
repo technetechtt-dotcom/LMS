@@ -67,6 +67,37 @@ export class ReportsController {
     return data;
   }
 
+  @Roles('ADMIN', 'SETA', 'QA_OFFICER', 'FACILITATOR')
+  @Get('seta-compliance')
+  async setaCompliance(
+    @Req() req: Request & { user?: AuthUser },
+    @Query('format') format?: string,
+    @Query() query?: Record<string, string | undefined>,
+  ) {
+    const filters = this.filters(query ?? {});
+    const report = await this.reports.setaComplianceReport(req.user, filters);
+
+    if (format === 'csv') {
+      const bytes = Buffer.from(this.reports.complianceToCsv(report), 'utf8');
+      await this.reports.recordDownload(bytes, 'seta-compliance', 'csv', filters, req.user);
+      return new StreamableFile(bytes, {
+        type: 'text/csv; charset=utf-8',
+        disposition: 'attachment; filename="seta-compliance-report.csv"',
+      });
+    }
+
+    if (format === 'pdf') {
+      const pdf = await this.reports.complianceToPdf(report);
+      await this.reports.recordDownload(pdf, 'seta-compliance', 'pdf', filters, req.user);
+      return new StreamableFile(pdf, {
+        type: 'application/pdf',
+        disposition: 'attachment; filename="seta-compliance-report.pdf"',
+      });
+    }
+
+    return report;
+  }
+
   private filters(query: Record<string, string | undefined>): ReportFilters {
     return {
       programmeId: query.programmeId || undefined,

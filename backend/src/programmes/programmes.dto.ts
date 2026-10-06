@@ -1,5 +1,7 @@
-import { ModuleType, ProgrammeKind } from '@prisma/client';
+import { ModuleType, ProgrammeKind, ProgrammeStatus } from '@prisma/client';
+import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -9,6 +11,7 @@ import {
   IsString,
   IsUUID,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 export class CreateProgrammeDto {
@@ -22,12 +25,16 @@ export class CreateProgrammeDto {
   title!: string;
 
   @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
   @IsEnum(ProgrammeKind)
   programmeKind?: ProgrammeKind;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsEnum(ProgrammeStatus)
+  status?: ProgrammeStatus;
 
   @IsOptional()
   @IsDateString()
@@ -36,6 +43,38 @@ export class CreateProgrammeDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateProgrammeModuleDto)
+  modules?: CreateProgrammeModuleDto[];
+}
+
+export class UpdateProgrammeDetailsDto {
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  @IsOptional()
+  @IsEnum(ProgrammeKind)
+  programmeKind?: ProgrammeKind;
 }
 
 export class CreateProgrammeModuleDto {
@@ -99,8 +138,8 @@ export class UpdateProgrammeModuleDto {
 }
 
 export class UpdateProgrammeStatusDto {
-  @IsString()
-  status!: string;
+  @IsEnum(ProgrammeStatus)
+  status!: ProgrammeStatus;
 }
 
 export class ReorderModulesDto {
@@ -116,7 +155,7 @@ export class FacilitatorAssignmentDto {
   programmeId!: string;
 
   @IsOptional()
-  @IsString()
+  @IsUUID()
   cohortId?: string;
 
   @IsOptional()

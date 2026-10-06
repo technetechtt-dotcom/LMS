@@ -1,5 +1,5 @@
-import { ForbiddenException } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../types/request-with-user';
 
 /** Canonical organisation header (also accepts aliases). */
@@ -70,7 +70,9 @@ export function isLearnerOnly(user?: AuthUser | null): boolean {
 }
 
 export function isMentorOnly(user?: AuthUser | null): boolean {
-  if (!user?.roleCodes?.includes('MENTOR')) return false;
+  if (!user?.roleCodes?.some((code) => code === 'MENTOR' || code === 'WORKPLACE_MENTOR')) {
+    return false;
+  }
   return !user.roleCodes.some((code) =>
     ['ADMIN', 'PLATFORM_ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER', 'SETA'].includes(code),
   );
@@ -95,6 +97,114 @@ export function isModeratorOnly(user?: AuthUser | null): boolean {
   return !user.roleCodes.some((code) =>
     ['ADMIN', 'PLATFORM_ADMIN', 'QA_OFFICER'].includes(code),
   );
+}
+
+/**
+ * Scope programmes by the authenticated user's role and allocations.
+ * Admin & QA Officer: full organisation.
+ * Facilitator: assigned programmes (active assignment within valid date window).
+ * Learner: programmes with own enrollment.
+ * Assessor: programmes with allocated assessments or PoE items.
+ * Moderator: programmes with allocated moderation items.
+ * SETA: assigned programmes (metadata.setaOfficialIds) or funded programmes.
+ * Mentor: programmes where assigned learners are enrolled.
+ */
+export function programmeActorWhere(
+  user?: AuthUser | null,
+): Prisma.ProgrammeWhereInput {
+  if (!user?.userId) return { id: '__no_authenticated_actor__' };
+  if (
+    isPlatformAdmin(user) ||
+    user.roleCodes.some((code) => ['ADMIN', 'QA_OFFICER'].includes(code))
+  ) {
+    return {};
+  }
+
+  const scopes: Prisma.ProgrammeWhereInput[] = [];
+
+  if (user.roleCodes.includes('LEARNER')) {
+    scopes.push({
+      enrollments: {
+        some: {
+          learnerId: user.userId,
+          deletedAt: null,
+        },
+      },
+    });
+  }
+
+  if (user.roleCodes.includes('FACILITATOR')) {
+    const now = new Date();
+    scopes.push({
+      facilitatorAssignments: {
+        some: {
+          facilitatorId: user.userId,
+          isActive: true,
+          deletedAt: null,
+          OR: [
+            { startDate: null, endDate: null },
+            { startDate: { lte: now }, endDate: null },
+            { startDate: null, endDate: { gte: now } },
+            { startDate: { lte: now }, endDate: { gte: now } },
+          ],
+        },
+      },
+    });
+  }
+
+  if (user.roleCodes.includes('ASSESSOR')) {
+    scopes.push({
+      enrollments: {
+        some: {
+          deletedAt: null,
+          OR: [
+            { assessments: { some: { assessorId: user.userId, deletedAt: null } } },
+            { poeLearningArtifacts: { some: { assessorId: user.userId, deletedAt: null } } },
+          ],
+        },
+      },
+    });
+  }
+
+  if (user.roleCodes.includes('MODERATOR')) {
+    scopes.push({
+      enrollments: {
+        some: {
+          deletedAt: null,
+          OR: [
+            { assessments: { some: { moderatorId: user.userId, deletedAt: null } } },
+            { poeLearningArtifacts: { some: { moderatorId: user.userId, deletedAt: null } } },
+          ],
+        },
+      },
+    });
+  }
+
+  if (user.roleCodes.includes('SETA')) {
+    scopes.push({
+      OR: [
+        { metadata: { path: ['setaOfficialIds'], array_contains: user.userId } },
+        { metadata: { path: ['setaFunding'], not: Prisma.DbNull } },
+        { metadata: { path: ['isSetaFunded'], equals: true } },
+      ],
+    });
+  }
+
+  if (user.roleCodes.some((c) => c === 'MENTOR' || c === 'WORKPLACE_MENTOR')) {
+    scopes.push({
+      enrollments: {
+        some: {
+          deletedAt: null,
+          metadata: { path: ['workplaceMentorId'], equals: user.userId },
+        },
+      },
+    });
+  }
+
+  if (scopes.length) {
+    return { AND: [{ OR: scopes }] };
+  }
+  return { id: '__no_allocated_programme__' };
 }
 
 /** Actor-specific enrollment scope layered on top of the active tenant. */
@@ -259,13 +369,23 @@ export function assertEnrollmentAccess(
   user: AuthUser | undefined,
   enrollment: {
     learnerId: string;
+    cohortId?: string | null;
     metadata?: unknown;
     programme?: {
-      facilitatorAssignments?: Array<{ facilitatorId: string; isActive: boolean }>;
+      facilitatorAssignments?: Array<{
+        facilitatorId: string;
+        isActive: boolean;
+        startDate?: Date | string | null;
+        endDate?: Date | string | null;
+        learnerId?: string | null;
+        cohortId?: string | null;
+        moduleId?: string | null;
+      }>;
       [key: string]: unknown;
     } | null;
   } | null,
   label = 'Resource',
+  targetModuleId?: string | null,
 ): void {
   if (!enrollment) {
     throw new ForbiddenException(`${label} not found`);
@@ -279,18 +399,26 @@ export function assertEnrollmentAccess(
         ? (enrollment.metadata as { workplaceMentorId?: string })
         : {};
     if (metadata.workplaceMentorId !== user?.userId) {
-      throw new ForbiddenException(`${label} access denied`);
+      throw new ForbiddenException(`${label} access denied: mentor not assigned to this learner`);
     }
   }
-  if (isFacilitatorOnly(user) && enrollment.programme && 'facilitatorAssignments' in enrollment.programme) {
-    const assignments = enrollment.programme.facilitatorAssignments;
-    if (Array.isArray(assignments)) {
-      const assigned = assignments.some(
-        (fa) => fa.facilitatorId === user?.userId && fa.isActive,
-      );
-      if (!assigned) {
-        throw new ForbiddenException(`${label} access denied: not allocated to this programme`);
-      }
+  if (isFacilitatorOnly(user)) {
+    const assignments = enrollment.programme?.facilitatorAssignments;
+    if (!assignments || !Array.isArray(assignments) || assignments.length === 0) {
+      throw new ForbiddenException(`${label} access denied: not allocated to this programme`);
+    }
+    const now = new Date();
+    const assigned = assignments.some((fa) => {
+      if (fa.facilitatorId !== user?.userId || !fa.isActive) return false;
+      if (fa.startDate && new Date(fa.startDate) > now) return false;
+      if (fa.endDate && new Date(fa.endDate) < now) return false;
+      if (fa.learnerId && fa.learnerId !== enrollment.learnerId) return false;
+      if (fa.cohortId && fa.cohortId !== enrollment.cohortId) return false;
+      if (fa.moduleId && (!targetModuleId || fa.moduleId !== targetModuleId)) return false;
+      return true;
+    });
+    if (!assigned) {
+      throw new ForbiddenException(`${label} access denied: not allocated to this programme`);
     }
   }
 }

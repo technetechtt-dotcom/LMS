@@ -10,6 +10,10 @@ export class CreateEnrollmentDto {
 
   @IsOptional()
   @IsUUID()
+  cohortId?: string;
+
+  @IsOptional()
+  @IsUUID()
   employerOrganisationId?: string;
 }
 

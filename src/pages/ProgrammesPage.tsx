@@ -8,10 +8,12 @@ import { Select } from '../components/ui/Select';
 import { DataTable } from '../components/ui/DataTable';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
+import { Can } from '../components/auth/Can';
 import type { Programme, ProgrammeKind } from '../types';
 import { programmeService } from '../services/api';
 import { exportRecordsAsJson } from '../utils/exportData';
 import { PROGRAMME_KIND_LABELS, PROGRAMME_POE_ARTIFACTS_NOTE } from '../utils/programmeKind';
+import { SETA_SELECT_OPTIONS, NQF_LEVEL_OPTIONS } from '../constants/saqa-reference';
 
 type NewProgrammeForm = {
   qualificationId: string;
@@ -37,17 +39,27 @@ function emptyNewProgrammeForm(): NewProgrammeForm {
   };
 }
 
-const SETA_SELECT_OPTIONS = [
-  { value: 'MICT SETA', label: 'MICT SETA' },
-  { value: 'Services SETA', label: 'Services SETA' },
-  { value: 'merSETA', label: 'merSETA' },
-];
+interface QualificationOption {
+  id: string;
+  saqaId: string;
+  title: string;
+  nqfLevel: number;
+  totalCredits: number;
+  seta: string | null;
+  unitStandards: Array<{
+    id: string;
+    code: string;
+    title: string;
+    credits: number;
+    level?: number;
+  }>;
+}
 
 export function ProgrammesPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [programmes, setProgrammes] = useState<Programme[]>([]);
-  const [qualifications, setQualifications] = useState<any[]>([]);
+  const [qualifications, setQualifications] = useState<QualificationOption[]>([]);
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('q') || '');
   const [kindFilter, setKindFilter] = useState<'all' | ProgrammeKind>(
     () => (searchParams.get('type') as ProgrammeKind) || 'all',
@@ -65,12 +77,21 @@ export function ProgrammesPage() {
     () => emptyNewProgrammeForm(),
   );
   const [creatingProgramme, setCreatingProgramme] = useState(false);
-  const [modules, setModules] = useState([
+  interface FormModule {
+    id: number;
+    name: string;
+    code: string;
+    moduleType: 'KNOWLEDGE' | 'PRACTICAL' | 'WORKPLACE';
+    credits: string;
+    unitStandardId: string;
+  }
+
+  const [modules, setModules] = useState<FormModule[]>([
     {
       id: 1,
       name: '',
       code: 'KM-01',
-      moduleType: 'KNOWLEDGE' as const,
+      moduleType: 'KNOWLEDGE',
       credits: '15',
       unitStandardId: '',
     },
@@ -83,7 +104,7 @@ export function ProgrammesPage() {
     }
     return [
       { value: '', label: 'Select Unit Standard (Optional)' },
-      ...selectedQ.unitStandards.map((us: any) => ({
+      ...selectedQ.unitStandards.map((us) => ({
         value: us.id,
         label: `${us.code} - ${us.title} (${us.credits} cr)`,
       })),
@@ -100,7 +121,7 @@ export function ProgrammesPage() {
         id: Date.now(),
         name: '',
         code: defaultCode,
-        moduleType: defaultType as any,
+        moduleType: defaultType as 'KNOWLEDGE' | 'PRACTICAL' | 'WORKPLACE',
         credits: '10',
         unitStandardId: '',
       },
@@ -133,21 +154,26 @@ export function ProgrammesPage() {
   }, []);
 
   useEffect(() => {
-    const p = new URLSearchParams(searchParams);
-    if (searchTerm) p.set('q', searchTerm);
-    else p.delete('q');
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        if (searchTerm) p.set('q', searchTerm);
+        else p.delete('q');
 
-    if (kindFilter !== 'all') p.set('type', kindFilter);
-    else p.delete('type');
+        if (kindFilter !== 'all') p.set('type', kindFilter);
+        else p.delete('type');
 
-    if (statusFilter !== 'all') p.set('status', statusFilter);
-    else p.delete('status');
+        if (statusFilter !== 'all') p.set('status', statusFilter);
+        else p.delete('status');
 
-    if (setaFilter !== 'all') p.set('seta', setaFilter);
-    else p.delete('seta');
+        if (setaFilter !== 'all') p.set('seta', setaFilter);
+        else p.delete('seta');
 
-    setSearchParams(p, { replace: true });
-  }, [searchTerm, kindFilter, statusFilter, setaFilter]);
+        return p;
+      },
+      { replace: true },
+    );
+  }, [searchTerm, kindFilter, statusFilter, setaFilter, setSearchParams]);
 
   const filteredProgrammes = useMemo(() => {
     return programmes.filter((p) => {
@@ -211,6 +237,16 @@ export function ProgrammesPage() {
     );
     setCreatingProgramme(true);
     try {
+      const validModules = modules
+        .filter((m) => m.name.trim())
+        .map((m, idx) => ({
+          title: m.name.trim(),
+          code: m.code.trim() || `KM-0${idx + 1}`,
+          moduleType: m.moduleType,
+          credits: parseInt(m.credits, 10) || 10,
+          unitStandardId: m.unitStandardId || undefined,
+        }));
+
       const res = await programmeService.create({
         qualificationId: newProgrammeForm.qualificationId,
         title,
@@ -221,28 +257,17 @@ export function ProgrammesPage() {
         seta: newProgrammeForm.seta,
         description: newProgrammeForm.description.trim(),
         status: 'draft',
+        modules: validModules,
       });
       if (res.success && res.data) {
-        const createdProg = res.data;
-        for (const m of modules) {
-          if (m.name.trim()) {
-            await programmeService.addModule(createdProg.id, {
-              title: m.name.trim(),
-              code: m.code.trim() || 'KM-01',
-              moduleType: m.moduleType,
-              credits: parseInt(m.credits, 10) || 10,
-              unitStandardId: m.unitStandardId || undefined,
-            });
-          }
-        }
-        toast.success('Programme and modules created successfully');
+        toast.success('Programme and modules created successfully in a single atomic transaction');
         const list = await programmeService.getAll();
         if (list.success && list.data) setProgrammes(list.data);
         closeCreateProgrammeModal();
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      toast.error(e.message || 'Could not create the programme.');
+      toast.error((e as Error)?.message || 'Could not create the programme.');
     } finally {
       setCreatingProgramme(false);
     }
@@ -340,11 +365,13 @@ export function ProgrammesPage() {
             
             Export
           </Button>
-          <Button
-            leftIcon={<Plus className="h-4 w-4" />}
-            onClick={openCreateProgrammeModal}>
-            New Programme
-          </Button>
+          <Can roles={['Admin']}>
+            <Button
+              leftIcon={<Plus className="h-4 w-4" />}
+              onClick={openCreateProgrammeModal}>
+              New Programme
+            </Button>
+          </Can>
         </div>
       </div>
 
@@ -472,9 +499,10 @@ export function ProgrammesPage() {
               }
             />
             <Input
-              label="Credits"
+              label={`Credits ${newProgrammeForm.qualificationId ? '(Derived - read-only)' : ''}`}
               type="number"
               min={1}
+              disabled={Boolean(newProgrammeForm.qualificationId)}
               placeholder="e.g. 120"
               value={newProgrammeForm.credits}
               onChange={(e) =>
@@ -484,22 +512,16 @@ export function ProgrammesPage() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Select
-              label="NQF level"
+              label={`NQF level ${newProgrammeForm.qualificationId ? '(Derived - read-only)' : ''}`}
               value={newProgrammeForm.nqfLevel}
+              disabled={Boolean(newProgrammeForm.qualificationId)}
               onChange={(e) =>
                 setNewProgrammeForm((f) => ({
                   ...f,
                   nqfLevel: e.target.value,
                 }))
               }
-              options={[
-                { value: '1', label: 'Level 1' },
-                { value: '2', label: 'Level 2' },
-                { value: '3', label: 'Level 3' },
-                { value: '4', label: 'Level 4' },
-                { value: '5', label: 'Level 5' },
-                { value: '6', label: 'Level 6' },
-              ]}
+              options={NQF_LEVEL_OPTIONS}
             />
             
             <Select
@@ -528,8 +550,9 @@ export function ProgrammesPage() {
             {PROGRAMME_POE_ARTIFACTS_NOTE}
           </p>
           <Select
-            label="SETA"
+            label={`SETA ${newProgrammeForm.qualificationId ? '(Derived - read-only)' : ''}`}
             value={newProgrammeForm.seta}
+            disabled={Boolean(newProgrammeForm.qualificationId)}
             onChange={(e) =>
               setNewProgrammeForm((f) => ({ ...f, seta: e.target.value }))
             }

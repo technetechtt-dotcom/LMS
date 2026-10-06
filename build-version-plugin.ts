@@ -3,6 +3,8 @@ import type { Plugin } from 'vite';
 export function buildVersionPlugin(): Plugin {
   const revision =
     process.env.VITE_APP_VERSION?.trim() ||
+    process.env.EXPECTED_SHA?.trim() ||
+    process.env.GITHUB_SHA?.trim() ||
     process.env.GIT_SHA?.trim() ||
     process.env.RENDER_GIT_COMMIT?.trim() ||
     'development';

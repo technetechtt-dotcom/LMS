@@ -21,6 +21,8 @@ describe('quarantine multipart security', () => {
   };
 
   beforeEach(async () => {
+    const { resetActiveUploadCount } = await import('./quarantine-upload');
+    resetActiveUploadCount();
     root = await mkdtemp(join(tmpdir(), 'skillforge-quarantine-'));
     await mkdir(join(root, 'quarantine', 'incoming'), { recursive: true });
     current = null;
@@ -210,5 +212,35 @@ describe('quarantine multipart security', () => {
     await service.discardStaged(file);
     await expect(access(file.path)).rejects.toThrow();
     await expect(writeFile(file.path, Buffer.from('reusable'))).resolves.toBeUndefined();
+  });
+
+  it('rejects uploads exceeding concurrency limit and sweeps orphaned incoming files', async () => {
+    const { cleanOrphanedQuarantineFiles } = await import('./quarantine-upload');
+    const opts = quarantineUploadOptions({ maxConcurrent: 1 });
+    const mockReq = {
+      on: jest.fn(),
+      setTimeout: jest.fn(),
+      complete: true,
+    } as unknown as import('express').Request;
+
+    const cb1 = jest.fn();
+    (opts.fileFilter as Function)(mockReq, { originalname: 'first.pdf' }, cb1);
+    expect(cb1).toHaveBeenCalledWith(null, true);
+
+    const cb2 = jest.fn();
+    (opts.fileFilter as Function)({} as never, { originalname: 'second.pdf' }, cb2);
+    expect(cb2).toHaveBeenCalledWith(expect.any(Error), false);
+
+    // Test cleaning old files
+    const incomingDir = join(root, 'quarantine', 'incoming');
+    const oldFile = join(incomingDir, 'old-abandoned-file.tmp');
+    await writeFile(oldFile, Buffer.from('abandoned'));
+    const { utimes } = await import('fs/promises');
+    const past = new Date(Date.now() - 30 * 60 * 1000);
+    await utimes(oldFile, past, past);
+
+    const cleaned = cleanOrphanedQuarantineFiles(10 * 60 * 1000, incomingDir);
+    expect(cleaned).toBeGreaterThanOrEqual(1);
+    await expect(access(oldFile)).rejects.toThrow();
   });
 });
