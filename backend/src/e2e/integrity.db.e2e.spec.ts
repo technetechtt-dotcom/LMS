@@ -250,6 +250,14 @@ describe('integrity DB E2E', () => {
       },
     });
     programmeId = programme.id;
+    await prisma.facilitatorAssignment.create({
+      data: {
+        programmeId: programme.id,
+        facilitatorId: facilitator.id,
+        organisationId: orgA,
+        isActive: true,
+      },
+    });
     const otherProg = await prisma.programme.create({
       data: {
         organisationId: orgA,
