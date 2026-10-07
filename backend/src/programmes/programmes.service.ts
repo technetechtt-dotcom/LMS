@@ -676,7 +676,7 @@ export class ProgrammesService {
     });
     if (!programme) throw new NotFoundException('Programme not found');
 
-    return this.prisma.cohort.findMany({
+    const cohorts = await this.prisma.cohort.findMany({
       where: {
         programmeId,
         organisationId,
@@ -692,6 +692,12 @@ export class ProgrammesService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return cohorts.map((c) => ({
+      ...c,
+      learnerCount: c._count?.enrollments ?? 0,
+      facilitatorCount: c._count?.facilitatorAssignments ?? 0,
+    }));
   }
 
   async createCohort(
@@ -709,15 +715,29 @@ export class ProgrammesService {
     });
     if (!programme) throw new NotFoundException('Programme not found');
 
-    return this.prisma.cohort.create({
+    const created = await this.prisma.cohort.create({
       data: {
         name: dto.name.trim(),
         programmeId,
         organisationId,
-        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
-        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+        startDate: dto.startDate ? new Date(dto.startDate) : null,
+        endDate: dto.endDate ? new Date(dto.endDate) : null,
+      },
+      include: {
+        _count: {
+          select: {
+            enrollments: { where: { deletedAt: null } },
+            facilitatorAssignments: { where: { deletedAt: null, isActive: true } },
+          },
+        },
       },
     });
+
+    return {
+      ...created,
+      learnerCount: created._count?.enrollments ?? 0,
+      facilitatorCount: created._count?.facilitatorAssignments ?? 0,
+    };
   }
 
   async updateCohort(
@@ -731,14 +751,42 @@ export class ProgrammesService {
     });
     if (!existing) throw new NotFoundException('Cohort not found');
 
-    return this.prisma.cohort.update({
+    const updateData: {
+      name?: string;
+      startDate?: Date | null;
+      endDate?: Date | null;
+      archivedAt?: Date | null;
+    } = {};
+
+    if (dto.name !== undefined) updateData.name = dto.name.trim();
+    if (dto.startDate !== undefined) {
+      updateData.startDate = dto.startDate ? new Date(dto.startDate) : null;
+    }
+    if (dto.endDate !== undefined) {
+      updateData.endDate = dto.endDate ? new Date(dto.endDate) : null;
+    }
+    if (dto.archived !== undefined) {
+      updateData.archivedAt = dto.archived ? new Date() : null;
+    }
+
+    const updated = await this.prisma.cohort.update({
       where: { id: cohortId },
-      data: {
-        name: dto.name ? dto.name.trim() : undefined,
-        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
-        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+      data: updateData,
+      include: {
+        _count: {
+          select: {
+            enrollments: { where: { deletedAt: null } },
+            facilitatorAssignments: { where: { deletedAt: null, isActive: true } },
+          },
+        },
       },
     });
+
+    return {
+      ...updated,
+      learnerCount: updated._count?.enrollments ?? 0,
+      facilitatorCount: updated._count?.facilitatorAssignments ?? 0,
+    };
   }
 
   async deleteCohort(cohortId: string, user?: AuthUser) {

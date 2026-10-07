@@ -218,16 +218,17 @@ test.describe('learner documents and messages', () => {
   test('learner settings persist preference controls', async ({ page }) => {
     await login(page, 'learner@skillforge.co.za');
     await page.goto('/settings');
-    await page.getByRole('button', { name: 'Notifications' }).click();
+    await page.getByRole('button', { name: 'Notifications', exact: true }).click();
     const assessmentPreference = page.getByRole('checkbox', {
       name: 'Assessment submissions',
     });
+    await expect(assessmentPreference).toBeVisible();
     const initial = await assessmentPreference.isChecked();
     await assessmentPreference.setChecked(!initial);
     await page.getByRole('button', { name: 'Save Preferences' }).click();
     await expect(page.getByText('Preferences saved')).toBeVisible();
     await page.reload();
-    await page.getByRole('button', { name: 'Notifications' }).click();
+    await page.getByRole('button', { name: 'Notifications', exact: true }).click();
     await expect(assessmentPreference).toBeChecked({ checked: !initial });
   });
 });
@@ -236,14 +237,16 @@ test.describe('persisted reporting workflow', () => {
   test('admin generates, downloads and deletes a persisted report', async ({ page }) => {
     await login(page, 'admin@skillforge.co.za');
     await page.goto('/reports');
+    const reportRows = page.getByRole('row').filter({ hasText: 'SETA operational snapshot' });
+    const before = await reportRows.count();
     await page.getByRole('button', { name: 'Generate New Report' }).click();
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Generate Report', exact: true }).click();
     await download;
-    const row = page.getByText('SETA operational snapshot').first();
-    await expect(row).toBeVisible();
-    await page.getByRole('button', { name: /Delete SETA operational snapshot/i }).first().click();
-    await expect(row).not.toBeVisible();
+    await expect(reportRows).toHaveCount(before + 1);
+    await reportRows.first().getByRole('button', { name: /Delete SETA operational snapshot/i }).click();
+    await expect(page.getByText('Report deleted')).toBeVisible();
+    await expect(reportRows).toHaveCount(before);
   });
 });
 

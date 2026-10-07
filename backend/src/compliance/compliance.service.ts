@@ -261,6 +261,81 @@ export class ComplianceService {
     return [...fromGateway, ...fromDocs];
   }
 
+  async scheduleSubmission(
+    body: {
+      type: string;
+      reference: string;
+      dueDate: string;
+      notes?: string;
+    },
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    if (!user?.userId) throw new BadRequestException('Authentication required');
+    if (!body.type || !body.dueDate) {
+      throw new BadRequestException('Submission type and due date are required');
+    }
+    const stamp = Date.now();
+    const doc = await this.prisma.document.create({
+      data: {
+        organisationId,
+        category: 'seta-submission',
+        name: body.reference?.trim() || `${body.type} Submission`,
+        storageKey: `scheduled/seta-submission/${organisationId}/${stamp}`,
+        url: `scheduled://seta-submission/${stamp}`,
+        metadata: {
+          type: body.type.trim(),
+          reference: body.reference?.trim() || `SETA-SUB-${stamp}`,
+          dueDate: body.dueDate,
+          notes: body.notes?.trim() || undefined,
+          status: 'upcoming',
+          submittedBy: user.email ?? 'Facilitator',
+          submittedAt: new Date().toISOString(),
+          setaResponse: 'Pending submission',
+        },
+      },
+    });
+    return this.mapSetaSubmission(doc);
+  }
+
+  async scheduleAudit(
+    body: {
+      type: string;
+      reference: string;
+      auditDate: string;
+      conductor?: string;
+      notes?: string;
+    },
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    if (!user?.userId) throw new BadRequestException('Authentication required');
+    if (!body.type || !body.auditDate) {
+      throw new BadRequestException('Audit type and date are required');
+    }
+    const stamp = Date.now();
+    const doc = await this.prisma.document.create({
+      data: {
+        organisationId,
+        category: 'seta-submission',
+        name: body.reference?.trim() || `${body.type} Audit`,
+        storageKey: `scheduled/seta-audit/${organisationId}/${stamp}`,
+        url: `scheduled://seta-audit/${stamp}`,
+        metadata: {
+          type: body.type.trim(),
+          reference: body.reference?.trim() || `AUDIT-${stamp}`,
+          dueDate: body.auditDate,
+          notes: body.notes?.trim() || undefined,
+          status: 'scheduled',
+          submittedBy: body.conductor?.trim() || user.email || 'SETA Lead Auditor',
+          submittedAt: new Date().toISOString(),
+          setaResponse: 'Audit scheduled',
+        },
+      },
+    });
+    return this.mapSetaSubmission(doc);
+  }
+
   async uploadDocument(
     file: StagedUploadFile | undefined,
     metadata: Record<string, unknown>,

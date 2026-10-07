@@ -233,7 +233,7 @@ export function LearnersPage() {
     cell: (row: LearnerTableRow) =>
     <div className="w-full max-w-xs flex items-center">
           <div className="flex-1 mr-3">
-            <ProgressBar value={row.progress} size="sm" />
+            <ProgressBar value={row.progress} size="sm" aria-label={`${row.name} progress`} />
           </div>
           <span className="text-xs font-medium text-gray-700">
             {row.progress}%

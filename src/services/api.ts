@@ -1,5 +1,6 @@
 import { apiFetchJSON, apiFetchFormData, apiFetchBlob, buildQuery } from './httpClient';
 import { getAuthPortal } from '../config/authPortal';
+import { applyRefreshedTokens } from '../config/authStorage';
 import type {
   User,
   Learner,
@@ -96,11 +97,16 @@ type RemoteLoginEnvelope = {
 };
 
 export const authService = {
-  refreshSession: async (): Promise<RemoteLoginEnvelope> =>
-    apiFetchJSON<RemoteLoginEnvelope>('/auth/refresh', {
+  refreshSession: async (): Promise<RemoteLoginEnvelope> => {
+    const session = await apiFetchJSON<RemoteLoginEnvelope>('/auth/refresh', {
       method: 'POST',
       body: JSON.stringify({}),
-    }),
+    });
+    if (session.accessToken) {
+      applyRefreshedTokens(session.accessToken, undefined, session.user);
+    }
+    return session;
+  },
 
   login: async (
     credentials: LoginCredentials,
@@ -1016,6 +1022,23 @@ export const complianceService = {
     return { data: Array.isArray(list) ? list : [], success: true };
   },
 
+  scheduleSubmission: async (body: {
+    type: string;
+    reference: string;
+    dueDate: string;
+    notes?: string;
+  }): Promise<ApiResponse<SETASubmission>> =>
+    remotePostJson<SETASubmission>('/compliance/seta-submissions', body),
+
+  scheduleAudit: async (body: {
+    type: string;
+    reference: string;
+    auditDate: string;
+    conductor?: string;
+    notes?: string;
+  }): Promise<ApiResponse<SETASubmission>> =>
+    remotePostJson<SETASubmission>('/compliance/audits/schedule', body),
+
   getAlerts: async (): Promise<ApiResponse<Array<{
     id: string;
     controlKey: string;
@@ -1343,7 +1366,7 @@ export const programmeService = {
     const raw = await apiFetchJSON<Record<string, unknown>>(
       `/programmes/${encodeURIComponent(programmeId)}/modules/reorder`,
       {
-        method: 'PUT',
+        method: 'POST',
         body: JSON.stringify({ moduleIds }),
       },
     );
@@ -1362,10 +1385,10 @@ export const programmeService = {
     },
   ): Promise<ApiResponse<Record<string, unknown>>> => {
     const raw = await apiFetchJSON<Record<string, unknown>>(
-      `/programmes/${encodeURIComponent(programmeId)}/facilitators`,
+      `/facilitator-assignments`,
       {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ programmeId, ...payload }),
       },
     );
     return { data: unwrapData(raw), success: true };
@@ -1376,7 +1399,7 @@ export const programmeService = {
     assignmentId: string,
   ): Promise<ApiResponse<Record<string, unknown>>> => {
     const raw = await apiFetchJSON<Record<string, unknown>>(
-      `/programmes/${encodeURIComponent(programmeId)}/facilitators/${encodeURIComponent(assignmentId)}`,
+      `/facilitator-assignments/${encodeURIComponent(assignmentId)}`,
       {
         method: 'DELETE',
       },
@@ -1402,19 +1425,25 @@ export const programmeService = {
       `/programmes/${encodeURIComponent(programmeId)}/cohorts`,
     );
     const list = unwrapData(raw);
+    const items = Array.isArray(list) ? (list as Array<Record<string, unknown>>) : [];
+    const mapped = items.map((c) => {
+      const counts = (c._count && typeof c._count === 'object') ? (c._count as Record<string, number>) : {};
+      return {
+        ...c,
+        id: String(c.id),
+        programmeId: String(c.programmeId),
+        name: String(c.name),
+        startDate: (c.startDate as string | null) ?? null,
+        endDate: (c.endDate as string | null) ?? null,
+        archivedAt: (c.archivedAt as string | null) ?? null,
+        learnerCount: typeof c.learnerCount === 'number' ? c.learnerCount : (counts.enrollments ?? 0),
+        facilitatorCount: typeof c.facilitatorCount === 'number' ? c.facilitatorCount : (counts.facilitatorAssignments ?? 0),
+        createdAt: String(c.createdAt || ''),
+        updatedAt: String(c.updatedAt || ''),
+      };
+    });
     return {
-      data: Array.isArray(list) ? (list as Array<{
-        id: string;
-        programmeId: string;
-        name: string;
-        startDate?: string | null;
-        endDate?: string | null;
-        archivedAt?: string | null;
-        learnerCount?: number;
-        facilitatorCount?: number;
-        createdAt: string;
-        updatedAt: string;
-      }>) : [],
+      data: mapped,
       success: true,
     };
   },
@@ -1847,8 +1876,8 @@ export type ProgrammeComplianceRow = {
   programmeCode: string;
   providerName: string;
   seta: string;
-  nqfLevel: number;
-  credits: number;
+  nqfLevel: number | null;
+  credits: number | null;
   totalEnrolments: number;
   activeEnrolments: number;
   completedEnrolments: number;

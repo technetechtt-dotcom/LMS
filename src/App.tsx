@@ -118,6 +118,7 @@ function App() {
                 <RoleGate
                   allowedRoles={[
                     'Admin',
+                    'QA Officer',
                     'Facilitator',
                     'Assessor',
                     'Moderator'
@@ -132,6 +133,7 @@ function App() {
                 <RoleGate
                   allowedRoles={[
                     'Admin',
+                    'QA Officer',
                     'Facilitator',
                     'Assessor',
                     'Moderator'

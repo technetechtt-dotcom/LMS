@@ -44,6 +44,33 @@ export class ComplianceController {
   }
 
   @Roles('ADMIN', 'QA_OFFICER', 'SETA', 'FACILITATOR')
+  @Post('seta-submissions')
+  async scheduleSubmission(
+    @Body() body: { type: string; reference: string; dueDate: string; notes?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.compliance.scheduleSubmission(body, req.user);
+    return { success: true, data };
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER', 'SETA', 'FACILITATOR')
+  @Post('audits/schedule')
+  async scheduleAudit(
+    @Body()
+    body: {
+      type: string;
+      reference: string;
+      auditDate: string;
+      conductor?: string;
+      notes?: string;
+    },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const data = await this.compliance.scheduleAudit(body, req.user);
+    return { success: true, data };
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER', 'SETA', 'FACILITATOR')
   @Post('documents')
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @ApiConsumes('multipart/form-data')

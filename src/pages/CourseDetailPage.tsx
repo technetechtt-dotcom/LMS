@@ -61,7 +61,7 @@ export function CourseDetailPage() {
     moduleMaterials[0]?.moduleId ??
     (courseId ? decodeURIComponent(courseId) : 'Module');
 
-  const moduleProgress = Math.min(100, progress + moduleMaterials.length * 5);
+  const moduleProgress = progress;
 
   if (loading) {
     return <p className="text-gray-500 p-6">Loading module…</p>;
@@ -101,7 +101,7 @@ export function CourseDetailPage() {
           <span>Overall programme</span>
           <span>{moduleProgress}%</span>
         </div>
-        <ProgressBar value={moduleProgress} size="sm" />
+        <ProgressBar value={moduleProgress} size="sm" aria-label={`${moduleTitle} progress`} />
       </Card>
 
       <Card title="Module content">

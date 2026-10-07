@@ -177,7 +177,8 @@ export function SettingsPage() {
   const persistPrefs = async () => {
     setSavingPrefs(true);
     try {
-      await authService.updatePreferences(prefs);
+      const saved = await authService.updatePreferences(prefs);
+      setPrefs({ ...DEFAULT_PREFS, ...saved.data, language: 'en' });
       toast.success('Preferences saved');
     } catch {
       toast.error('Could not save preferences');
@@ -643,8 +644,9 @@ export function SettingsPage() {
                   Email Notifications
                 </h4>
                 <div className="space-y-2">
-                  <label className="flex items-center space-x-3">
+                  <label htmlFor="notify-assessment" className="flex items-center space-x-3">
                     <input
+                    id="notify-assessment"
                     type="checkbox"
                     className="h-4 w-4 text-brand-navy rounded border-gray-300"
                     checked={prefs.notifyAssessment}

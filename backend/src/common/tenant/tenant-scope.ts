@@ -288,7 +288,10 @@ export function enrollmentActorWhere(
                   facilitatorAssignments: {
                     some: {
                       ...dateFilter,
-                      moduleId: targetModuleId,
+                      OR: [
+                        { moduleId: targetModuleId },
+                        { module: { unitStandardId: targetModuleId } },
+                      ],
                     },
                   },
                 },
@@ -362,25 +365,82 @@ export function assessmentActorWhere(
             },
           },
         },
-        // Module-scoped assignment
+        // Module-only assignment: assessments whose unit standard is the allocated module,
+        // and only enrollments in that same programme.
         {
-          enrollment: {
-            programme: {
-              modules: {
-                some: {
-                  facilitatorAssignments: {
-                    some: {
-                      ...dateFilter,
-                      cohortId: null,
-                      learnerId: null,
+          AND: [
+            {
+              unitStandard: {
+                programmeModules: {
+                  some: {
+                    facilitatorAssignments: {
+                      some: {
+                        ...dateFilter,
+                        learnerId: null,
+                        cohortId: null,
+                        moduleId: { not: null },
+                      },
                     },
                   },
                 },
               },
             },
-          },
+            {
+              enrollment: {
+                programme: {
+                  modules: {
+                    some: {
+                      facilitatorAssignments: {
+                        some: {
+                          ...dateFilter,
+                          learnerId: null,
+                          cohortId: null,
+                          moduleId: { not: null },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          ],
         },
-        // Cohort-scoped assignment
+        // Combined module + cohort assignment: the same allocation must match both
+        {
+          AND: [
+            {
+              unitStandard: {
+                programmeModules: {
+                  some: {
+                    facilitatorAssignments: {
+                      some: {
+                        ...dateFilter,
+                        learnerId: null,
+                        moduleId: { not: null },
+                        cohortId: { not: null },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            {
+              enrollment: {
+                cohort: {
+                  facilitatorAssignments: {
+                    some: {
+                      ...dateFilter,
+                      learnerId: null,
+                      moduleId: { not: null },
+                      cohortId: { not: null },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        // Cohort-only assignment (all assessments for enrollments in that cohort)
         {
           enrollment: {
             cohort: {
@@ -574,8 +634,12 @@ export function assertEnrollmentAccess(
     }
   }
   if (isFacilitatorOnly(user)) {
-    const assignments = enrollment.programme?.facilitatorAssignments;
-    if (!assignments || !Array.isArray(assignments) || assignments.length === 0) {
+    const programmeAssignments = enrollment.programme?.facilitatorAssignments ?? [];
+    const cohortAssignments = (enrollment as any).cohort?.facilitatorAssignments ?? [];
+    const learnerAssignments = (enrollment as any).learner?.learnerFacilitatorAssignments ?? [];
+    const assignments = [...programmeAssignments, ...cohortAssignments, ...learnerAssignments];
+
+    if (!assignments.length) {
       throw new ForbiddenException(`${label} access denied: not allocated to this programme`);
     }
     const now = new Date();
@@ -587,9 +651,12 @@ export function assertEnrollmentAccess(
       if (fa.cohortId && fa.cohortId !== enrollment.cohortId) return false;
       if (fa.moduleId) {
         if (!targetModuleId) return false;
+        const linkedUnitStandardId =
+          fa.module?.unitStandardId ??
+          (enrollment.programme as any)?.modules?.find((m: any) => m.id === fa.moduleId)?.unitStandardId;
         const matchesModule =
           fa.moduleId === targetModuleId ||
-          fa.module?.unitStandardId === targetModuleId;
+          linkedUnitStandardId === targetModuleId;
         if (!matchesModule) return false;
       }
       return true;

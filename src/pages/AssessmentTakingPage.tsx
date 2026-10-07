@@ -334,7 +334,13 @@ export function AssessmentTakingPage() {
             </div>
           </div>
         </div>
-        <ProgressBar value={progress} size="sm" showValue={false} className="max-w-md" />
+        <ProgressBar
+          value={progress}
+          size="sm"
+          showValue={false}
+          className="max-w-md"
+          aria-label="Assessment question progress"
+        />
       </header>
 
       {/* Navigation Strip */}

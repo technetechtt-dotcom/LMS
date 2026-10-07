@@ -74,7 +74,7 @@ export function LearnerCoursesPage() {
       programme: items[0]?.programmeName ?? programmeName,
       materialCount: items.length,
       status: 'Available' as const,
-      progress: Math.min(100, progress + items.length * 5),
+      progress: progress,
     }));
   }, [materials, programmeName, progress]);
 
@@ -151,7 +151,11 @@ export function LearnerCoursesPage() {
                   <Badge variant="neutral">{mod.materialCount} items</Badge>
                 </div>
                 <p className="text-sm text-gray-500 mb-3">{mod.programme}</p>
-                <ProgressBar value={mod.progress} size="sm" />
+                <ProgressBar
+                  value={mod.progress}
+                  size="sm"
+                  aria-label={`${mod.title} progress`}
+                />
                 <div className="flex gap-2 mt-4">
                   <Button
                     size="sm"

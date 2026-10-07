@@ -338,9 +338,11 @@ describe('Authorization Matrix & Negative Boundary Tests', () => {
       const actorWhere = enrollmentActorWhere(facilitatorUser, 'mod-test-123');
       const orClauses = (actorWhere as any).AND[0].OR;
       const facOrClauses = orClauses[0].OR;
-      const modScope = facOrClauses.find(
-        (c: any) => c.programme?.facilitatorAssignments?.some?.moduleId === 'mod-test-123',
-      );
+      const modScope = facOrClauses.find((c: any) => {
+        const some = c.programme?.facilitatorAssignments?.some;
+        return some?.OR?.some((clause: any) => clause.moduleId === 'mod-test-123'
+          || clause.module?.unitStandardId === 'mod-test-123');
+      });
       expect(modScope).toBeDefined();
     });
 

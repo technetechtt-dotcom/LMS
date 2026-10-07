@@ -50,13 +50,14 @@ export function ReportsPage() {
       setReports(
         (generated.data ?? []).map((row) => ({
           id: row.id,
-          name: row.name,
+          name: row.name || 'SETA operational snapshot',
           program:
-            programmes.find((programme) => programme.id === row.filters.programmeId)?.title ??
-            (row.filters.programmeId ? 'Filtered programme' : 'All programmes'),
+            programmes.find((programme) => programme.id === row.filters?.programmeId)?.title ??
+            (row.filters?.programmeId ? 'Filtered programme' : 'All programmes'),
           date: new Date(row.createdAt).toLocaleString(),
-          generatedBy:
-            `${row.generatedBy.firstName} ${row.generatedBy.lastName}`.trim(),
+          generatedBy: row.generatedBy
+            ? `${row.generatedBy.firstName || ''} ${row.generatedBy.lastName || ''}`.trim() || 'System'
+            : 'System',
           status: row.status === 'COMPLETED' ? 'Completed' : row.status,
         })),
       );
@@ -152,12 +153,14 @@ export function ReportsPage() {
             <Download className="h-4 w-4" />
           </button>
           <button
+        type="button"
         className="hover:text-red-500"
         aria-label={`Delete ${row.name}`}
         onClick={async () => {
           try {
             await reportsService.deleteGenerated(row.id);
             setReports((current) => current.filter((report) => report.id !== row.id));
+            await loadReports();
             toast.success('Report deleted');
           } catch {
             toast.error('Could not delete report');
@@ -286,7 +289,7 @@ export function ReportsPage() {
           </div>
         }>
         
-        <DataTable data={reports} columns={columns} keyField="id" />
+        <DataTable data={reports} columns={columns} keyField="id" pagination={false} />
       </Card>
 
       <Modal

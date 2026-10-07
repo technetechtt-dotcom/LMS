@@ -98,7 +98,7 @@ export function LearnerDashboardPage() {
             </div>
             <TrendingUp className="h-5 w-5 text-gray-500" />
           </div>
-          <ProgressBar value={progress} size="sm" />
+          <ProgressBar value={progress} size="sm" aria-label="Overall programme progress" />
         </div>
         <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
           <div className="flex justify-between items-start">

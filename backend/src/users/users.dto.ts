@@ -22,6 +22,10 @@ export class CreateUserDto {
   programmeId?: string;
 
   @IsOptional()
+  @IsUUID()
+  cohortId?: string;
+
+  @IsOptional()
   @IsObject()
   enrollmentMetadata?: Record<string, unknown>;
 }

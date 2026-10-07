@@ -89,7 +89,7 @@ export function SETAFundedProgrammesPage() {
         <div>
           <span className="font-medium text-gray-900">{row.programmeTitle}</span>
           <p className="text-xs text-gray-500">
-            {row.programmeCode} • NQF {row.nqfLevel} ({row.credits} cr)
+            {row.programmeCode} • NQF {row.nqfLevel ?? 'Unknown'} ({row.credits ?? 'Unknown'} cr)
           </p>
         </div>
       ),
@@ -109,7 +109,7 @@ export function SETAFundedProgrammesPage() {
       accessorKey: 'averageLearnerProgress' as const,
       cell: (row: ProgrammeComplianceRow) => (
         <div className="w-28 space-y-1">
-          <ProgressBar value={row.averageLearnerProgress} size="sm" />
+          <ProgressBar value={row.averageLearnerProgress} size="sm" aria-label={`${row.programmeTitle} learner progress`} />
           <p className="text-[11px] text-gray-500 text-right">{row.averageLearnerProgress}% avg</p>
         </div>
       ),
@@ -119,7 +119,7 @@ export function SETAFundedProgrammesPage() {
       accessorKey: 'programmeCompletionRate' as const,
       cell: (row: ProgrammeComplianceRow) => (
         <div className="w-28 space-y-1">
-          <ProgressBar value={row.programmeCompletionRate} size="sm" variant="brand" />
+          <ProgressBar value={row.programmeCompletionRate} size="sm" variant="brand" aria-label={`${row.programmeTitle} completion rate`} />
           <p className="text-[11px] text-gray-500 text-right">{row.programmeCompletionRate}%</p>
         </div>
       ),
@@ -132,6 +132,7 @@ export function SETAFundedProgrammesPage() {
           <ProgressBar
             value={row.regulatoryComplianceRate}
             size="sm"
+            aria-label={`${row.programmeTitle} regulatory compliance`}
             variant={
               row.status === 'Compliant'
                 ? 'success'

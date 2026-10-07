@@ -202,6 +202,7 @@ export class UsersService {
           data: {
             learnerId: account.id,
             programmeId: programme.id,
+            cohortId: dto.cohortId,
             sdioOrganisationId: organisationId,
             status: 'ENROLLED',
             startedAt: new Date(),

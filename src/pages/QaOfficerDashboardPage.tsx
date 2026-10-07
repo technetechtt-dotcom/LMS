@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   ShieldCheck,
@@ -7,6 +8,7 @@ import {
   Briefcase,
   CheckCircle,
   Upload,
+  GraduationCap,
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -49,6 +51,7 @@ type PlacementRow = {
 };
 
 export function QaOfficerDashboardPage() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState('contracts');
   const [overview, setOverview] = useState({
     unsignedContracts: 0,
@@ -220,15 +223,22 @@ export function QaOfficerDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <ShieldCheck className="h-7 w-7 text-brand-navy" />
-          QA Officer Workspace
-        </h1>
-        <p className="text-gray-600 mt-1">
-          Contract signing, learner intake &amp; vetting, and workplace placement
-          coordination.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <ShieldCheck className="h-7 w-7 text-brand-navy" />
+            QA Officer Workspace
+          </h1>
+          <p className="text-gray-600 mt-1">
+            Contract signing, learner intake &amp; vetting, workplace placement coordination, and programme completion requirements.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          leftIcon={<GraduationCap className="h-4 w-4" />}
+          onClick={() => navigate('/programmes')}>
+          Programme Completion Requirements
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

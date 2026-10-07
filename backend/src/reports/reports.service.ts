@@ -29,8 +29,8 @@ export type ProgrammeComplianceRow = {
   programmeCode: string;
   providerName: string;
   seta: string;
-  nqfLevel: number;
-  credits: number;
+  nqfLevel: number | null;
+  credits: number | null;
   totalEnrolments: number;
   activeEnrolments: number;
   completedEnrolments: number;
@@ -331,12 +331,13 @@ export class ReportsService {
           ? Math.round((completedEnrolments / totalEnrolments) * 1000) / 10
           : 0;
 
-      // Learner progress proxy based on lifecycle progression
       const progressSum = enrolments.reduce((sum, e) => {
         if (e.status === 'COMPLETED') return sum + 100;
-        if (e.status === 'TRAINING') return sum + 55;
-        if (e.status === 'ENROLLED') return sum + 15;
-        return sum + 0;
+        if (e.assessments && e.assessments.length > 0) {
+          const competent = e.assessments.filter((a) => a.result === 'C').length;
+          return sum + Math.round((competent / e.assessments.length) * 100);
+        }
+        return sum;
       }, 0);
       const averageLearnerProgress =
         totalEnrolments > 0
@@ -412,10 +413,10 @@ export class ReportsService {
         programmeId: p.id,
         programmeTitle: p.title,
         programmeCode: p.code,
-        providerName: p.organisation?.name || 'Accredited SDP',
-        seta: p.qualification?.seta || 'SETA Accredited',
-        nqfLevel: p.qualification?.nqfLevel ?? 4,
-        credits: p.qualification?.totalCredits ?? 120,
+        providerName: p.organisation?.name?.trim() || 'Unknown',
+        seta: p.qualification?.seta?.trim() || 'Unknown',
+        nqfLevel: p.qualification?.nqfLevel ?? null,
+        credits: p.qualification?.totalCredits ?? null,
         totalEnrolments,
         activeEnrolments,
         completedEnrolments,
@@ -467,7 +468,7 @@ export class ReportsService {
       calculationDate: new Date().toISOString(),
       dataSource: 'Direct transactional database verification (Prisma ORM)',
       disclaimer:
-        'Official SETA Regulatory Oversight Report. Confidential. Verified against active database records.',
+        'SETA oversight report compiled from stored records only. Missing evidence is reported as not measured or incomplete; rates are never invented. Values are not independently verified beyond the data present in this system.',
       summary: {
         totalProgrammes,
         totalEnrolments,

@@ -239,16 +239,24 @@ export class LearnersService {
           moduleId: null, // module-only assignments cannot create whole programme learners
           learnerId: null, // learner-only assignments cannot create other learners
           OR: [
-            { startDate: null, endDate: null },
-            { startDate: { lte: now }, endDate: null },
-            { startDate: null, endDate: { gte: now } },
-            { startDate: { lte: now }, endDate: { gte: now } },
+            { cohortId: null }, // programme-wide facilitator
+            ...(dto.cohortId ? [{ cohortId: dto.cohortId }] : []), // cohort-matched facilitator
+          ],
+          AND: [
+            {
+              OR: [
+                { startDate: null, endDate: null },
+                { startDate: { lte: now }, endDate: null },
+                { startDate: null, endDate: { gte: now } },
+                { startDate: { lte: now }, endDate: { gte: now } },
+              ],
+            },
           ],
         },
       });
       if (!assignment) {
         throw new ForbiddenException(
-          'Facilitators cannot create learners outside their assigned programmes',
+          'Facilitators cannot create learners outside their assigned programmes or cohorts',
         );
       }
     }
@@ -278,6 +286,7 @@ export class LearnersService {
       lastName,
       roleId: learnerRole.id,
       programmeId: dto.programmeId,
+      cohortId: dto.cohortId,
       enrollmentMetadata: {
         idNumber: dto.idNumber,
         phone: dto.phone,
@@ -297,13 +306,27 @@ export class LearnersService {
         ...enrollmentActorWhere(user),
       },
       include: {
-        learner: true,
+        learner: {
+          include: {
+            learnerFacilitatorAssignments: {
+              where: { deletedAt: null, isActive: true },
+            },
+          },
+        },
+        cohort: {
+          include: {
+            facilitatorAssignments: {
+              where: { deletedAt: null, isActive: true },
+            },
+          },
+        },
         programme: {
           include: {
             facilitatorAssignments: {
               where: { deletedAt: null, isActive: true },
               include: { module: true },
             },
+            modules: { where: { deletedAt: null }, select: { id: true, unitStandardId: true } },
           },
         },
       },
@@ -333,6 +356,41 @@ export class LearnersService {
       if (!targetAssignment) {
         throw new ForbiddenException(
           'Facilitators cannot transfer learners to unassigned programmes',
+        );
+      }
+    }
+
+    if (dto.cohortId && dto.cohortId !== existing.cohortId && isFacilitatorOnly(user)) {
+      const targetProgId = dto.programmeId ?? existing.programmeId;
+      const now = new Date();
+      const targetCohortAssignment = await this.prisma.facilitatorAssignment.findFirst({
+        where: {
+          programmeId: targetProgId,
+          facilitatorId: user?.userId,
+          organisationId,
+          isActive: true,
+          deletedAt: null,
+          moduleId: null,
+          learnerId: null,
+          OR: [
+            { cohortId: null },
+            { cohortId: dto.cohortId },
+          ],
+          AND: [
+            {
+              OR: [
+                { startDate: null, endDate: null },
+                { startDate: { lte: now }, endDate: null },
+                { startDate: null, endDate: { gte: now } },
+                { startDate: { lte: now }, endDate: { gte: now } },
+              ],
+            },
+          ],
+        },
+      });
+      if (!targetCohortAssignment) {
+        throw new ForbiddenException(
+          'Facilitators cannot transfer learners to unassigned cohorts',
         );
       }
     }
@@ -384,6 +442,7 @@ export class LearnersService {
         data: {
           metadata: meta,
           ...(dto.programmeId ? { programmeId: dto.programmeId } : {}),
+          ...(dto.cohortId !== undefined ? { cohortId: dto.cohortId || null } : {}),
         },
       });
     });

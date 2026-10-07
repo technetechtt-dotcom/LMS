@@ -75,7 +75,12 @@ function persistState(state: PersistedAuth | null) {
       localStorage.removeItem(key);
       persistAccessToken(null);
     } else {
-      persistAccessToken(state.accessToken);
+      const stored = getStoredAccessToken();
+      const incomingLooksLikeJwt = Boolean(state.accessToken && state.accessToken.split('.').length === 3);
+      const storedLooksLikeJwt = Boolean(stored && stored.split('.').length === 3);
+      persistAccessToken(
+        storedLooksLikeJwt && !incomingLooksLikeJwt ? stored : state.accessToken || stored || null,
+      );
       const profileState: Omit<PersistedAuth, 'accessToken'> = {
         user: state.user,
         linkedLearnerId: state.linkedLearnerId,
@@ -105,28 +110,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const session = persisted.accessToken
-          ? { accessToken: persisted.accessToken, user: undefined }
-          : await authService.refreshSession();
-        const token = session.accessToken;
-        if (!token) throw new Error('Session refresh failed');
-        const r = session.user
-          ? { success: true as const, data: session.user }
-          : await authService.getCurrentUser(token);
-        if (r.success && !cancelled) {
-          const fresh = r.data;
-          if (!isRoleAllowedInPortal(fresh.role)) {
+        let activeToken = getStoredAccessToken() || persisted.accessToken;
+        let freshUser: User | undefined;
+        const tokenLooksLikeJwt = Boolean(activeToken && activeToken.split('.').length === 3);
+
+        if (activeToken && tokenLooksLikeJwt) {
+          try {
+            const r = await authService.getCurrentUser(activeToken);
+            if (r.success) {
+              freshUser = r.data;
+              activeToken = getStoredAccessToken() || activeToken;
+            }
+          } catch {
+            // Access token rejected; rotate via the HttpOnly refresh cookie below.
+          }
+        }
+
+        if (!freshUser) {
+          const session = await authService.refreshSession();
+          if (session.accessToken) {
+            activeToken = session.accessToken;
+            if (session.user) {
+              freshUser = session.user;
+            } else {
+              const r = await authService.getCurrentUser(activeToken);
+              if (r.success) {
+                freshUser = r.data;
+                activeToken = getStoredAccessToken() || activeToken;
+              }
+            }
+          }
+        }
+
+        if (freshUser && activeToken && !cancelled) {
+          if (!isRoleAllowedInPortal(freshUser.role)) {
             throw new Error('Session is not valid for this portal');
           }
-          const learnerId = linkedLearnerFromUser(fresh);
-          setUser(fresh);
-          setAccessToken(token);
+          const learnerId = linkedLearnerFromUser(freshUser);
+          setUser(freshUser);
+          setAccessToken(activeToken);
           setLinkedLearnerId(learnerId);
           persistState({
-            user: fresh,
-            accessToken: token,
+            user: freshUser,
+            accessToken: activeToken,
             linkedLearnerId: learnerId,
           });
+        } else if (!cancelled) {
+          throw new Error('Session verification failed');
         }
       } catch {
         if (!cancelled) {

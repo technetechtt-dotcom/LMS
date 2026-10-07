@@ -173,6 +173,76 @@ export function FacilitatorSETACompliancePage() {
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  const [scheduleSubmissionOpen, setScheduleSubmissionOpen] = useState(false);
+  const [submissionForm, setSubmissionForm] = useState({
+    type: 'Learner Registration Batch',
+    reference: '',
+    dueDate: '',
+    notes: '',
+  });
+  const [schedulingSubmission, setSchedulingSubmission] = useState(false);
+
+  const [scheduleAuditOpen, setScheduleAuditOpen] = useState(false);
+  const [auditForm, setAuditForm] = useState({
+    type: 'SETA Verification Visit',
+    reference: '',
+    auditDate: '',
+    conductor: '',
+    notes: '',
+  });
+  const [schedulingAudit, setSchedulingAudit] = useState(false);
+
+  const handleScheduleSubmission = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!submissionForm.type || !submissionForm.dueDate) {
+      toast.error('Submission type and due date are required');
+      return;
+    }
+    setSchedulingSubmission(true);
+    try {
+      await complianceService.scheduleSubmission(submissionForm);
+      toast.success('SETA submission scheduled successfully');
+      setScheduleSubmissionOpen(false);
+      setSubmissionForm({
+        type: 'Learner Registration Batch',
+        reference: '',
+        dueDate: '',
+        notes: '',
+      });
+      await loadCompliance();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to schedule submission');
+    } finally {
+      setSchedulingSubmission(false);
+    }
+  };
+
+  const handleScheduleAudit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!auditForm.type || !auditForm.auditDate) {
+      toast.error('Audit type and date are required');
+      return;
+    }
+    setSchedulingAudit(true);
+    try {
+      await complianceService.scheduleAudit(auditForm);
+      toast.success('Compliance audit scheduled successfully');
+      setScheduleAuditOpen(false);
+      setAuditForm({
+        type: 'SETA Verification Visit',
+        reference: '',
+        auditDate: '',
+        conductor: '',
+        notes: '',
+      });
+      await loadCompliance();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to schedule audit');
+    } finally {
+      setSchedulingAudit(false);
+    }
+  };
+
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'documents', label: 'Documents' },
@@ -895,8 +965,7 @@ export function FacilitatorSETACompliancePage() {
             <Button
             leftIcon={<Calendar className="h-4 w-4" />}
             onClick={() => {
-              setActiveTab('submissions');
-              toast.info('Review upcoming SETA submissions below');
+              setScheduleSubmissionOpen(true);
             }}>
             
               Schedule Submission
@@ -1027,8 +1096,7 @@ export function FacilitatorSETACompliancePage() {
             <Button
             leftIcon={<Calendar className="h-4 w-4" />}
             onClick={() => {
-              setActiveTab('audits');
-              toast.info('Review audit and verification details below');
+              setScheduleAuditOpen(true);
             }}>
             
               Schedule Audit
@@ -1237,6 +1305,128 @@ export function FacilitatorSETACompliancePage() {
             <p className="text-xs text-gray-500">Selected: {uploadFile.name}</p>
           )}
         </div>
+      </Modal>
+
+      {/* Schedule SETA Submission Modal */}
+      <Modal
+        isOpen={scheduleSubmissionOpen}
+        onClose={() => {
+          if (schedulingSubmission) return;
+          setScheduleSubmissionOpen(false);
+        }}
+        title="Schedule SETA Submission"
+        footer={
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setScheduleSubmissionOpen(false)}
+              disabled={schedulingSubmission}>
+              Cancel
+            </Button>
+            <Button
+              onClick={(e) => void handleScheduleSubmission(e)}
+              isLoading={schedulingSubmission}>
+              Schedule Submission
+            </Button>
+          </div>
+        }>
+        <form onSubmit={(e) => void handleScheduleSubmission(e)} className="space-y-4">
+          <Select
+            label="Submission Type"
+            value={submissionForm.type}
+            onChange={(e) => setSubmissionForm((f) => ({ ...f, type: e.target.value }))}
+            options={[
+              { value: 'Learner Registration Batch', label: 'Learner Registration Batch' },
+              { value: 'Assessment Results Upload', label: 'Assessment Results Upload' },
+              { value: 'Moderation Sample Pack', label: 'Moderation Sample Pack' },
+              { value: 'Quarterly Performance Report', label: 'Quarterly Performance Report' },
+              { value: 'Final Verification Pack', label: 'Final Verification Pack' },
+            ]}
+          />
+          <Input
+            label="Reference / Batch ID"
+            value={submissionForm.reference}
+            onChange={(e) => setSubmissionForm((f) => ({ ...f, reference: e.target.value }))}
+            placeholder="e.g. SETA-REG-2026-001"
+          />
+          <Input
+            label="Due Date"
+            type="date"
+            value={submissionForm.dueDate}
+            onChange={(e) => setSubmissionForm((f) => ({ ...f, dueDate: e.target.value }))}
+            required
+          />
+          <Input
+            label="Notes / Scope"
+            value={submissionForm.notes}
+            onChange={(e) => setSubmissionForm((f) => ({ ...f, notes: e.target.value }))}
+            placeholder="e.g. Cohort 2026-A learners registered on NLRD"
+          />
+        </form>
+      </Modal>
+
+      {/* Schedule Audit & Verification Modal */}
+      <Modal
+        isOpen={scheduleAuditOpen}
+        onClose={() => {
+          if (schedulingAudit) return;
+          setScheduleAuditOpen(false);
+        }}
+        title="Schedule Compliance Audit & Verification"
+        footer={
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setScheduleAuditOpen(false)}
+              disabled={schedulingAudit}>
+              Cancel
+            </Button>
+            <Button
+              onClick={(e) => void handleScheduleAudit(e)}
+              isLoading={schedulingAudit}>
+              Schedule Audit
+            </Button>
+          </div>
+        }>
+        <form onSubmit={(e) => void handleScheduleAudit(e)} className="space-y-4">
+          <Select
+            label="Audit Type"
+            value={auditForm.type}
+            onChange={(e) => setAuditForm((f) => ({ ...f, type: e.target.value }))}
+            options={[
+              { value: 'SETA Verification Visit', label: 'SETA Verification Visit' },
+              { value: 'Internal Quality Audit', label: 'Internal Quality Audit' },
+              { value: 'External Moderation Audit', label: 'External Moderation Audit' },
+              { value: 'Workplace Site Inspection', label: 'Workplace Site Inspection' },
+              { value: 'Annual Accreditation Review', label: 'Annual Accreditation Review' },
+            ]}
+          />
+          <Input
+            label="Reference"
+            value={auditForm.reference}
+            onChange={(e) => setAuditForm((f) => ({ ...f, reference: e.target.value }))}
+            placeholder="e.g. AUDIT-2026-Q4"
+          />
+          <Input
+            label="Audit Date"
+            type="date"
+            value={auditForm.auditDate}
+            onChange={(e) => setAuditForm((f) => ({ ...f, auditDate: e.target.value }))}
+            required
+          />
+          <Input
+            label="Lead Auditor / Conductor"
+            value={auditForm.conductor}
+            onChange={(e) => setAuditForm((f) => ({ ...f, conductor: e.target.value }))}
+            placeholder="e.g. SETA Quality Assurance Partner"
+          />
+          <Input
+            label="Focus Areas / Notes"
+            value={auditForm.notes}
+            onChange={(e) => setAuditForm((f) => ({ ...f, notes: e.target.value }))}
+            placeholder="e.g. Learner POEs, Assessment Practices, Facilitator Qualifications"
+          />
+        </form>
       </Modal>
     </>
   );

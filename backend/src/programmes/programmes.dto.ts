@@ -11,6 +11,7 @@ import {
   IsString,
   IsUUID,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -221,12 +222,14 @@ export class CreateCohortDto {
   name!: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v !== null)
   @IsDateString()
-  startDate?: string;
+  startDate?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, v) => v !== null)
   @IsDateString()
-  endDate?: string;
+  endDate?: string | null;
 }
 
 export class UpdateCohortDto {
@@ -235,10 +238,17 @@ export class UpdateCohortDto {
   name?: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v !== null)
   @IsDateString()
-  startDate?: string;
+  startDate?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, v) => v !== null)
   @IsDateString()
-  endDate?: string;
+  endDate?: string | null;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  archived?: boolean;
 }

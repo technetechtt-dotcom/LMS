@@ -441,6 +441,7 @@ export function LearnerProfilePage() {
                 value={learnerRecord.progress}
                 showValue={false}
                 size="sm"
+                aria-label="Programme progress"
               />
             </div>
             <Button

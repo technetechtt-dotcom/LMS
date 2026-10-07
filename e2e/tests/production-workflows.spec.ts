@@ -516,6 +516,62 @@ test.describe('production workflow acceptance', () => {
     });
     expect(persisted.ok()).toBeTruthy();
     expect(persisted.headers()['content-type']).toContain('text/csv');
+
+    const del = await api.delete(`/reports/generated/${snapshot.id}`, {
+      headers: headers('admin'),
+    });
+    expect(del.ok()).toBeTruthy();
+  });
+
+  test('programme module reorder, facilitator assignment routes, and cohort archive', async () => {
+    const detail = dataOf(await jsonOk(await api.get(`/programmes/${programme.id}`, {
+      headers: headers('admin'),
+    })));
+    const moduleIds = (detail.modules ?? []).map((module: Json) => String(module.id)).filter(Boolean);
+    if (moduleIds.length >= 2) {
+      const reordered = [...moduleIds.slice(1), moduleIds[0]];
+      await jsonOk(await api.post(`/programmes/${programme.id}/modules/reorder`, {
+        headers: headers('admin'),
+        data: { moduleIds: reordered },
+      }));
+    }
+
+    const assignment = dataOf(await jsonOk(await api.post('/facilitator-assignments', {
+      headers: headers('admin'),
+      data: {
+        programmeId: programme.id,
+        facilitatorId: users.get('facilitator')!.id,
+      },
+    })));
+    expect(assignment.id).toBeTruthy();
+    await jsonOk(await api.delete(`/facilitator-assignments/${assignment.id}`, {
+      headers: headers('admin'),
+    }));
+
+    const nested = dataOf(await jsonOk(await api.post(`/programmes/${programme.id}/facilitators`, {
+      headers: headers('admin'),
+      data: { facilitatorId: users.get('facilitator')!.id },
+    })));
+    await jsonOk(await api.delete(
+      `/programmes/${programme.id}/facilitators/${nested.id}`,
+      { headers: headers('admin') },
+    ));
+
+    const cohort = dataOf(await jsonOk(await api.post(`/programmes/${programme.id}/cohorts`, {
+      headers: headers('admin'),
+      data: { name: `E2E Cohort ${Date.now()}`, startDate: null, endDate: null },
+    })));
+    expect(cohort.learnerCount ?? 0).toBe(0);
+    const archived = dataOf(await jsonOk(await api.patch(`/cohorts/${cohort.id}`, {
+      headers: headers('admin'),
+      data: { archived: true, startDate: null },
+    })));
+    expect(archived.archivedAt).toBeTruthy();
+    const restored = dataOf(await jsonOk(await api.patch(`/cohorts/${cohort.id}`, {
+      headers: headers('admin'),
+      data: { archived: false },
+    })));
+    expect(restored.archivedAt).toBeFalsy();
   });
 
   test('Ops organisation, programme and user provisioning', async () => {

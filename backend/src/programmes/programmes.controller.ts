@@ -140,6 +140,17 @@ export class ProgrammesController {
 
   @AdminOnlyEndpoint()
   @Roles('ADMIN')
+  @Put('programmes/:id/modules/reorder')
+  reorderModulesPut(
+    @Param('id') id: string,
+    @Body() dto: ReorderModulesDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.reorderModules(id, dto, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
   @Patch('programmes/:id/status')
   updateStatus(
     @Param('id') id: string,
@@ -159,6 +170,20 @@ export class ProgrammesController {
     return this.programmes.assignFacilitator(dto, req.user);
   }
 
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Post('programmes/:id/facilitators')
+  assignFacilitatorToProgramme(
+    @Param('id') programmeId: string,
+    @Body() dto: Partial<FacilitatorAssignmentDto>,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.assignFacilitator(
+      { ...dto, programmeId: dto.programmeId ?? programmeId } as FacilitatorAssignmentDto,
+      req.user,
+    );
+  }
+
   @Roles('ADMIN', 'FACILITATOR', 'QA_OFFICER')
   @Get('programmes/:id/facilitator-assignments')
   listFacilitatorAssignments(
@@ -176,6 +201,16 @@ export class ProgrammesController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.programmes.removeFacilitatorAssignment(id, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Delete('programmes/:id/facilitators/:assignmentId')
+  removeFacilitatorAssignmentFromProgramme(
+    @Param('assignmentId') assignmentId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.removeFacilitatorAssignment(assignmentId, req.user);
   }
 
   @Roles('ADMIN', 'FACILITATOR', 'QA_OFFICER', 'SETA', 'MENTOR')

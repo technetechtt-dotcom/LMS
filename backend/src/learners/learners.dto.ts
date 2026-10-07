@@ -42,6 +42,10 @@ export class CreateLearnerDto {
   @IsOptional()
   @IsNumber()
   progress?: number;
+
+  @IsOptional()
+  @IsUUID()
+  cohortId?: string;
 }
 
 export class UpdateLearnerDto {
@@ -76,6 +80,10 @@ export class UpdateLearnerDto {
   @IsOptional()
   @IsUUID()
   programmeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  cohortId?: string;
 
   @IsOptional()
   @IsString()

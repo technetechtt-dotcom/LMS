@@ -134,13 +134,27 @@ export class AssessmentInstancesService {
       include: {
         enrollment: {
           include: {
-            learner: true,
+            learner: {
+              include: {
+                learnerFacilitatorAssignments: {
+                  where: { deletedAt: null, isActive: true },
+                },
+              },
+            },
+            cohort: {
+              include: {
+                facilitatorAssignments: {
+                  where: { deletedAt: null, isActive: true },
+                },
+              },
+            },
             programme: {
               include: {
                 facilitatorAssignments: {
                   where: { deletedAt: null, isActive: true },
                   include: { module: true },
                 },
+                modules: { where: { deletedAt: null }, select: { id: true, unitStandardId: true } },
               },
             },
           },
@@ -414,7 +428,28 @@ export class AssessmentInstancesService {
         id,
         enrollment: enrollmentOrgWhere(requireOrganisationId(user)),
       },
-      include: { assessment: { select: { assessorId: true, unitStandardId: true } } },
+      include: {
+        enrollment: {
+          include: {
+            learner: true,
+            programme: {
+              include: {
+                facilitatorAssignments: {
+                  where: { deletedAt: null, isActive: true },
+                  include: { module: true },
+                },
+                modules: true,
+              },
+            },
+            cohort: {
+              include: {
+                facilitatorAssignments: { where: { deletedAt: null, isActive: true } },
+              },
+            },
+          },
+        },
+        assessment: { select: { assessorId: true, unitStandardId: true } },
+      },
     });
     if (!row) throw new NotFoundException('Submission not found');
     const status = row.status;
@@ -426,6 +461,9 @@ export class AssessmentInstancesService {
         throw new ForbiddenException(
           'Only facilitators may perform initial marking at this stage',
         );
+      }
+      if (!isAdmin) {
+        assertEnrollmentAccess(user, row.enrollment, 'Submission', row.assessment.unitStandardId);
       }
     } else if (['facilitator_graded', 'assessor_review'].includes(status)) {
       if (!canAssessorReview(user)) {
@@ -677,6 +715,28 @@ export class AssessmentInstancesService {
         id,
         enrollment: enrollmentOrgWhere(requireOrganisationId(user)),
       },
+      include: {
+        enrollment: {
+          include: {
+            learner: true,
+            programme: {
+              include: {
+                facilitatorAssignments: {
+                  where: { deletedAt: null, isActive: true },
+                  include: { module: true },
+                },
+                modules: true,
+              },
+            },
+            cohort: {
+              include: {
+                facilitatorAssignments: { where: { deletedAt: null, isActive: true } },
+              },
+            },
+          },
+        },
+        assessment: { select: { assessorId: true, unitStandardId: true } },
+      },
     });
     if (!row) throw new NotFoundException('Submission not found');
     if (!['facilitator_grading', 'grading'].includes(row.status)) {
@@ -688,6 +748,11 @@ export class AssessmentInstancesService {
       throw new ForbiddenException(
         'Only facilitators may complete initial marking',
       );
+    }
+    const isAdmin =
+      isPlatformAdmin(user) || Boolean(user?.roleCodes?.includes('ADMIN'));
+    if (!isAdmin) {
+      assertEnrollmentAccess(user, row.enrollment, 'Submission', row.assessment.unitStandardId);
     }
 
     const updated = await this.prisma.assessmentSubmission.update({

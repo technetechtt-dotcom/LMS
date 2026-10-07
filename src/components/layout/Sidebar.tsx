@@ -153,6 +153,11 @@ export function Sidebar({
           path: '/qa-dashboard'
         },
         {
+          name: 'Programmes',
+          icon: <GraduationCap size={20} />,
+          path: '/programmes'
+        },
+        {
           name: 'Compliance',
           icon: <ShieldCheck size={20} />,
           path: '/compliance'

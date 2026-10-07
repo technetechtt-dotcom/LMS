@@ -46,10 +46,10 @@ export function mapEnrollmentToLearnerApi(
   const started = e.startedAt ?? e.createdAt;
 
   const progressVal =
-    typeof meta.progress === 'number'
-      ? meta.progress
-      : e.status === 'COMPLETED'
-        ? 100
+    e.status === 'COMPLETED'
+      ? 100
+      : assessment && assessment.total > 0
+        ? Math.round((assessment.competent / assessment.total) * 100)
         : 0;
 
   const isManualFlag = meta.atRisk === true;
