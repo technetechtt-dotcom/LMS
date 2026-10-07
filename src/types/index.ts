@@ -168,6 +168,10 @@ export interface Learner extends BaseEntity {
   enrollmentDate: string;
   expectedCompletionDate: string;
   status: 'active' | 'completed' | 'withdrawn' | 'at_risk';
+  academicRisk?: 'low' | 'medium' | 'high' | string;
+  isManualRiskFlag?: boolean;
+  riskFactors?: string[];
+  riskSource?: 'manual_flag' | 'calculated_evidence' | 'nominal';
   lastActivity: string;
   lastActivityDescription: string;
   avatarUrl?: string;
@@ -196,7 +200,7 @@ export type ProgrammeKind = 'SKILLS_PROGRAMME' | 'OCCUPATIONAL_PROGRAMME';
 
 /** Fields collected in the “New programme” flow (UI + reference API). */
 export interface CreateProgrammePayload {
-  qualificationId?: string;
+  qualificationId: string;
   title: string;
   code: string;
   programmeKind: ProgrammeKind;

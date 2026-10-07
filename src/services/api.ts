@@ -1383,6 +1383,125 @@ export const programmeService = {
     );
     return { data: unwrapData(raw), success: true };
   },
+
+  getCohorts: async (
+    programmeId: string,
+  ): Promise<ApiResponse<Array<{
+    id: string;
+    programmeId: string;
+    name: string;
+    startDate?: string | null;
+    endDate?: string | null;
+    archivedAt?: string | null;
+    learnerCount?: number;
+    facilitatorCount?: number;
+    createdAt: string;
+    updatedAt: string;
+  }>>> => {
+    const raw = await apiFetchJSON<unknown>(
+      `/programmes/${encodeURIComponent(programmeId)}/cohorts`,
+    );
+    const list = unwrapData(raw);
+    return {
+      data: Array.isArray(list) ? (list as Array<{
+        id: string;
+        programmeId: string;
+        name: string;
+        startDate?: string | null;
+        endDate?: string | null;
+        archivedAt?: string | null;
+        learnerCount?: number;
+        facilitatorCount?: number;
+        createdAt: string;
+        updatedAt: string;
+      }>) : [],
+      success: true,
+    };
+  },
+
+  createCohort: async (
+    programmeId: string,
+    payload: {
+      name: string;
+      startDate?: string;
+      endDate?: string;
+    },
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
+      `/programmes/${encodeURIComponent(programmeId)}/cohorts`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    );
+    return { data: unwrapData(raw), success: true };
+  },
+
+  updateCohort: async (
+    cohortId: string,
+    payload: {
+      name?: string;
+      startDate?: string | null;
+      endDate?: string | null;
+      archived?: boolean;
+    },
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
+      `/cohorts/${encodeURIComponent(cohortId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      },
+    );
+    return { data: unwrapData(raw), success: true };
+  },
+
+  deleteCohort: async (
+    cohortId: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
+      `/cohorts/${encodeURIComponent(cohortId)}`,
+      {
+        method: 'DELETE',
+      },
+    );
+    return { data: unwrapData(raw), success: true };
+  },
+
+  getCompletionRequirements: async (
+    programmeId: string,
+  ): Promise<ApiResponse<{
+    requireAllAssessmentsC: boolean;
+    requireWorkbook: boolean;
+    requireSummative: boolean;
+    minVerifiedWorkplaceHours: number;
+    minAttendanceRatePercent: number;
+  }>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
+      `/programmes/${encodeURIComponent(programmeId)}/completion-requirements`,
+    );
+    return { data: unwrapData(raw) as any, success: true };
+  },
+
+  updateCompletionRequirements: async (
+    programmeId: string,
+    payload: {
+      requireAllAssessmentsC?: boolean;
+      requireWorkbook?: boolean;
+      requireSummative?: boolean;
+      minVerifiedWorkplaceHours?: number;
+      minAttendanceRatePercent?: number;
+    },
+  ): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<Record<string, unknown>>(
+      `/programmes/${encodeURIComponent(programmeId)}/completion-requirements`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      },
+    );
+    return { data: unwrapData(raw), success: true };
+  },
 };
 
 /** Row shape from GET /users (Prisma user + memberships + enrollments). */
@@ -1736,7 +1855,7 @@ export type ProgrammeComplianceRow = {
   programmeCompletionRate: number;
   averageLearnerProgress: number;
   regulatoryComplianceRate: number;
-  status: 'Compliant' | 'Review Required' | 'Non-Compliant';
+  status: 'Compliant' | 'Review Required' | 'Non-Compliant' | 'Incomplete (Missing Evidence)' | 'Not Measured';
   metrics: {
     verifiedDocumentsRate: number;
     attendanceRate: number;

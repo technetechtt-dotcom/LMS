@@ -318,4 +318,53 @@ describe('Authorization Matrix & Negative Boundary Tests', () => {
       expect(envSha.length).toBeGreaterThanOrEqual(7);
     });
   });
+
+  describe('12. Granular Facilitator Allocation Scopes (Module, Cohort, Learner)', () => {
+    it('enrollmentActorWhere without targetModuleId does not grant access to module-scoped assignments', () => {
+      const actorWhere = enrollmentActorWhere(facilitatorUser);
+      const orClauses = (actorWhere as any).AND[0].OR;
+      const facOrClauses = orClauses[0].OR;
+      // Should have full-programme, cohort, and learner clauses, but NOT module clause
+      const fullProg = facOrClauses.find((c: any) => c.programme?.facilitatorAssignments?.some?.moduleId === null);
+      const cohortScope = facOrClauses.find((c: any) => c.cohort?.facilitatorAssignments);
+      const learnerScope = facOrClauses.find((c: any) => c.learner?.learnerFacilitatorAssignments);
+      expect(fullProg).toBeDefined();
+      expect(cohortScope).toBeDefined();
+      expect(learnerScope).toBeDefined();
+      expect(facOrClauses.find((c: any) => c.programme?.facilitatorAssignments?.some?.moduleId === 'mod-1')).toBeUndefined();
+    });
+
+    it('enrollmentActorWhere with targetModuleId includes module-scoped assignment', () => {
+      const actorWhere = enrollmentActorWhere(facilitatorUser, 'mod-test-123');
+      const orClauses = (actorWhere as any).AND[0].OR;
+      const facOrClauses = orClauses[0].OR;
+      const modScope = facOrClauses.find(
+        (c: any) => c.programme?.facilitatorAssignments?.some?.moduleId === 'mod-test-123',
+      );
+      expect(modScope).toBeDefined();
+    });
+
+    it('assertEnrollmentAccess matches unitStandardId via module.unitStandardId', () => {
+      const enrollmentWithModuleUS = {
+        learnerId: 'learner-aaa',
+        programme: {
+          facilitatorAssignments: [
+            {
+              facilitatorId: 'fac-1',
+              moduleId: 'mod-1',
+              module: { id: 'mod-1', unitStandardId: 'us-101' },
+              isActive: true,
+            },
+          ],
+        },
+      };
+      // Facilitator assignment has module with unitStandardId 'us-101'
+      expect(() =>
+        assertEnrollmentAccess(facilitatorUser, enrollmentWithModuleUS, 'Assessment', 'us-101'),
+      ).not.toThrow();
+      expect(() =>
+        assertEnrollmentAccess(facilitatorUser, enrollmentWithModuleUS, 'Assessment', 'us-999'),
+      ).toThrow(ForbiddenException);
+    });
+  });
 });

@@ -80,4 +80,93 @@ describe('HTTP authorization matrix (guard-level E2E)', () => {
     expect(runRolesGuard(['ADMIN', 'QA_OFFICER', 'SETA'], ['QA_OFFICER'])).toBe(true);
     expect(runRolesGuard(['ADMIN', 'QA_OFFICER', 'SETA'], ['SETA'])).toBe(true);
   });
+
+  describe('Eight-role same-tenant permitted and denied matrix', () => {
+    const allRoles = [
+      'ADMIN',
+      'QA_OFFICER',
+      'FACILITATOR',
+      'LEARNER',
+      'ASSESSOR',
+      'MODERATOR',
+      'SETA',
+      'MENTOR',
+    ];
+
+    it('Admin operations: only ADMIN and PLATFORM_ADMIN permitted', () => {
+      for (const role of allRoles) {
+        if (role === 'ADMIN') {
+          expect(runRolesGuard(['ADMIN'], [role])).toBe(true);
+        } else {
+          expect(() => runRolesGuard(['ADMIN'], [role])).toThrow(ForbiddenException);
+        }
+      }
+    });
+
+    it('Quality and QA operations: ADMIN and QA_OFFICER permitted, others denied', () => {
+      const allowed = new Set(['ADMIN', 'QA_OFFICER']);
+      for (const role of allRoles) {
+        if (allowed.has(role)) {
+          expect(runRolesGuard(['ADMIN', 'QA_OFFICER'], [role])).toBe(true);
+        } else {
+          expect(() => runRolesGuard(['ADMIN', 'QA_OFFICER'], [role])).toThrow(ForbiddenException);
+        }
+      }
+    });
+
+    it('Facilitator teaching & attendance operations: ADMIN and FACILITATOR permitted, others denied', () => {
+      const allowed = new Set(['ADMIN', 'FACILITATOR']);
+      for (const role of allRoles) {
+        if (allowed.has(role)) {
+          expect(runRolesGuard(['ADMIN', 'FACILITATOR'], [role])).toBe(true);
+        } else {
+          expect(() => runRolesGuard(['ADMIN', 'FACILITATOR'], [role])).toThrow(ForbiddenException);
+        }
+      }
+    });
+
+    it('Assessor grading operations: ADMIN and ASSESSOR permitted, others denied', () => {
+      const allowed = new Set(['ADMIN', 'ASSESSOR']);
+      for (const role of allRoles) {
+        if (allowed.has(role)) {
+          expect(runRolesGuard(['ADMIN', 'ASSESSOR'], [role])).toBe(true);
+        } else {
+          expect(() => runRolesGuard(['ADMIN', 'ASSESSOR'], [role])).toThrow(ForbiddenException);
+        }
+      }
+    });
+
+    it('Moderation operations: ADMIN, QA_OFFICER and MODERATOR permitted, others denied', () => {
+      const allowed = new Set(['ADMIN', 'QA_OFFICER', 'MODERATOR']);
+      for (const role of allRoles) {
+        if (allowed.has(role)) {
+          expect(runRolesGuard(['ADMIN', 'QA_OFFICER', 'MODERATOR'], [role])).toBe(true);
+        } else {
+          expect(() => runRolesGuard(['ADMIN', 'QA_OFFICER', 'MODERATOR'], [role])).toThrow(ForbiddenException);
+        }
+      }
+    });
+
+    it('Workplace mentor operations: ADMIN and MENTOR permitted, others denied', () => {
+      const allowed = new Set(['ADMIN', 'MENTOR']);
+      for (const role of allRoles) {
+        if (allowed.has(role)) {
+          expect(runRolesGuard(['ADMIN', 'MENTOR'], [role])).toBe(true);
+        } else {
+          expect(() => runRolesGuard(['ADMIN', 'MENTOR'], [role])).toThrow(ForbiddenException);
+        }
+      }
+    });
+
+    it('SETA oversight reports: ADMIN, QA_OFFICER and SETA permitted, others denied', () => {
+      const allowed = new Set(['ADMIN', 'QA_OFFICER', 'SETA']);
+      for (const role of allRoles) {
+        if (allowed.has(role)) {
+          expect(runRolesGuard(['ADMIN', 'QA_OFFICER', 'SETA'], [role])).toBe(true);
+        } else {
+          expect(() => runRolesGuard(['ADMIN', 'QA_OFFICER', 'SETA'], [role])).toThrow(ForbiddenException);
+        }
+      }
+    });
+  });
 });

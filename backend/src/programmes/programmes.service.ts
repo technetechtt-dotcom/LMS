@@ -6,11 +6,13 @@ import {
 import { Prisma, ProgrammeStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  CreateCohortDto,
   CreateProgrammeDto,
   CreateProgrammeModuleDto,
   FacilitatorAssignmentDto,
   ProgrammeCompletionRequirementsDto,
   ReorderModulesDto,
+  UpdateCohortDto,
   UpdateProgrammeDetailsDto,
   UpdateProgrammeModuleDto,
   UpdateProgrammeStatusDto,
@@ -135,6 +137,17 @@ export class ProgrammesService {
       throw new NotFoundException({
         field: 'qualificationId',
         message: 'Selected qualification not found',
+      });
+    }
+
+    if (dto.nqfLevel !== undefined || dto.credits !== undefined || dto.seta !== undefined) {
+      await this.prisma.qualification.update({
+        where: { id: dto.qualificationId },
+        data: {
+          ...(dto.nqfLevel !== undefined ? { nqfLevel: dto.nqfLevel } : {}),
+          ...(dto.credits !== undefined ? { totalCredits: dto.credits } : {}),
+          ...(dto.seta !== undefined && dto.seta.trim() ? { seta: dto.seta.trim() } : {}),
+        },
       });
     }
 
@@ -441,7 +454,12 @@ export class ProgrammesService {
   async getCompletionRequirements(id: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const row = await this.prisma.programme.findFirst({
-      where: { id, deletedAt: null, organisationId },
+      where: {
+        id,
+        deletedAt: null,
+        organisationId,
+        ...programmeActorWhere(user),
+      },
       select: { id: true, metadata: true },
     });
     if (!row) throw new NotFoundException('Programme not found');
@@ -588,6 +606,17 @@ export class ProgrammesService {
 
   async listFacilitatorAssignments(programmeId: string, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
+    const programme = await this.prisma.programme.findFirst({
+      where: {
+        id: programmeId,
+        deletedAt: null,
+        organisationId,
+        ...programmeActorWhere(user),
+      },
+      select: { id: true },
+    });
+    if (!programme) throw new NotFoundException('Programme not found');
+
     return this.prisma.facilitatorAssignment.findMany({
       where: {
         programmeId,
@@ -632,5 +661,96 @@ export class ProgrammesService {
     });
 
     return updated;
+  }
+
+  async listCohorts(programmeId: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const programme = await this.prisma.programme.findFirst({
+      where: {
+        id: programmeId,
+        organisationId,
+        deletedAt: null,
+        ...programmeActorWhere(user),
+      },
+      select: { id: true },
+    });
+    if (!programme) throw new NotFoundException('Programme not found');
+
+    return this.prisma.cohort.findMany({
+      where: {
+        programmeId,
+        organisationId,
+        deletedAt: null,
+      },
+      include: {
+        _count: {
+          select: {
+            enrollments: { where: { deletedAt: null } },
+            facilitatorAssignments: { where: { deletedAt: null, isActive: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createCohort(
+    programmeId: string,
+    dto: CreateCohortDto,
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    const programme = await this.prisma.programme.findFirst({
+      where: {
+        id: programmeId,
+        organisationId,
+        deletedAt: null,
+      },
+    });
+    if (!programme) throw new NotFoundException('Programme not found');
+
+    return this.prisma.cohort.create({
+      data: {
+        name: dto.name.trim(),
+        programmeId,
+        organisationId,
+        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
+        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+      },
+    });
+  }
+
+  async updateCohort(
+    cohortId: string,
+    dto: UpdateCohortDto,
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    const existing = await this.prisma.cohort.findFirst({
+      where: { id: cohortId, organisationId, deletedAt: null },
+    });
+    if (!existing) throw new NotFoundException('Cohort not found');
+
+    return this.prisma.cohort.update({
+      where: { id: cohortId },
+      data: {
+        name: dto.name ? dto.name.trim() : undefined,
+        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
+        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+      },
+    });
+  }
+
+  async deleteCohort(cohortId: string, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const existing = await this.prisma.cohort.findFirst({
+      where: { id: cohortId, organisationId, deletedAt: null },
+    });
+    if (!existing) throw new NotFoundException('Cohort not found');
+
+    return this.prisma.cohort.update({
+      where: { id: cohortId },
+      data: { deletedAt: new Date() },
+    });
   }
 }

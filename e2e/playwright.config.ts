@@ -10,7 +10,9 @@ const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEBSERVER === '1';
 export default defineConfig({
   testDir: path.resolve(__dirname, 'tests'),
   testIgnore: ['**/.kilo/**', '**/.cursor/**'],
-  testMatch: ['production-workflows.spec.ts'],
+  testMatch: process.env.PLAYWRIGHT_TEST_MATCH
+    ? process.env.PLAYWRIGHT_TEST_MATCH.split(',')
+    : ['**/*.spec.ts'],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

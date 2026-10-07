@@ -159,7 +159,17 @@ export class AssessmentsService {
       },
       include: {
         enrollment: {
-          include: { programme: true, learner: true },
+          include: {
+            programme: {
+              include: {
+                facilitatorAssignments: {
+                  where: { deletedAt: null, isActive: true },
+                  include: { module: true },
+                },
+              },
+            },
+            learner: true,
+          },
         },
         unitStandard: true,
         moderation: { where: { deletedAt: null }, orderBy: { round: 'desc' }, take: 1 },
@@ -170,7 +180,7 @@ export class AssessmentsService {
       },
     });
     if (!row) throw new NotFoundException('Assessment not found');
-    assertEnrollmentAccess(user, row.enrollment, 'Assessment');
+    assertEnrollmentAccess(user, row.enrollment, 'Assessment', row.unitStandardId);
     const mapped = mapAssessmentToApi(row as AssessmentWithRelations);
     const questions = await this.questions(id, user);
     return { ...mapped, questions, questionCount: questions.length };
@@ -192,11 +202,24 @@ export class AssessmentsService {
         id: true,
         unitStandardId: true,
         enrollmentId: true,
-        enrollment: { select: { learnerId: true } },
+        enrollment: {
+          select: {
+            learnerId: true,
+            cohortId: true,
+            programme: {
+              include: {
+                facilitatorAssignments: {
+                  where: { deletedAt: null, isActive: true },
+                  include: { module: true },
+                },
+              },
+            },
+          },
+        },
       },
     });
     if (!a) throw new NotFoundException('Assessment not found');
-    assertEnrollmentAccess(user, a.enrollment, 'Assessment');
+    assertEnrollmentAccess(user, a.enrollment, 'Assessment', a.unitStandardId);
 
     const published = await this.prisma.assessmentInstrument.findFirst({
       where: {

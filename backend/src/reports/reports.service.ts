@@ -37,12 +37,16 @@ export type ProgrammeComplianceRow = {
   programmeCompletionRate: number; // %
   averageLearnerProgress: number; // %
   regulatoryComplianceRate: number; // %
-  status: 'Compliant' | 'Review Required' | 'Non-Compliant';
+  status: 'Compliant' | 'Review Required' | 'Non-Compliant' | 'Incomplete (Missing Evidence)' | 'Not Measured';
   metrics: {
     verifiedDocumentsRate: number;
     attendanceRate: number;
     assessmentRate: number;
     moderationRate: number;
+    hasDocumentEvidence: boolean;
+    hasAttendanceEvidence: boolean;
+    hasAssessmentEvidence: boolean;
+    hasModerationEvidence: boolean;
   };
 };
 
@@ -340,61 +344,68 @@ export class ReportsService {
           : 0;
 
       // Multi-factor regulatory compliance calculation:
-      // 1. Verified documents rate
+      // Missing evidence produces 0% (incomplete/failing requirement) and flags status as missing evidence.
+      // NO synthetic rates (50%, 70%, 60%, 100%) are ever substituted.
       const allDocs = enrolments.flatMap((e) => e.documents);
       const verifiedDocs = allDocs.filter((d) => d.verifiedAt !== null).length;
-      const docRate =
-        allDocs.length > 0
-          ? (verifiedDocs / allDocs.length) * 100
-          : totalEnrolments > 0
-          ? 50
-          : 100;
+      const hasDocumentEvidence = allDocs.length > 0;
+      const docRate = hasDocumentEvidence
+        ? Math.round((verifiedDocs / allDocs.length) * 1000) / 10
+        : 0;
 
       // 2. Attendance rate
       const allAttendance = enrolments.flatMap((e) => e.attendance);
       const presentAttendance = allAttendance.filter(
         (a) => a.status === 'PRESENT' || a.status === 'LATE' || a.status === 'EXCUSED',
       ).length;
-      const attRate =
-        allAttendance.length > 0
-          ? (presentAttendance / allAttendance.length) * 100
-          : totalEnrolments > 0
-          ? 70
-          : 100;
+      const hasAttendanceEvidence = allAttendance.length > 0;
+      const attRate = hasAttendanceEvidence
+        ? Math.round((presentAttendance / allAttendance.length) * 1000) / 10
+        : 0;
 
       // 3. Assessment competency rate
       const allAssessments = enrolments.flatMap((e) => e.assessments);
       const passedAssessments = allAssessments.filter(
         (a) => a.result === 'C',
       ).length;
-      const assessRate =
-        allAssessments.length > 0
-          ? (passedAssessments / allAssessments.length) * 100
-          : totalEnrolments > 0
-          ? 60
-          : 100;
+      const hasAssessmentEvidence = allAssessments.length > 0;
+      const assessRate = hasAssessmentEvidence
+        ? Math.round((passedAssessments / allAssessments.length) * 1000) / 10
+        : 0;
 
       // 4. Moderation compliance (assessments that are locked/moderated)
       const moderatedAssessments = allAssessments.filter(
         (a) => a.moderation?.length > 0 || Boolean(a.moderatorId),
       ).length;
-      const modRate =
-        allAssessments.length > 0
-          ? (moderatedAssessments / allAssessments.length) * 100
-          : 100;
+      const hasModerationEvidence = allAssessments.length > 0 && moderatedAssessments > 0;
+      const modRate = hasModerationEvidence
+        ? Math.round((moderatedAssessments / allAssessments.length) * 1000) / 10
+        : 0;
+
+      const hasAnyEvidence = hasDocumentEvidence || hasAttendanceEvidence || hasAssessmentEvidence || hasModerationEvidence;
+      const hasCompleteEvidence = hasDocumentEvidence && hasAttendanceEvidence && hasAssessmentEvidence;
 
       // Weighted Regulatory Compliance:
       // Documents (25%), Attendance (25%), Assessments (35%), Moderation (15%)
-      const regulatoryComplianceRate =
-        Math.round(
-          (0.25 * docRate + 0.25 * attRate + 0.35 * assessRate + 0.15 * modRate) * 10,
-        ) / 10;
+      const regulatoryComplianceRate = totalEnrolments > 0
+        ? Math.round(
+            (0.25 * docRate + 0.25 * attRate + 0.35 * assessRate + 0.15 * modRate) * 10,
+          ) / 10
+        : 0;
 
-      let status: 'Compliant' | 'Review Required' | 'Non-Compliant' = 'Compliant';
-      if (regulatoryComplianceRate < 50) {
+      let status: 'Compliant' | 'Review Required' | 'Non-Compliant' | 'Incomplete (Missing Evidence)' | 'Not Measured' = 'Compliant';
+      if (totalEnrolments === 0) {
+        status = 'Not Measured';
+      } else if (!hasAnyEvidence) {
+        status = 'Incomplete (Missing Evidence)';
+      } else if (!hasCompleteEvidence) {
+        status = regulatoryComplianceRate >= 50 ? 'Review Required' : 'Incomplete (Missing Evidence)';
+      } else if (regulatoryComplianceRate < 50) {
         status = 'Non-Compliant';
       } else if (regulatoryComplianceRate < 75) {
         status = 'Review Required';
+      } else {
+        status = 'Compliant';
       }
 
       return {
@@ -413,10 +424,14 @@ export class ReportsService {
         regulatoryComplianceRate,
         status,
         metrics: {
-          verifiedDocumentsRate: Math.round(docRate * 10) / 10,
-          attendanceRate: Math.round(attRate * 10) / 10,
-          assessmentRate: Math.round(assessRate * 10) / 10,
-          moderationRate: Math.round(modRate * 10) / 10,
+          verifiedDocumentsRate: docRate,
+          attendanceRate: attRate,
+          assessmentRate: assessRate,
+          moderationRate: modRate,
+          hasDocumentEvidence,
+          hasAttendanceEvidence,
+          hasAssessmentEvidence,
+          hasModerationEvidence,
         },
       };
     });
@@ -446,7 +461,7 @@ export class ReportsService {
               totalProgrammes) *
               10,
           ) / 10
-        : 100;
+        : 0;
 
     return {
       calculationDate: new Date().toISOString(),
@@ -469,10 +484,10 @@ export class ReportsService {
       'OFFICIAL SETA REGULATORY OVERSIGHT REPORT',
       `Calculation Date,${report.calculationDate}`,
       `Data Source,${report.dataSource}`,
-      `Disclaimer,${report.disclaimer}`,
+      `Disclaimer,${report.disclaimer} Note: Missing evidence produces unmeasured/failing rates (0%) with no synthetic compliance values.`,
       `Summary,"Total Programmes: ${report.summary.totalProgrammes} | Total Enrolments: ${report.summary.totalEnrolments} | Overall Completion: ${report.summary.overallCompletionRate}% | Overall Progress: ${report.summary.overallAverageProgress}% | Overall Compliance: ${report.summary.overallRegulatoryCompliance}%"`,
       '',
-      'Provider,Programme,Code,SETA,NQF,Credits,Total Enrolments,Active,Completed,Completion Rate (%),Average Progress (%),Regulatory Compliance (%),Status',
+      'Provider,Programme,Code,SETA,NQF,Credits,Total Enrolments,Active,Completed,Completion Rate (%),Average Progress (%),Verified Docs (%),Attendance (%),Assessments (%),Moderation (%),Regulatory Compliance (%),Status',
     ];
 
     const dataLines = report.programmes.map((p) =>
@@ -488,8 +503,12 @@ export class ReportsService {
         p.completedEnrolments,
         `${p.programmeCompletionRate}%`,
         `${p.averageLearnerProgress}%`,
+        p.metrics.hasDocumentEvidence ? `${p.metrics.verifiedDocumentsRate}%` : 'Missing (0%)',
+        p.metrics.hasAttendanceEvidence ? `${p.metrics.attendanceRate}%` : 'Missing (0%)',
+        p.metrics.hasAssessmentEvidence ? `${p.metrics.assessmentRate}%` : 'Missing (0%)',
+        p.metrics.hasModerationEvidence ? `${p.metrics.moderationRate}%` : 'Missing (0%)',
         `${p.regulatoryComplianceRate}%`,
-        p.status,
+        `"${p.status}"`,
       ].join(','),
     );
 

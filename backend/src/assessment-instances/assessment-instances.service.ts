@@ -132,12 +132,24 @@ export class AssessmentInstancesService {
         },
       },
       include: {
-        enrollment: { include: { learner: true } },
+        enrollment: {
+          include: {
+            learner: true,
+            programme: {
+              include: {
+                facilitatorAssignments: {
+                  where: { deletedAt: null, isActive: true },
+                  include: { module: true },
+                },
+              },
+            },
+          },
+        },
         assessment: { include: { unitStandard: true } },
       },
     });
     if (!row) throw new NotFoundException('Submission not found');
-    assertEnrollmentAccess(user, row.enrollment, 'Submission');
+    assertEnrollmentAccess(user, row.enrollment, 'Submission', row.assessment.unitStandardId);
     return this.mapSubmission(row);
   }
 

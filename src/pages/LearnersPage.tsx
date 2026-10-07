@@ -39,6 +39,9 @@ export type LearnerTableRow = {
   status: string;
   lastActive: string;
   academicRisk: string;
+  isManualRiskFlag?: boolean;
+  riskFactors?: string[];
+  riskSource?: string;
   programCount: number;
 };
 
@@ -55,9 +58,14 @@ function displayStatus(s: Learner['status']): string {
   }
 }
 
-function academicRiskFromLearner(s: Learner['status']): string {
-  if (s === 'completed') return 'N/A';
-  if (s === 'at_risk') return 'High';
+function academicRiskFromLearner(l: Learner): string {
+  if (l.status === 'completed') return 'N/A';
+  if (l.academicRisk) {
+    if (l.academicRisk === 'high') return 'High';
+    if (l.academicRisk === 'medium') return 'Medium';
+    if (l.academicRisk === 'low') return 'Low';
+  }
+  if (l.status === 'at_risk') return 'High';
   return 'Low';
 }
 
@@ -145,7 +153,10 @@ export function LearnersPage() {
       progress: l.progress,
       status: displayStatus(l.status),
       lastActive: l.lastActivity,
-      academicRisk: academicRiskFromLearner(l.status),
+      academicRisk: academicRiskFromLearner(l),
+      isManualRiskFlag: Boolean(l.isManualRiskFlag),
+      riskFactors: l.riskFactors ?? [],
+      riskSource: l.riskSource ?? (l.status === 'at_risk' ? 'manual_flag' : 'nominal'),
       programCount: enrollmentCountByUser.get(l.userId) ?? 1,
     }));
   }, [apiLearners, enrollmentCountByUser]);
@@ -259,16 +270,37 @@ export function LearnersPage() {
       if (row.academicRisk === 'N/A')
         return <span className="text-xs text-gray-400">N/A</span>;
       return (
-        <Badge
-          variant={row.academicRisk === 'Low' ? 'success' : 'danger'}
-          className="flex items-center w-fit">
-          {row.academicRisk === 'High' ? (
-            <AlertTriangle className="h-3 w-3 mr-1" />
-          ) : (
-            <CheckCircle className="h-3 w-3 mr-1" />
-          )}
-          {row.academicRisk}
-        </Badge>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Badge
+            variant={
+              row.academicRisk === 'Low'
+                ? 'success'
+                : row.academicRisk === 'Medium'
+                ? 'warning'
+                : 'danger'
+            }
+            className="flex items-center w-fit">
+            {row.academicRisk === 'Low' ? (
+              <CheckCircle className="h-3 w-3 mr-1" />
+            ) : (
+              <AlertTriangle className="h-3 w-3 mr-1" />
+            )}
+            {row.academicRisk}
+          </Badge>
+          {row.isManualRiskFlag ? (
+            <span
+              className="text-[10px] font-medium bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200"
+              title="Manual Risk Flag set by staff">
+              Manual Flag
+            </span>
+          ) : row.academicRisk !== 'Low' ? (
+            <span
+              className="text-[10px] font-medium bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200"
+              title="Derived from verified assessment, pacing, and activity records">
+              Evidence-based
+            </span>
+          ) : null}
+        </div>
       );
     },
   },
@@ -723,6 +755,24 @@ export function LearnersPage() {
                 <span>Last Recorded Activity:</span>
                 <span className="font-semibold text-slate-900">{selectedLearner?.lastActive || 'Lapsed / No recorded activity'}</span>
               </li>
+              <li className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-200">
+                <span>Evaluation Source:</span>
+                <span className="font-semibold text-slate-900">
+                  {selectedLearner?.isManualRiskFlag
+                    ? 'Manual Flag (Designated by Coordinator / Facilitator)'
+                    : 'System-evaluated Attendance, Pacing & Assessment evidence'}
+                </span>
+              </li>
+              {selectedLearner?.riskFactors && selectedLearner.riskFactors.length > 0 && (
+                <li className="p-2 bg-amber-50/80 rounded border border-amber-200 text-amber-900">
+                  <span className="font-semibold block mb-1">Identified Risk Triggers:</span>
+                  <ul className="list-disc pl-4 space-y-0.5 text-xs text-amber-800">
+                    {selectedLearner.riskFactors.map((factor, i) => (
+                      <li key={i}>{factor}</li>
+                    ))}
+                  </ul>
+                </li>
+              )}
               <li className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-200">
                 <span>Enrolment Scope:</span>
                 <span className="font-semibold text-slate-900">

@@ -45,6 +45,44 @@ export function mapEnrollmentToLearnerApi(
   const q = e.programme.qualification;
   const started = e.startedAt ?? e.createdAt;
 
+  const progressVal =
+    typeof meta.progress === 'number'
+      ? meta.progress
+      : e.status === 'COMPLETED'
+        ? 100
+        : 0;
+
+  const isManualFlag = meta.atRisk === true;
+  const riskFactors: string[] = [];
+
+  if (isManualFlag) {
+    riskFactors.push('Manual flag: flagged by coordinator/facilitator');
+  }
+
+  if (assessment && assessment.total > 0) {
+    const passRate = assessment.competent / assessment.total;
+    if (passRate < 0.5) {
+      riskFactors.push(`Low assessment pass rate (${Math.round(passRate * 100)}% competent)`);
+    }
+  }
+
+  const lastActiveDate = meta.lastActivity ? new Date(meta.lastActivity) : e.updatedAt;
+  const daysInactive = Math.max(0, Math.floor((Date.now() - lastActiveDate.getTime()) / (1000 * 60 * 60 * 24)));
+  if (daysInactive > 30 && e.status !== 'COMPLETED') {
+    riskFactors.push(`No recorded activity in ${daysInactive} days`);
+  }
+
+  if (e.status !== 'COMPLETED' && progressVal < 25 && daysInactive > 14) {
+    riskFactors.push('Pacing lag: progress under 25% with ongoing enrolment');
+  }
+
+  let calculatedRisk: 'low' | 'medium' | 'high' = 'low';
+  if (isManualFlag || riskFactors.length >= 2 || (assessment && assessment.total > 0 && assessment.competent === 0)) {
+    calculatedRisk = 'high';
+  } else if (riskFactors.length === 1) {
+    calculatedRisk = 'medium';
+  }
+
   return {
     id: e.id,
     userId: e.learnerId,
@@ -55,18 +93,17 @@ export function mapEnrollmentToLearnerApi(
     programmeId: e.programmeId,
     programmeName: e.programme.title,
     nqfLevel: q ? `Level ${q.nqfLevel} NQF` : '—',
-    progress:
-      typeof meta.progress === 'number'
-        ? meta.progress
-        : e.status === 'COMPLETED'
-          ? 100
-        : 0,
+    progress: progressVal,
     setaStatus: (meta.setaStatus as 'compliant' | 'pending') ?? 'pending',
     enrollmentDate: started.toISOString().slice(0, 10),
     expectedCompletionDate:
       meta.expectedCompletionDate ??
       e.programme.endDate?.toISOString().slice(0, 10) ?? '—',
     status: deriveUiStatus(e.status, meta),
+    academicRisk: calculatedRisk,
+    isManualRiskFlag: isManualFlag,
+    riskFactors,
+    riskSource: isManualFlag ? 'manual_flag' : riskFactors.length > 0 ? 'calculated_evidence' : 'nominal',
     assessmentTotal: assessment?.total ?? 0,
     assessmentCompetent: assessment?.competent ?? 0,
     lastActivity: meta.lastActivity ?? e.updatedAt.toISOString(),

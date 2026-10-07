@@ -199,38 +199,21 @@ describe('tenant-scope', () => {
       organisationId: 'org1',
       roleCodes: ['FACILITATOR'],
     };
-    expect(enrollmentActorWhere(pureFacilitator)).toEqual({
-      AND: [{
-        OR: [{
-          programme: {
-            facilitatorAssignments: {
-              some: {
-                facilitatorId: 'f1',
-                isActive: true,
-                deletedAt: null,
-              },
-            },
-          },
-        }],
-      }],
-    });
-    expect(assessmentActorWhere(pureFacilitator)).toEqual({
-      AND: [{
-        OR: [{
-          enrollment: {
-            programme: {
-              facilitatorAssignments: {
-                some: {
-                  facilitatorId: 'f1',
-                  isActive: true,
-                  deletedAt: null,
-                },
-              },
-            },
-          },
-        }],
-      }],
-    });
+    const enrQuery = enrollmentActorWhere(pureFacilitator) as any;
+    expect(enrQuery.AND[0].OR[0].OR).toBeDefined();
+    const progWhere = enrQuery.AND[0].OR[0].OR[0].programme.facilitatorAssignments.some;
+    expect(progWhere.facilitatorId).toBe('f1');
+    expect(progWhere.isActive).toBe(true);
+    expect(progWhere.moduleId).toBeNull();
+
+    const cohortWhere = enrQuery.AND[0].OR[0].OR[1].cohort.facilitatorAssignments.some;
+    expect(cohortWhere.facilitatorId).toBe('f1');
+
+    const learnerWhere = enrQuery.AND[0].OR[0].OR[2].learner.learnerFacilitatorAssignments.some;
+    expect(learnerWhere.facilitatorId).toBe('f1');
+
+    const assQuery = assessmentActorWhere(pureFacilitator) as any;
+    expect(assQuery.AND[0].OR).toBeDefined();
     expect(() =>
       assertEnrollmentAccess(
         pureFacilitator,

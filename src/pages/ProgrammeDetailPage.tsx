@@ -17,6 +17,10 @@ import {
   ArrowUp,
   ArrowDown,
   UserCheck,
+  FolderPlus,
+  Calendar,
+  Settings,
+  Archive,
 } from 'lucide-react';
 import type { Programme, Learner } from '../types';
 import {
@@ -86,6 +90,10 @@ export function ProgrammeDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'Admin';
+  const canEditRequirements =
+    user?.role === 'Admin' ||
+    user?.role === 'QA Officer' ||
+    (user?.role as string) === 'QA_OFFICER';
 
   const [programme, setProgramme] = useState<ProgrammeDetailData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -93,6 +101,44 @@ export function ProgrammeDetailPage() {
   const [directoryLoading, setDirectoryLoading] = useState(false);
   const [facilitatorStaff, setFacilitatorStaff] = useState<StaffMember[]>([]);
   const [listVersion, setListVersion] = useState(0);
+
+  // Cohorts state
+  const [cohorts, setCohorts] = useState<
+    Array<{
+      id: string;
+      programmeId: string;
+      name: string;
+      startDate?: string | null;
+      endDate?: string | null;
+      archivedAt?: string | null;
+      learnerCount?: number;
+      facilitatorCount?: number;
+    }>
+  >([]);
+  const [showCohortModal, setShowCohortModal] = useState(false);
+  const [editingCohortId, setEditingCohortId] = useState<string | null>(null);
+  const [cohortForm, setCohortForm] = useState({
+    name: '',
+    startDate: '',
+    endDate: '',
+  });
+
+  // Completion Requirements state
+  const [completionRules, setCompletionRules] = useState<{
+    requireAllAssessmentsC: boolean;
+    requireWorkbook: boolean;
+    requireSummative: boolean;
+    minVerifiedWorkplaceHours: number;
+    minAttendanceRatePercent: number;
+  } | null>(null);
+  const [showCompletionRulesModal, setShowCompletionRulesModal] = useState(false);
+  const [completionRulesForm, setCompletionRulesForm] = useState({
+    requireAllAssessmentsC: true,
+    requireWorkbook: true,
+    requireSummative: true,
+    minVerifiedWorkplaceHours: 0,
+    minAttendanceRatePercent: 80,
+  });
 
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -119,17 +165,53 @@ export function ProgrammeDetailPage() {
   const [showAssignFacilitatorModal, setShowAssignFacilitatorModal] = useState(false);
   const [assignForm, setAssignForm] = useState({
     facilitatorId: '',
-    scopeType: 'programme' as 'programme' | 'module' | 'learner',
+    scopeType: 'programme' as 'programme' | 'module' | 'cohort' | 'learner',
     moduleId: '',
+    cohortId: '',
     learnerId: '',
     startDate: '',
     endDate: '',
   });
 
+  const loadCohorts = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await programmeService.getCohorts(id);
+      if (res.success && res.data) {
+        setCohorts(res.data);
+      }
+    } catch {
+      // ignore
+    }
+  }, [id]);
+
+  const loadCompletionRules = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await programmeService.getCompletionRequirements(id);
+      if (res.success && res.data) {
+        setCompletionRules(res.data);
+        setCompletionRulesForm({
+          requireAllAssessmentsC: Boolean(res.data.requireAllAssessmentsC),
+          requireWorkbook: Boolean(res.data.requireWorkbook),
+          requireSummative: Boolean(res.data.requireSummative),
+          minVerifiedWorkplaceHours: Number(res.data.minVerifiedWorkplaceHours || 0),
+          minAttendanceRatePercent: Number(res.data.minAttendanceRatePercent || 0),
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }, [id]);
+
   const reloadProgramme = useCallback(async () => {
     if (!id) return;
     try {
-      const res = await programmeService.getById(id);
+      const [res] = await Promise.all([
+        programmeService.getById(id),
+        loadCohorts(),
+        loadCompletionRules(),
+      ]);
       if (res.success && res.data) {
         setProgramme(res.data as unknown as ProgrammeDetailData);
         setEditDetailsForm({
@@ -141,14 +223,18 @@ export function ProgrammeDetailPage() {
     } catch {
       toast.error('Could not refresh programme');
     }
-  }, [id]);
+  }, [id, loadCohorts, loadCompletionRules]);
 
   React.useEffect(() => {
     if (!id) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await programmeService.getById(id);
+        const [res] = await Promise.all([
+          programmeService.getById(id),
+          loadCohorts(),
+          loadCompletionRules(),
+        ]);
         if (!cancelled && res.success && res.data) {
           setProgramme(res.data as unknown as ProgrammeDetailData);
           setEditDetailsForm({
@@ -169,7 +255,7 @@ export function ProgrammeDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, navigate]);
+  }, [id, navigate, loadCohorts, loadCompletionRules]);
 
   React.useEffect(() => {
     if (!id) return;
@@ -398,6 +484,7 @@ export function ProgrammeDetailPage() {
       await programmeService.assignFacilitator(programme.id, {
         facilitatorId: assignForm.facilitatorId,
         moduleId: assignForm.scopeType === 'module' ? assignForm.moduleId || undefined : undefined,
+        cohortId: assignForm.scopeType === 'cohort' ? assignForm.cohortId || undefined : undefined,
         learnerId: assignForm.scopeType === 'learner' ? assignForm.learnerId || undefined : undefined,
         startDate: assignForm.startDate || undefined,
         endDate: assignForm.endDate || undefined,
@@ -408,6 +495,7 @@ export function ProgrammeDetailPage() {
         facilitatorId: '',
         scopeType: 'programme',
         moduleId: '',
+        cohortId: '',
         learnerId: '',
         startDate: '',
         endDate: '',
@@ -415,6 +503,78 @@ export function ProgrammeDetailPage() {
       await reloadProgramme();
     } catch (e: unknown) {
       toast.error((e as Error)?.message || 'Could not assign facilitator');
+    }
+  };
+
+  const handleSaveCohort = async () => {
+    if (!programme?.id || !cohortForm.name.trim()) {
+      toast.error('Cohort name is required');
+      return;
+    }
+    try {
+      if (editingCohortId) {
+        await programmeService.updateCohort(editingCohortId, {
+          name: cohortForm.name.trim(),
+          startDate: cohortForm.startDate || null,
+          endDate: cohortForm.endDate || null,
+        });
+        toast.success('Cohort updated successfully');
+      } else {
+        await programmeService.createCohort(programme.id, {
+          name: cohortForm.name.trim(),
+          startDate: cohortForm.startDate || undefined,
+          endDate: cohortForm.endDate || undefined,
+        });
+        toast.success('Cohort created successfully');
+      }
+      setShowCohortModal(false);
+      setEditingCohortId(null);
+      setCohortForm({ name: '', startDate: '', endDate: '' });
+      await loadCohorts();
+    } catch (e: unknown) {
+      toast.error((e as Error)?.message || 'Could not save cohort');
+    }
+  };
+
+  const handleToggleArchiveCohort = async (cohort: { id: string; archivedAt?: string | null }) => {
+    try {
+      const isArchived = Boolean(cohort.archivedAt);
+      await programmeService.updateCohort(cohort.id, {
+        archived: !isArchived,
+      });
+      toast.success(isArchived ? 'Cohort unarchived' : 'Cohort archived');
+      await loadCohorts();
+    } catch (e: unknown) {
+      toast.error((e as Error)?.message || 'Could not update cohort');
+    }
+  };
+
+  const handleDeleteCohort = async (cohortId: string) => {
+    if (!window.confirm('Are you sure you want to delete this cohort?')) return;
+    try {
+      await programmeService.deleteCohort(cohortId);
+      toast.success('Cohort deleted');
+      await loadCohorts();
+    } catch (e: unknown) {
+      toast.error((e as Error)?.message || 'Could not delete cohort');
+    }
+  };
+
+  const handleSaveCompletionRules = async () => {
+    if (!programme?.id) return;
+    try {
+      await programmeService.updateCompletionRequirements(programme.id, {
+        requireAllAssessmentsC: completionRulesForm.requireAllAssessmentsC,
+        requireWorkbook: completionRulesForm.requireWorkbook,
+        requireSummative: completionRulesForm.requireSummative,
+        minVerifiedWorkplaceHours: Number(completionRulesForm.minVerifiedWorkplaceHours),
+        minAttendanceRatePercent: Number(completionRulesForm.minAttendanceRatePercent),
+      });
+      toast.success('Completion requirements updated successfully');
+      setShowCompletionRulesModal(false);
+      await loadCompletionRules();
+    } catch (e: unknown) {
+      toast.error((e as Error)?.message || 'Could not update completion requirements');
     }
   };
 
@@ -793,6 +953,92 @@ export function ProgrammeDetailPage() {
         )}
       </Card>
 
+      {/* Programme Cohorts */}
+      <Card
+        title="Programme Cohorts"
+        action={
+          isAdmin ? (
+            <Button
+              size="sm"
+              leftIcon={<FolderPlus className="h-4 w-4" />}
+              onClick={() => {
+                setEditingCohortId(null);
+                setCohortForm({ name: '', startDate: '', endDate: '' });
+                setShowCohortModal(true);
+              }}>
+              Create Cohort
+            </Button>
+          ) : undefined
+        }>
+        <p className="text-sm text-gray-600 mb-4">
+          Group enrolled learners into cohort intakes for structured delivery schedules and targeted facilitator allocations.
+        </p>
+        {cohorts.length === 0 ? (
+          <p className="text-sm text-gray-500 py-6 text-center border border-dashed rounded-lg">
+            No cohorts created yet. Use Create Cohort to start a new intake.
+          </p>
+        ) : (
+          <div className="divide-y border rounded-lg overflow-hidden">
+            {cohorts.map((c) => (
+              <div key={c.id} className="p-3 bg-white flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-900 text-sm">{c.name}</span>
+                    <Badge variant={c.archivedAt ? 'neutral' : 'success'} className="text-[10px]">
+                      {c.archivedAt ? 'Archived' : 'Active'}
+                    </Badge>
+                    {c.learnerCount !== undefined && (
+                      <Badge variant="info" className="text-[10px]">
+                        {c.learnerCount} {c.learnerCount === 1 ? 'Learner' : 'Learners'}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {c.startDate
+                      ? `Dates: ${new Date(c.startDate).toLocaleDateString()} - ${
+                          c.endDate ? new Date(c.endDate).toLocaleDateString() : 'Ongoing'
+                        }`
+                      : 'Ongoing schedule (no strict date boundary)'}
+                  </p>
+                </div>
+                {isAdmin && (
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setEditingCohortId(c.id);
+                        setCohortForm({
+                          name: c.name,
+                          startDate: c.startDate ? c.startDate.slice(0, 10) : '',
+                          endDate: c.endDate ? c.endDate.slice(0, 10) : '',
+                        });
+                        setShowCohortModal(true);
+                      }}>
+                      <Edit className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      title={c.archivedAt ? 'Unarchive' : 'Archive'}
+                      onClick={() => handleToggleArchiveCohort(c)}>
+                      <Archive className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-600 hover:text-red-700"
+                      onClick={() => handleDeleteCohort(c.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       {/* Facilitator Allocation Management */}
       <Card
         title="Facilitator Assignments & Allocation Scope"
@@ -902,17 +1148,57 @@ export function ProgrammeDetailPage() {
       </Card>
 
       {/* Programme Completion Rules */}
-      <Card title="Programme Completion Rules & Quality Gate">
+      <Card
+        title="Programme Completion Rules & Quality Gate"
+        action={
+          canEditRequirements ? (
+            <Button
+              size="sm"
+              variant="outline"
+              leftIcon={<Settings className="h-4 w-4" />}
+              onClick={() => setShowCompletionRulesModal(true)}>
+              Edit Requirements
+            </Button>
+          ) : undefined
+        }>
         <div className="space-y-3 text-sm text-gray-700">
           <p>
-            Enrolment transition to <strong>COMPLETED</strong> requires all completion gate requirements to be verified by the system:
+            Enrolment transition to <strong>COMPLETED</strong> requires all completion gate requirements configured below to be verified:
           </p>
-          <ul className="list-disc pl-5 space-y-1 text-xs text-gray-600">
-            <li>100% attendance on all mandatory scheduled attendance sessions.</li>
-            <li>All summative assessments marked Competent (C) by an accredited Assessor.</li>
-            <li>PoE portfolio artifacts compiled and signed off.</li>
-            <li>Moderation verification completed when sample moderation is active.</li>
-          </ul>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+            <div className="p-3 bg-gray-50 rounded border border-gray-200">
+              <span className="text-xs text-gray-500 block">Assessment Competency Standard</span>
+              <span className="font-semibold text-gray-900">
+                {completionRules?.requireAllAssessmentsC !== false
+                  ? 'Mandatory (All Assessments must be Competent "C")'
+                  : 'Flexible / Partial Assessments Allowed'}
+              </span>
+            </div>
+            <div className="p-3 bg-gray-50 rounded border border-gray-200">
+              <span className="text-xs text-gray-500 block">Summative Assessment Requirement</span>
+              <span className="font-semibold text-gray-900">
+                {completionRules?.requireSummative !== false ? 'Required' : 'Not Required'}
+              </span>
+            </div>
+            <div className="p-3 bg-gray-50 rounded border border-gray-200">
+              <span className="text-xs text-gray-500 block">Workplace Logbook Requirement</span>
+              <span className="font-semibold text-gray-900">
+                {completionRules?.requireWorkbook !== false ? 'Required & Signed Off' : 'Optional / Not Required'}
+              </span>
+            </div>
+            <div className="p-3 bg-gray-50 rounded border border-gray-200">
+              <span className="text-xs text-gray-500 block">Minimum Attendance Rate</span>
+              <span className="font-semibold text-gray-900">
+                {completionRules?.minAttendanceRatePercent ?? 80}% Attendance Rate Required
+              </span>
+            </div>
+            <div className="p-3 bg-gray-50 rounded border border-gray-200 md:col-span-2">
+              <span className="text-xs text-gray-500 block">Minimum Verified Workplace Hours</span>
+              <span className="font-semibold text-gray-900">
+                {completionRules?.minVerifiedWorkplaceHours ?? 0} Hours logged and verified
+              </span>
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -1102,12 +1388,13 @@ export function ProgrammeDetailPage() {
             onChange={(e) =>
               setAssignForm((f) => ({
                 ...f,
-                scopeType: e.target.value as 'programme' | 'module' | 'learner',
+                scopeType: e.target.value as 'programme' | 'module' | 'cohort' | 'learner',
               }))
             }
             options={[
               { value: 'programme', label: 'Full Programme Scope' },
               { value: 'module', label: 'Module-Specific Scope' },
+              { value: 'cohort', label: 'Cohort-Specific Scope' },
               { value: 'learner', label: 'Individual Learner Scope' },
             ]}
           />
@@ -1122,6 +1409,21 @@ export function ProgrammeDetailPage() {
                 ...(programme.modules || []).map((m: ProgrammeModuleDetail) => ({
                   value: m.id,
                   label: `${m.code}: ${m.title}`,
+                })),
+              ]}
+            />
+          )}
+
+          {assignForm.scopeType === 'cohort' && (
+            <Select
+              label="Select Cohort *"
+              value={assignForm.cohortId}
+              onChange={(e) => setAssignForm((f) => ({ ...f, cohortId: e.target.value }))}
+              options={[
+                { value: '', label: 'Select cohort...' },
+                ...cohorts.map((c) => ({
+                  value: c.id,
+                  label: `${c.name}${c.archivedAt ? ' (Archived)' : ''}`,
                 })),
               ]}
             />
@@ -1154,6 +1456,147 @@ export function ProgrammeDetailPage() {
               type="date"
               value={assignForm.endDate}
               onChange={(e) => setAssignForm((f) => ({ ...f, endDate: e.target.value }))}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Create / Edit Cohort */}
+      <Modal
+        isOpen={showCohortModal}
+        onClose={() => setShowCohortModal(false)}
+        title={editingCohortId ? 'Edit Cohort' : 'Create New Intake Cohort'}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowCohortModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveCohort} disabled={!cohortForm.name.trim()}>
+              {editingCohortId ? 'Save Changes' : 'Create Cohort'}
+            </Button>
+          </div>
+        }>
+        <div className="space-y-4">
+          <Input
+            label="Cohort Name *"
+            placeholder="e.g. 2026 Intake A, Gauteng Batch 1"
+            value={cohortForm.name}
+            onChange={(e) => setCohortForm((f) => ({ ...f, name: e.target.value }))}
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Start Date (Optional)"
+              type="date"
+              value={cohortForm.startDate}
+              onChange={(e) => setCohortForm((f) => ({ ...f, startDate: e.target.value }))}
+            />
+            <Input
+              label="End Date (Optional)"
+              type="date"
+              value={cohortForm.endDate}
+              onChange={(e) => setCohortForm((f) => ({ ...f, endDate: e.target.value }))}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Edit Completion Requirements */}
+      <Modal
+        isOpen={showCompletionRulesModal}
+        onClose={() => setShowCompletionRulesModal(false)}
+        title="Configure Programme Completion Rules & Quality Gate"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowCompletionRulesModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveCompletionRules}>
+              Save Completion Rules
+            </Button>
+          </div>
+        }>
+        <div className="space-y-4">
+          <p className="text-xs text-gray-500">
+            Define the strict gating conditions required before a learner's enrolment can transition to COMPLETED.
+          </p>
+          <div className="space-y-3">
+            <label className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy"
+                checked={completionRulesForm.requireAllAssessmentsC}
+                onChange={(e) =>
+                  setCompletionRulesForm((f) => ({ ...f, requireAllAssessmentsC: e.target.checked }))
+                }
+              />
+              <div>
+                <span className="text-sm font-medium text-gray-900 block">Require All Assessments Competent (C)</span>
+                <span className="text-xs text-gray-500">
+                  Learners cannot graduate until all unit standard assessments are marked competent.
+                </span>
+              </div>
+            </label>
+
+            <label className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy"
+                checked={completionRulesForm.requireSummative}
+                onChange={(e) =>
+                  setCompletionRulesForm((f) => ({ ...f, requireSummative: e.target.checked }))
+                }
+              />
+              <div>
+                <span className="text-sm font-medium text-gray-900 block">Require Summative Assessment</span>
+                <span className="text-xs text-gray-500">
+                  Final summative integration assessment must be passed before sign-off.
+                </span>
+              </div>
+            </label>
+
+            <label className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300 text-brand-navy focus:ring-brand-navy"
+                checked={completionRulesForm.requireWorkbook}
+                onChange={(e) =>
+                  setCompletionRulesForm((f) => ({ ...f, requireWorkbook: e.target.checked }))
+                }
+              />
+              <div>
+                <span className="text-sm font-medium text-gray-900 block">Require Workplace Logbook Sign-off</span>
+                <span className="text-xs text-gray-500">
+                  Workplace mentor and supervisor logbook reviews must be signed and verified.
+                </span>
+              </div>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 pt-2">
+            <Input
+              label="Minimum Attendance Rate (%)"
+              type="number"
+              min={0}
+              max={100}
+              value={completionRulesForm.minAttendanceRatePercent}
+              onChange={(e) =>
+                setCompletionRulesForm((f) => ({
+                  ...f,
+                  minAttendanceRatePercent: Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)),
+                }))
+              }
+            />
+            <Input
+              label="Minimum Workplace Hours"
+              type="number"
+              min={0}
+              value={completionRulesForm.minVerifiedWorkplaceHours}
+              onChange={(e) =>
+                setCompletionRulesForm((f) => ({
+                  ...f,
+                  minVerifiedWorkplaceHours: Math.max(0, parseInt(e.target.value, 10) || 0),
+                }))
+              }
             />
           </div>
         </div>

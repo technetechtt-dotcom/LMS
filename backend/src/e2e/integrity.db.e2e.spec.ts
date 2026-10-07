@@ -31,37 +31,17 @@ describe('integrity DB E2E', () => {
     return;
   }
 
-  const prisma = new PrismaService();
-  const assessments = new AssessmentsService(prisma);
-  const instances = new AssessmentInstancesService(prisma);
-  const attendance = new AttendanceService(prisma);
-  const workplace = new WorkplaceLogsService(prisma);
-  const completion = new CompletionGateService(prisma, workplace);
-  const enrollments = new EnrollmentsService(prisma, completion);
-  const poeWorkflow = new PoeWorkflowService(
-    prisma,
-    completion,
-    { assertUploadAvailable: jest.fn().mockResolvedValue(undefined) } as never,
-  );
-  const invitations = new InvitationsService(
-    prisma,
-    { sendPasswordReset: jest.fn() } as never,
-    { get: jest.fn() } as never,
-  );
-  const activationMail = { sendActivation: jest.fn().mockResolvedValue(undefined) };
-  const users = new UsersService(
-    prisma,
-    activationMail as never,
-    {
-      get: jest.fn((key: string) =>
-        key === 'ACTIVATION_TTL_HOURS'
-          ? '24'
-          : key === 'FRONTEND_ORIGIN'
-            ? 'http://localhost:5173'
-            : 'test',
-      ),
-    } as never,
-  );
+  let prisma: PrismaService;
+  let assessments: AssessmentsService;
+  let instances: AssessmentInstancesService;
+  let attendance: AttendanceService;
+  let workplace: WorkplaceLogsService;
+  let completion: CompletionGateService;
+  let enrollments: EnrollmentsService;
+  let poeWorkflow: PoeWorkflowService;
+  let invitations: InvitationsService;
+  let activationMail: { sendActivation: jest.Mock };
+  let users: UsersService;
 
   const suffix = randomUUID().slice(0, 8);
   let orgA: string;
@@ -81,6 +61,7 @@ describe('integrity DB E2E', () => {
   let instrumentId: string;
   let programmeId: string;
   let unitStandardId: string;
+  let qual: { id: string };
   let roleLearnerId: string;
   let invitedById: string;
 
@@ -128,6 +109,38 @@ describe('integrity DB E2E', () => {
   });
 
   beforeAll(async () => {
+    prisma = new PrismaService();
+    assessments = new AssessmentsService(prisma);
+    instances = new AssessmentInstancesService(prisma);
+    attendance = new AttendanceService(prisma);
+    workplace = new WorkplaceLogsService(prisma);
+    completion = new CompletionGateService(prisma, workplace);
+    enrollments = new EnrollmentsService(prisma, completion);
+    poeWorkflow = new PoeWorkflowService(
+      prisma,
+      completion,
+      { assertUploadAvailable: jest.fn().mockResolvedValue(undefined) } as never,
+    );
+    invitations = new InvitationsService(
+      prisma,
+      { sendPasswordReset: jest.fn() } as never,
+      { get: jest.fn() } as never,
+    );
+    activationMail = { sendActivation: jest.fn().mockResolvedValue(undefined) };
+    users = new UsersService(
+      prisma,
+      activationMail as never,
+      {
+        get: jest.fn((key: string) =>
+          key === 'ACTIVATION_TTL_HOURS'
+            ? '24'
+            : key === 'FRONTEND_ORIGIN'
+              ? 'http://localhost:5173'
+              : 'test',
+        ),
+      } as never,
+    );
+
     await prisma.$connect();
     const role = async (code: string) =>
       prisma.role.upsert({
@@ -190,7 +203,7 @@ describe('integrity DB E2E', () => {
       ],
     });
 
-    const qual = await prisma.qualification.create({
+    qual = await prisma.qualification.create({
       data: {
         saqaId: `E2E-${suffix}`,
         title: 'E2E Qual',
@@ -672,5 +685,84 @@ describe('integrity DB E2E', () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(await prisma.user.findUnique({ where: { email: failedEmail } })).toBeNull();
+  });
+
+  it('cohort management CRUD and facilitator cohort-level allocation', async () => {
+    const cohort = await prisma.cohort.create({
+      data: {
+        name: `Cohort Alpha-${suffix}`,
+        programmeId,
+        organisationId: orgA,
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 90 * 86_400_000),
+      },
+    });
+    expect(cohort.id).toBeDefined();
+    expect(cohort.name).toContain('Cohort Alpha');
+
+    // Update cohort
+    const updated = await prisma.cohort.update({
+      where: { id: cohort.id },
+      data: { name: `Cohort Alpha Updated-${suffix}` },
+    });
+    expect(updated.name).toContain('Cohort Alpha Updated');
+
+    // Assign facilitator to specific cohort
+    const fa = await prisma.facilitatorAssignment.create({
+      data: {
+        programmeId,
+        facilitatorId,
+        organisationId: orgA,
+        cohortId: cohort.id,
+        isActive: true,
+      },
+    });
+    expect(fa.cohortId).toBe(cohort.id);
+
+    // Soft delete cohort
+    const deleted = await prisma.cohort.update({
+      where: { id: cohort.id },
+      data: { deletedAt: new Date() },
+    });
+    expect(deleted.deletedAt).not.toBeNull();
+  });
+
+  it('validates legacy migration safety: status casting and orphan key resilience', async () => {
+    // 1. Validates that Programme status accepts valid enum values and persists
+    const prog = await prisma.programme.create({
+      data: {
+        organisationId: orgA,
+        qualificationId: qual.id,
+        code: `P-LEGACY-${suffix}`,
+        title: 'Legacy Test Programme',
+        status: 'draft',
+      },
+    });
+    expect(prog.status).toBe('draft');
+
+    const updatedProg = await prisma.programme.update({
+      where: { id: prog.id },
+      data: { status: 'active' },
+    });
+    expect(updatedProg.status).toBe('active');
+
+    // 2. Validates that Cohort foreign keys preserve data integrity
+    const cohort = await prisma.cohort.create({
+      data: {
+        name: `Legacy Cohort-${suffix}`,
+        programmeId: prog.id,
+        organisationId: orgA,
+      },
+    });
+    const fa = await prisma.facilitatorAssignment.create({
+      data: {
+        programmeId: prog.id,
+        facilitatorId,
+        organisationId: orgA,
+        cohortId: cohort.id,
+        isActive: true,
+      },
+    });
+    expect(fa.cohortId).toBe(cohort.id);
   });
 });

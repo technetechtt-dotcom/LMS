@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -14,11 +15,13 @@ import { AdminOnlyEndpoint } from '../common/decorators/admin-only-endpoint.deco
 import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
+  CreateCohortDto,
   CreateProgrammeDto,
   CreateProgrammeModuleDto,
   FacilitatorAssignmentDto,
   ProgrammeCompletionRequirementsDto,
   ReorderModulesDto,
+  UpdateCohortDto,
   UpdateProgrammeDetailsDto,
   UpdateProgrammeModuleDto,
   UpdateProgrammeStatusDto,
@@ -71,6 +74,7 @@ export class ProgrammesController {
 
   @Roles('ADMIN', 'QA_OFFICER')
   @Patch('programmes/:id/completion-requirements')
+  @Put('programmes/:id/completion-requirements')
   setCompletionRequirements(
     @Param('id') id: string,
     @Body() dto: ProgrammeCompletionRequirementsDto,
@@ -172,5 +176,46 @@ export class ProgrammesController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.programmes.removeFacilitatorAssignment(id, req.user);
+  }
+
+  @Roles('ADMIN', 'FACILITATOR', 'QA_OFFICER', 'SETA', 'MENTOR')
+  @Get('programmes/:id/cohorts')
+  listCohorts(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.listCohorts(id, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Post('programmes/:id/cohorts')
+  createCohort(
+    @Param('id') id: string,
+    @Body() dto: CreateCohortDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.createCohort(id, dto, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Patch('cohorts/:id')
+  updateCohort(
+    @Param('id') id: string,
+    @Body() dto: UpdateCohortDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.updateCohort(id, dto, req.user);
+  }
+
+  @AdminOnlyEndpoint()
+  @Roles('ADMIN')
+  @Delete('cohorts/:id')
+  deleteCohort(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.programmes.deleteCohort(id, req.user);
   }
 }

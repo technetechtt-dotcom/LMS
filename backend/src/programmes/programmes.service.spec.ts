@@ -44,6 +44,9 @@ describe('ProgrammesService', () => {
       },
       cohort: {
         findFirst: jest.fn(),
+        findMany: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
       },
       enrollment: {
         findFirst: jest.fn(),

@@ -45,6 +45,18 @@ export class CreateProgrammeDto {
   endDate?: string;
 
   @IsOptional()
+  @IsNumber()
+  nqfLevel?: number;
+
+  @IsOptional()
+  @IsNumber()
+  credits?: number;
+
+  @IsOptional()
+  @IsString()
+  seta?: string;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateProgrammeModuleDto)
@@ -202,4 +214,31 @@ export class ProgrammeCompletionRequirementsDto {
   @IsNumber()
   @Min(0)
   minAttendanceRatePercent?: number;
+}
+
+export class CreateCohortDto {
+  @IsString()
+  name!: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+}
+
+export class UpdateCohortDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 }

@@ -32,14 +32,34 @@ jobs:
           cache: npm
       - name: Trigger staging services
         env:
-          API_HOOK: ${{ secrets.RENDER_STAGING_API_DEPLOY_HOOK }}
-          WEB_HOOK: ${{ secrets.RENDER_STAGING_WEB_DEPLOY_HOOK }}
-          OPS_HOOK: ${{ secrets.RENDER_STAGING_OPS_DEPLOY_HOOK }}
+          API_HOOK: ${{ secrets.RENDER_STAGING_API_DEPLOY_HOOK || secrets.STAGING_API_DEPLOY_HOOK }}
+          WEB_HOOK: ${{ secrets.RENDER_STAGING_WEB_DEPLOY_HOOK || secrets.STAGING_WEB_DEPLOY_HOOK }}
+          OPS_HOOK: ${{ secrets.RENDER_STAGING_OPS_DEPLOY_HOOK || secrets.STAGING_OPS_DEPLOY_HOOK }}
         run: |
-          test -n "$API_HOOK" && test -n "$WEB_HOOK" && test -n "$OPS_HOOK"
-          curl --fail --silent --show-error --request POST "$API_HOOK"
-          curl --fail --silent --show-error --request POST "$WEB_HOOK"
-          curl --fail --silent --show-error --request POST "$OPS_HOOK"
+          echo "Validating staging deployment hooks..."
+          for var_name in API_HOOK WEB_HOOK OPS_HOOK; do
+            hook_url="${!var_name}"
+            if [ -z "$hook_url" ]; then
+              echo "::error::Secret $var_name is not configured in repository/environment secrets."
+              exit 1
+            fi
+            TARGET_URL="$hook_url"
+            if echo "$hook_url" | grep -q "render.com"; then
+              if ! echo "$hook_url" | grep -q "ref="; then
+                if echo "$hook_url" | grep -q "\?"; then
+                  TARGET_URL="${hook_url}&ref=${EXPECTED_SHA}"
+                else
+                  TARGET_URL="${hook_url}?ref=${EXPECTED_SHA}"
+                fi
+              fi
+            fi
+            echo "Triggering $var_name deployment hook..."
+            HTTP_CODE=$(curl --fail --silent --show-error --output /dev/null --write-out "%{http_code}" --request POST "$TARGET_URL") || {
+              echo "::error::Failed to trigger $var_name at $TARGET_URL"
+              exit 1
+            }
+            echo "$var_name deployment hook accepted (HTTP $HTTP_CODE)"
+          done
       - name: Wait for deployed revision
         env:
           API_URL: ${{ vars.STAGING_API_URL }}
@@ -70,7 +90,7 @@ jobs:
           PLAYWRIGHT_OPS_URL: ${{ vars.STAGING_OPS_URL }}
           EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
           STAGING_ROLE_CREDENTIALS_JSON: ${{ secrets.STAGING_ROLE_CREDENTIALS_JSON }}
-        run: npx playwright test -c e2e/playwright.config.ts staging-acceptance.spec.ts
+        run: npx playwright test -c e2e/playwright.config.ts e2e/tests/staging-acceptance.spec.ts
       - name: Upload staging acceptance diagnostics
         if: always()
         uses: actions/upload-artifact@v4

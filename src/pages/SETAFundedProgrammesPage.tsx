@@ -137,6 +137,8 @@ export function SETAFundedProgrammesPage() {
                 ? 'success'
                 : row.status === 'Review Required'
                 ? 'warning'
+                : row.status === 'Not Measured'
+                ? 'brand'
                 : 'danger'
             }
           />
@@ -147,6 +149,8 @@ export function SETAFundedProgrammesPage() {
                   ? 'success'
                   : row.status === 'Review Required'
                   ? 'warning'
+                  : row.status === 'Not Measured'
+                  ? 'neutral'
                   : 'danger'
               }
               className="text-[10px] px-1 py-0">

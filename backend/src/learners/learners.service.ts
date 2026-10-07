@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,7 +14,9 @@ import {
 import type { CreateLearnerDto, UpdateLearnerDto } from './learners.dto';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
+  assertEnrollmentAccess,
   enrollmentActorWhere,
+  isFacilitatorOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
 
@@ -224,6 +227,32 @@ export class LearnersService {
       throw new BadRequestException('Programme not found in your organisation');
     }
 
+    if (isFacilitatorOnly(user)) {
+      const now = new Date();
+      const assignment = await this.prisma.facilitatorAssignment.findFirst({
+        where: {
+          programmeId: dto.programmeId,
+          facilitatorId: user?.userId,
+          organisationId,
+          isActive: true,
+          deletedAt: null,
+          moduleId: null, // module-only assignments cannot create whole programme learners
+          learnerId: null, // learner-only assignments cannot create other learners
+          OR: [
+            { startDate: null, endDate: null },
+            { startDate: { lte: now }, endDate: null },
+            { startDate: null, endDate: { gte: now } },
+            { startDate: { lte: now }, endDate: { gte: now } },
+          ],
+        },
+      });
+      if (!assignment) {
+        throw new ForbiddenException(
+          'Facilitators cannot create learners outside their assigned programmes',
+        );
+      }
+    }
+
     const email = dto.email.toLowerCase().trim();
     let firstName = dto.firstName?.trim();
     let lastName = dto.lastName?.trim();
@@ -261,10 +290,52 @@ export class LearnersService {
   async update(id: string, dto: UpdateLearnerDto, user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
     const existing = await this.prisma.enrollment.findFirst({
-      where: { id, deletedAt: null, ...this.orgScope(organisationId) },
-      include: { learner: true },
+      where: {
+        id,
+        deletedAt: null,
+        ...this.orgScope(organisationId),
+        ...enrollmentActorWhere(user),
+      },
+      include: {
+        learner: true,
+        programme: {
+          include: {
+            facilitatorAssignments: {
+              where: { deletedAt: null, isActive: true },
+              include: { module: true },
+            },
+          },
+        },
+      },
     });
     if (!existing) throw new NotFoundException('Learner enrolment not found');
+    assertEnrollmentAccess(user, existing, 'Learner');
+
+    if (dto.programmeId && dto.programmeId !== existing.programmeId && isFacilitatorOnly(user)) {
+      const now = new Date();
+      const targetAssignment = await this.prisma.facilitatorAssignment.findFirst({
+        where: {
+          programmeId: dto.programmeId,
+          facilitatorId: user?.userId,
+          organisationId,
+          isActive: true,
+          deletedAt: null,
+          moduleId: null,
+          learnerId: null,
+          OR: [
+            { startDate: null, endDate: null },
+            { startDate: { lte: now }, endDate: null },
+            { startDate: null, endDate: { gte: now } },
+            { startDate: { lte: now }, endDate: { gte: now } },
+          ],
+        },
+      });
+      if (!targetAssignment) {
+        throw new ForbiddenException(
+          'Facilitators cannot transfer learners to unassigned programmes',
+        );
+      }
+    }
 
     let firstName = dto.firstName;
     let lastName = dto.lastName;

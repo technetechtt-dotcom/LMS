@@ -210,6 +210,7 @@ export function programmeActorWhere(
 /** Actor-specific enrollment scope layered on top of the active tenant. */
 export function enrollmentActorWhere(
   user?: AuthUser | null,
+  targetModuleId?: string,
 ): Prisma.EnrollmentWhereInput {
   if (isLearnerOnly(user)) return { learnerId: user!.userId };
   if (isMentorOnly(user)) {
@@ -227,16 +228,74 @@ export function enrollmentActorWhere(
   }
   const scopes: Prisma.EnrollmentWhereInput[] = [];
   if (user.roleCodes.includes('FACILITATOR')) {
+    const now = new Date();
+    const dateFilter = {
+      facilitatorId: user.userId,
+      isActive: true,
+      deletedAt: null,
+      OR: [
+        { startDate: null, endDate: null },
+        { startDate: { lte: now }, endDate: null },
+        { startDate: null, endDate: { gte: now } },
+        { startDate: { lte: now }, endDate: { gte: now } },
+      ],
+    };
+
     scopes.push({
-      programme: {
-        facilitatorAssignments: {
-          some: {
-            facilitatorId: user.userId,
-            isActive: true,
-            deletedAt: null,
+      OR: [
+        // 1. Full-programme assignment: no module, no cohort, no learner restrictions
+        {
+          programme: {
+            facilitatorAssignments: {
+              some: {
+                ...dateFilter,
+                moduleId: null,
+                cohortId: null,
+                learnerId: null,
+              },
+            },
           },
         },
-      },
+        // 2. Cohort-scoped assignment: applies only to enrollments in that cohort
+        {
+          cohort: {
+            facilitatorAssignments: {
+              some: {
+                ...dateFilter,
+                moduleId: null,
+                learnerId: null,
+              },
+            },
+          },
+        },
+        // 3. Learner-scoped assignment: applies only to that specific learner
+        {
+          learner: {
+            learnerFacilitatorAssignments: {
+              some: {
+                ...dateFilter,
+                moduleId: null,
+                cohortId: null,
+              },
+            },
+          },
+        },
+        // 4. Module-scoped assignment: only matches when targetModuleId is explicitly provided
+        ...(targetModuleId
+          ? [
+              {
+                programme: {
+                  facilitatorAssignments: {
+                    some: {
+                      ...dateFilter,
+                      moduleId: targetModuleId,
+                    },
+                  },
+                },
+              },
+            ]
+          : []),
+      ],
     });
   }
   if (user.roleCodes.includes('ASSESSOR')) {
@@ -273,18 +332,83 @@ export function assessmentActorWhere(
   }
   const scopes: Prisma.AssessmentWhereInput[] = [];
   if (user.roleCodes.includes('FACILITATOR')) {
+    const now = new Date();
+    const dateFilter = {
+      facilitatorId: user.userId,
+      isActive: true,
+      deletedAt: null,
+      OR: [
+        { startDate: null, endDate: null },
+        { startDate: { lte: now }, endDate: null },
+        { startDate: null, endDate: { gte: now } },
+        { startDate: { lte: now }, endDate: { gte: now } },
+      ],
+    };
+
     scopes.push({
-      enrollment: {
-        programme: {
-          facilitatorAssignments: {
-            some: {
-              facilitatorId: user.userId,
-              isActive: true,
-              deletedAt: null,
+      OR: [
+        // Full programme assignment
+        {
+          enrollment: {
+            programme: {
+              facilitatorAssignments: {
+                some: {
+                  ...dateFilter,
+                  moduleId: null,
+                  cohortId: null,
+                  learnerId: null,
+                },
+              },
             },
           },
         },
-      },
+        // Module-scoped assignment
+        {
+          enrollment: {
+            programme: {
+              modules: {
+                some: {
+                  facilitatorAssignments: {
+                    some: {
+                      ...dateFilter,
+                      cohortId: null,
+                      learnerId: null,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        // Cohort-scoped assignment
+        {
+          enrollment: {
+            cohort: {
+              facilitatorAssignments: {
+                some: {
+                  ...dateFilter,
+                  moduleId: null,
+                  learnerId: null,
+                },
+              },
+            },
+          },
+        },
+        // Learner-scoped assignment
+        {
+          enrollment: {
+            learner: {
+              learnerFacilitatorAssignments: {
+                some: {
+                  ...dateFilter,
+                  moduleId: null,
+                  cohortId: null,
+                },
+              },
+            },
+          },
+        },
+      ],
     });
   }
   if (user.roleCodes.includes('ASSESSOR')) scopes.push({ assessorId: user.userId });
@@ -307,24 +431,70 @@ export function poeArtifactActorWhere(
   user?: AuthUser | null,
 ): Prisma.PoeLearningArtifactWhereInput {
   if (!user?.userId || isLearnerOnly(user)) return {};
-  if (isPlatformAdmin(user) || user.roleCodes.some((code) =>
-    ['ADMIN', 'QA_OFFICER'].includes(code))) {
+  if (isPlatformAdmin(user) || user.roleCodes.includes('ADMIN') || user.roleCodes.includes('QA_OFFICER')) {
     return {};
   }
   const scopes: Prisma.PoeLearningArtifactWhereInput[] = [];
   if (user.roleCodes.includes('FACILITATOR')) {
+    const now = new Date();
+    const dateFilter = {
+      facilitatorId: user.userId,
+      isActive: true,
+      deletedAt: null,
+      OR: [
+        { startDate: null, endDate: null },
+        { startDate: { lte: now }, endDate: null },
+        { startDate: null, endDate: { gte: now } },
+        { startDate: { lte: now }, endDate: { gte: now } },
+      ],
+    };
+
     scopes.push({
-      enrollment: {
-        programme: {
-          facilitatorAssignments: {
-            some: {
-              facilitatorId: user.userId,
-              isActive: true,
-              deletedAt: null,
+      OR: [
+        // Full programme assignment
+        {
+          enrollment: {
+            programme: {
+              facilitatorAssignments: {
+                some: {
+                  ...dateFilter,
+                  moduleId: null,
+                  cohortId: null,
+                  learnerId: null,
+                },
+              },
             },
           },
         },
-      },
+        // Cohort-scoped assignment
+        {
+          enrollment: {
+            cohort: {
+              facilitatorAssignments: {
+                some: {
+                  ...dateFilter,
+                  moduleId: null,
+                  learnerId: null,
+                },
+              },
+            },
+          },
+        },
+        // Learner-scoped assignment
+        {
+          enrollment: {
+            learner: {
+              learnerFacilitatorAssignments: {
+                some: {
+                  ...dateFilter,
+                  moduleId: null,
+                  cohortId: null,
+                },
+              },
+            },
+          },
+        },
+      ],
     });
   }
   if (user.roleCodes.includes('ASSESSOR')) scopes.push({ assessorId: user.userId });
@@ -380,6 +550,7 @@ export function assertEnrollmentAccess(
         learnerId?: string | null;
         cohortId?: string | null;
         moduleId?: string | null;
+        module?: { id: string; unitStandardId?: string | null } | null;
       }>;
       [key: string]: unknown;
     } | null;
@@ -414,7 +585,13 @@ export function assertEnrollmentAccess(
       if (fa.endDate && new Date(fa.endDate) < now) return false;
       if (fa.learnerId && fa.learnerId !== enrollment.learnerId) return false;
       if (fa.cohortId && fa.cohortId !== enrollment.cohortId) return false;
-      if (fa.moduleId && (!targetModuleId || fa.moduleId !== targetModuleId)) return false;
+      if (fa.moduleId) {
+        if (!targetModuleId) return false;
+        const matchesModule =
+          fa.moduleId === targetModuleId ||
+          fa.module?.unitStandardId === targetModuleId;
+        if (!matchesModule) return false;
+      }
       return true;
     });
     if (!assigned) {

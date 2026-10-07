@@ -43,5 +43,5 @@ module.exports = {
     process.env.RUN_DB_E2E === '1' ? [] : ['\\.db\\.e2e\\.spec\\.ts$'],
   testTimeout: 20000,
   maxWorkers: '50%',
-  forceExit: true,
+  forceExit: false,
 };

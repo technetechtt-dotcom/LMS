@@ -110,7 +110,7 @@ export function HelpPage() {
             Send us an email and we'll get back to you.
           </p>
           <a
-            href="mailto:support@skillspro.co.za?subject=SkillForge%20Support"
+            href="mailto:support@skillforge.co.za?subject=SkillForge%20Support"
             className="inline-flex w-full items-center justify-center rounded-md border border-gray-300 bg-transparent px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
             
             Contact Us
@@ -162,7 +162,7 @@ export function HelpPage() {
                 <div>
                   <p className="font-medium text-gray-900">Email Support</p>
                   <p className="text-sm text-brand-blue hover:underline cursor-pointer">
-                    support@skillspro.co.za
+                    support@skillforge.co.za
                   </p>
                 </div>
               </div>

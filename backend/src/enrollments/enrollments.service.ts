@@ -58,12 +58,19 @@ export class EnrollmentsService {
     }
 
     if (isFacilitatorOnly(user)) {
-      const assigned = programme.facilitatorAssignments.some(
-        (fa) => fa.facilitatorId === user?.userId && fa.isActive,
-      );
+      const now = new Date();
+      const assigned = programme.facilitatorAssignments.some((fa) => {
+        if (fa.facilitatorId !== user?.userId || !fa.isActive) return false;
+        if (fa.startDate && new Date(fa.startDate) > now) return false;
+        if (fa.endDate && new Date(fa.endDate) < now) return false;
+        if (fa.moduleId) return false; // module-only cannot create programme enrollments
+        if (fa.learnerId) return false; // learner-only cannot create arbitrary enrollments
+        if (fa.cohortId && fa.cohortId !== dto.cohortId) return false;
+        return true;
+      });
       if (!assigned) {
         throw new ForbiddenException(
-          'Facilitators cannot create enrolments outside their assigned programmes',
+          'Facilitators cannot create enrolments outside their assigned programmes or cohorts',
         );
       }
     }

@@ -9,14 +9,22 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('pdfkit')) {
-            return 'pdf-vendor';
-          }
-          if (id.includes('chart.js') || id.includes('react-chartjs-2') || id.includes('recharts')) {
-            return 'charts-vendor';
-          }
           if (id.includes('node_modules')) {
-            return 'vendor';
+            if (id.includes('jspdf')) {
+              return 'jspdf-vendor';
+            }
+            if (id.includes('pdf-lib') || id.includes('pdfkit') || id.includes('fflate')) {
+              return 'pdflib-vendor';
+            }
+            if (id.includes('html2canvas')) {
+              return 'html2canvas-vendor';
+            }
+            if (id.includes('chart.js') || id.includes('react-chartjs-2') || id.includes('recharts') || id.includes('d3-')) {
+              return 'charts-vendor';
+            }
+            if (id.includes('lucide-react')) {
+              return 'icons-vendor';
+            }
           }
         },
       },
