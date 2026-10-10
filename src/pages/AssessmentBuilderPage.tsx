@@ -310,9 +310,9 @@ export function AssessmentBuilderPage() {
     }
   };
   return (
-    <div className="flex h-[calc(100vh-4rem)] -m-6 overflow-hidden">
+    <div className="flex flex-col lg:flex-row min-h-[calc(100vh-4rem)] lg:-m-6 overflow-auto lg:overflow-hidden">
       {/* Sidebar - Settings */}
-      <div className="w-80 bg-white border-r border-gray-200 overflow-y-auto p-6 flex flex-col gap-6">
+      <div className="w-full lg:w-80 bg-white border-b lg:border-b-0 lg:border-r border-gray-200 overflow-y-auto p-6 flex flex-col gap-6">
         <div>
           <h2 className="text-lg font-bold text-gray-900 mb-4">
             Assessment Settings

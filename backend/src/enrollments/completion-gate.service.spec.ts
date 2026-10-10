@@ -165,11 +165,27 @@ describe('CompletionGateService authoritative completion decisions', () => {
         requireAllAssessmentsC: false,
         requireWorkbook: false,
         requireSummative: false,
+        requireModeration: false,
       }),
       moderated: [],
     });
     const result = await service.evaluate('enrollment-1', 'organisation-1');
     expect(result.ready).toBe(true);
     expect(prisma.poeLearningArtifact.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when moderation is required and no assessments exist', async () => {
+    const { service } = setup({
+      enrollment: enrollment({
+        requireAllAssessmentsC: false,
+        requireWorkbook: false,
+        requireSummative: false,
+      }),
+      moderated: [],
+    });
+    const result = await service.evaluate('enrollment-1', 'organisation-1');
+    expect(result.ready).toBe(false);
+    expect(result.checks.requiredModerationApproved).toBe(false);
+    expect(result.reasons).toContain('No moderated assessments recorded');
   });
 });

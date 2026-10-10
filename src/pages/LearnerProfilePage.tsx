@@ -342,6 +342,19 @@ export function LearnerProfilePage() {
       return;
     }
     try {
+      try {
+        const file = await learnerService.downloadOfficialPoe(learnerRecord.id);
+        const url = URL.createObjectURL(file.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success('Official PoE PDF downloaded');
+        return;
+      } catch {
+        /* fall back to the local compiler if the file route is unavailable */
+      }
       const { compileOfficialPoePackageBlob } = await import(
         '../utils/officialPoeCompilePdf'
       );

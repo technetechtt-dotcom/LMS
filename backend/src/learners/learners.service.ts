@@ -19,6 +19,7 @@ import {
   isFacilitatorOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
+import { assertCohortForProgramme } from '../common/tenant/cohort-integrity';
 
 export type LearnerListQuery = {
   search?: string;
@@ -436,6 +437,14 @@ export class LearnersService {
             'Programme not found in your organisation',
           );
         }
+      }
+      if (dto.cohortId) {
+        await assertCohortForProgramme(
+          tx,
+          dto.cohortId,
+          dto.programmeId ?? existing.programmeId,
+          organisationId,
+        );
       }
       await tx.enrollment.update({
         where: { id },

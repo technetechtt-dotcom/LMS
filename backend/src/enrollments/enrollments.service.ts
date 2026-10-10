@@ -17,6 +17,7 @@ import {
 } from '../common/tenant/tenant-scope';
 import { resolveEnrollmentTransition } from './enrollment-lifecycle';
 import { CompletionGateService } from './completion-gate.service';
+import { assertCohortForProgramme } from '../common/tenant/cohort-integrity';
 
 @Injectable()
 export class EnrollmentsService {
@@ -80,6 +81,13 @@ export class EnrollmentsService {
       select: { id: true },
     });
     if (!learner) throw new NotFoundException('Learner user not found');
+
+    await assertCohortForProgramme(
+      this.prisma,
+      dto.cohortId,
+      dto.programmeId,
+      organisationId,
+    );
 
     if (dto.employerOrganisationId) {
       const employer = await this.prisma.organisation.findFirst({

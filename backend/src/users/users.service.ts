@@ -13,6 +13,7 @@ import {
   isPlatformAdmin,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
+import { assertCohortForProgramme } from '../common/tenant/cohort-integrity';
 import * as bcrypt from 'bcrypt';
 import { MailService } from '../mail/mail.service';
 import { generateOpaqueRefreshToken, hashOpaqueToken } from '../common/crypto/token-crypto';
@@ -178,6 +179,7 @@ export class UsersService {
       if (dto.programmeId && role.code !== 'LEARNER') {
         throw new BadRequestException('Only learner accounts may be enrolled during provisioning');
       }
+      await assertCohortForProgramme(tx, dto.cohortId, programme?.id, organisationId);
 
       const account = await tx.user.create({
         data: {

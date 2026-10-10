@@ -227,9 +227,58 @@ export class ComplianceService {
     return docs.map((d) => this.mapComplianceDoc(d));
   }
 
+  private mapSchedule(row: {
+    id: string;
+    kind: string;
+    type: string;
+    reference: string | null;
+    scheduledFor: Date;
+    status: string;
+    notes: string | null;
+    conductor: string | null;
+    reminderSentAt: Date | null;
+    completedAt: Date | null;
+    cancelledAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }): Record<string, unknown> {
+    const now = new Date();
+    const liveStatus =
+      row.status === 'SCHEDULED' && row.scheduledFor < now ? 'OVERDUE' : row.status;
+    const uiStatus =
+      liveStatus === 'COMPLETED'
+        ? 'completed'
+        : liveStatus === 'CANCELLED'
+          ? 'cancelled'
+          : liveStatus === 'OVERDUE'
+            ? 'overdue'
+            : row.kind === 'AUDIT'
+              ? 'scheduled'
+              : 'upcoming';
+    return {
+      id: row.id,
+      kind: row.kind,
+      type: row.type,
+      reference: row.reference ?? `${row.kind}-${row.id.slice(0, 8)}`,
+      dueDate: row.scheduledFor.toISOString().slice(0, 10),
+      scheduledFor: row.scheduledFor.toISOString(),
+      status: uiStatus,
+      lifecycleStatus: liveStatus,
+      submittedBy: row.conductor ?? undefined,
+      submittedAt: row.createdAt.toISOString(),
+      completedAt: row.completedAt?.toISOString(),
+      cancelledAt: row.cancelledAt?.toISOString(),
+      reminderSentAt: row.reminderSentAt?.toISOString(),
+      setaResponse: row.notes ?? (row.kind === 'AUDIT' ? 'Audit scheduled' : 'Pending submission'),
+      fileUrl: undefined,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
   async listSetaSubmissions(user?: AuthUser) {
     const organisationId = requireOrganisationId(user);
-    const [docs, gateway] = await Promise.all([
+    const [docs, gateway, schedules] = await Promise.all([
       this.prisma.document.findMany({
         where: {
           deletedAt: null,
@@ -243,7 +292,12 @@ export class ComplianceService {
         orderBy: { createdAt: 'desc' },
         take: 50,
       }),
+      this.prisma.complianceSchedule.findMany({
+        where: { organisationId },
+        orderBy: { scheduledFor: 'asc' },
+      }),
     ]);
+    await this.reconcileScheduleLifecycle(schedules);
     const fromDocs = docs.map((d) => this.mapSetaSubmission(d));
     const fromGateway = gateway.map((g) => ({
       id: g.id,
@@ -258,7 +312,39 @@ export class ComplianceService {
       createdAt: g.createdAt.toISOString(),
       updatedAt: g.createdAt.toISOString(),
     }));
-    return [...fromGateway, ...fromDocs];
+    return [...schedules.map((row) => this.mapSchedule(row)), ...fromGateway, ...fromDocs];
+  }
+
+  private async reconcileScheduleLifecycle(
+    rows: Array<{
+      id: string;
+      status: string;
+      scheduledFor: Date;
+      reminderSentAt: Date | null;
+    }>,
+  ) {
+    const now = new Date();
+    const soon = new Date(now.getTime() + 7 * 86_400_000);
+    for (const row of rows) {
+      if (row.status === 'SCHEDULED' && row.scheduledFor < now) {
+        await this.prisma.complianceSchedule.update({
+          where: { id: row.id },
+          data: { status: 'OVERDUE' },
+        });
+        row.status = 'OVERDUE';
+      } else if (
+        row.status === 'SCHEDULED' &&
+        !row.reminderSentAt &&
+        row.scheduledFor <= soon
+      ) {
+        await this.prisma.complianceSchedule.update({
+          where: { id: row.id },
+          data: { status: 'REMINDED', reminderSentAt: now },
+        });
+        row.status = 'REMINDED';
+        row.reminderSentAt = now;
+      }
+    }
   }
 
   async scheduleSubmission(
@@ -275,27 +361,23 @@ export class ComplianceService {
     if (!body.type || !body.dueDate) {
       throw new BadRequestException('Submission type and due date are required');
     }
-    const stamp = Date.now();
-    const doc = await this.prisma.document.create({
+    const scheduledFor = new Date(body.dueDate);
+    if (Number.isNaN(scheduledFor.getTime())) {
+      throw new BadRequestException('dueDate must be a valid date');
+    }
+    const row = await this.prisma.complianceSchedule.create({
       data: {
         organisationId,
-        category: 'seta-submission',
-        name: body.reference?.trim() || `${body.type} Submission`,
-        storageKey: `scheduled/seta-submission/${organisationId}/${stamp}`,
-        url: `scheduled://seta-submission/${stamp}`,
-        metadata: {
-          type: body.type.trim(),
-          reference: body.reference?.trim() || `SETA-SUB-${stamp}`,
-          dueDate: body.dueDate,
-          notes: body.notes?.trim() || undefined,
-          status: 'upcoming',
-          submittedBy: user.email ?? 'Facilitator',
-          submittedAt: new Date().toISOString(),
-          setaResponse: 'Pending submission',
-        },
+        kind: 'SUBMISSION',
+        type: body.type.trim(),
+        reference: body.reference?.trim() || `SETA-SUB-${Date.now()}`,
+        scheduledFor,
+        notes: body.notes?.trim() || undefined,
+        conductor: user.email,
+        createdById: user.userId,
       },
     });
-    return this.mapSetaSubmission(doc);
+    return this.mapSchedule(row);
   }
 
   async scheduleAudit(
@@ -313,27 +395,47 @@ export class ComplianceService {
     if (!body.type || !body.auditDate) {
       throw new BadRequestException('Audit type and date are required');
     }
-    const stamp = Date.now();
-    const doc = await this.prisma.document.create({
+    const scheduledFor = new Date(body.auditDate);
+    if (Number.isNaN(scheduledFor.getTime())) {
+      throw new BadRequestException('auditDate must be a valid date');
+    }
+    const row = await this.prisma.complianceSchedule.create({
       data: {
         organisationId,
-        category: 'seta-submission',
-        name: body.reference?.trim() || `${body.type} Audit`,
-        storageKey: `scheduled/seta-audit/${organisationId}/${stamp}`,
-        url: `scheduled://seta-audit/${stamp}`,
-        metadata: {
-          type: body.type.trim(),
-          reference: body.reference?.trim() || `AUDIT-${stamp}`,
-          dueDate: body.auditDate,
-          notes: body.notes?.trim() || undefined,
-          status: 'scheduled',
-          submittedBy: body.conductor?.trim() || user.email || 'SETA Lead Auditor',
-          submittedAt: new Date().toISOString(),
-          setaResponse: 'Audit scheduled',
-        },
+        kind: 'AUDIT',
+        type: body.type.trim(),
+        reference: body.reference?.trim() || `AUDIT-${Date.now()}`,
+        scheduledFor,
+        notes: body.notes?.trim() || undefined,
+        conductor: body.conductor?.trim() || user.email,
+        createdById: user.userId,
       },
     });
-    return this.mapSetaSubmission(doc);
+    return this.mapSchedule(row);
+  }
+
+  async transitionSchedule(
+    id: string,
+    body: { status: 'COMPLETED' | 'CANCELLED' },
+    user?: AuthUser,
+  ) {
+    const organisationId = requireOrganisationId(user);
+    const row = await this.prisma.complianceSchedule.findFirst({
+      where: { id, organisationId },
+    });
+    if (!row) throw new BadRequestException('Compliance schedule not found');
+    if (row.status === 'COMPLETED' || row.status === 'CANCELLED') {
+      throw new BadRequestException('Schedule is already closed');
+    }
+    const updated = await this.prisma.complianceSchedule.update({
+      where: { id },
+      data: {
+        status: body.status,
+        completedAt: body.status === 'COMPLETED' ? new Date() : row.completedAt,
+        cancelledAt: body.status === 'CANCELLED' ? new Date() : row.cancelledAt,
+      },
+    });
+    return this.mapSchedule(updated);
   }
 
   async uploadDocument(

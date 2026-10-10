@@ -196,6 +196,10 @@ export function Header({ onMenuToggle }: HeaderProps) {
             ref={userMenuRef}>
             
             <button
+              type="button"
+              aria-label="Open account menu"
+              aria-expanded={isUserMenuOpen}
+              aria-haspopup="menu"
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
               className="flex items-center space-x-3 focus:outline-none">
               

@@ -56,6 +56,9 @@ const AccessDeniedPage = lazy(() => import('./pages/AccessDeniedPage').then(({ A
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage').then(({ NotificationsPage }) => ({ default: NotificationsPage })));
 const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage').then(({ PrivacyPolicyPage }) => ({ default: PrivacyPolicyPage })));
 const TermsPage = lazy(() => import('./pages/TermsPage').then(({ TermsPage }) => ({ default: TermsPage })));
+const WorkplaceLogbookPage = lazy(() => import('./pages/WorkplaceLogbookPage').then(({ WorkplaceLogbookPage }) => ({ default: WorkplaceLogbookPage })));
+const PrivacyOperationsPage = lazy(() => import('./pages/PrivacyOperationsPage').then(({ PrivacyOperationsPage }) => ({ default: PrivacyOperationsPage })));
+const RemedialAssignmentsPage = lazy(() => import('./pages/RemedialAssignmentsPage').then(({ RemedialAssignmentsPage }) => ({ default: RemedialAssignmentsPage })));
 
 function RouteLoadingFallback() {
   return (
@@ -171,6 +174,7 @@ function App() {
                     'Facilitator',
                     'Workplace Mentor',
                     'Learner',
+                    'QA Officer',
                   ]}>
                   <LearnerProfilePage />
                 </RoleGate>
@@ -381,6 +385,7 @@ function App() {
                     'Assessor',
                     'Moderator',
                     'Learner',
+                    'QA Officer',
                   ]}>
                   <PoeArtifactReviewPage />
                 </RoleGate>
@@ -425,6 +430,7 @@ function App() {
                     'Facilitator',
                     'Learner',
                     'Workplace Mentor',
+                    'QA Officer',
                   ]}>
                   <MaterialsPage />
                 </RoleGate>
@@ -433,8 +439,32 @@ function App() {
             <Route
               path="attendance"
               element={
-                <RoleGate allowedRoles={['Admin', 'Facilitator', 'Learner']}>
+                <RoleGate allowedRoles={['Admin', 'Facilitator', 'Learner', 'QA Officer']}>
                   <AttendancePage />
+                </RoleGate>
+              }
+            />
+            <Route
+              path="workplace-logbook"
+              element={
+                <RoleGate allowedRoles={['Learner', 'Workplace Mentor', 'QA Officer', 'Facilitator']}>
+                  <WorkplaceLogbookPage />
+                </RoleGate>
+              }
+            />
+            <Route
+              path="privacy-operations"
+              element={
+                <RoleGate allowedRoles={['Admin', 'QA Officer']}>
+                  <PrivacyOperationsPage />
+                </RoleGate>
+              }
+            />
+            <Route
+              path="remedial"
+              element={
+                <RoleGate allowedRoles={['Admin', 'Facilitator', 'QA Officer', 'Assessor', 'Learner']}>
+                  <RemedialAssignmentsPage />
                 </RoleGate>
               }
             />

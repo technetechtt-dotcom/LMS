@@ -12,6 +12,7 @@ import {
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { SUPPORT_URL } from '../config/env';
 export function HelpPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
@@ -168,9 +169,9 @@ export function HelpPage() {
               </div>
               <div className="pt-4 border-t border-gray-100">
                 <a
-                  href="https://www.skillforge.co.za/support"
-                  target="_blank"
-                  rel="noreferrer"
+                  href={SUPPORT_URL}
+                  target={SUPPORT_URL.startsWith('/') ? undefined : '_blank'}
+                  rel={SUPPORT_URL.startsWith('/') ? undefined : 'noreferrer'}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-gray-300 bg-transparent px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
                   
                   Visit Support Portal

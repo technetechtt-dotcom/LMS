@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Document, PoeLearningArtifact } from '@prisma/client';
+import PDFDocument = require('pdfkit');
 import { FileStorageService } from '../common/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
@@ -220,15 +221,79 @@ export class PoeService {
     };
   }
 
-  exportPoe(enrollmentId: string, user?: AuthUser) {
-    // Access check via enrollmentCtx (async) — call from controller after await
+  async exportPoe(enrollmentId: string, user?: AuthUser) {
+    const ctx = await this.enrollmentCtx(enrollmentId, user);
+    const pdf = await this.buildPoePdf(ctx);
+    const stored = await this.files.upload(
+      `poe-${ctx.id}.pdf`,
+      pdf,
+      'application/pdf',
+      { prefix: 'exports/poe', organisationId: ctx.organisationId ?? undefined },
+    );
     return {
-      url: `/exports/poe-${encodeURIComponent(enrollmentId)}.pdf`,
+      url: `/learners/${encodeURIComponent(ctx.id)}/poe-export`,
+      storageKey: stored.key,
+      fileUrl: stored.url,
+      filename: `poe-${ctx.learnerName.replace(/\s+/g, '-').toLowerCase()}.pdf`,
     };
+  }
+
+  async exportPdf(enrollmentId: string, user?: AuthUser) {
+    const ctx = await this.enrollmentCtx(enrollmentId, user);
+    const buffer = await this.buildPoePdf(ctx);
+    const filename = `poe-${ctx.learnerName.replace(/\s+/g, '-').toLowerCase()}.pdf`;
+    return { buffer, filename };
   }
 
   async assertCanExport(enrollmentId: string, user?: AuthUser) {
     await this.enrollmentCtx(enrollmentId, user);
+  }
+
+  private async buildPoePdf(ctx: EnrollmentCtx): Promise<Buffer> {
+    const artifacts = await this.prisma.poeLearningArtifact.findMany({
+      where: { enrollmentId: ctx.id, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    const documents = await this.prisma.document.findMany({
+      where: { enrollmentId: ctx.id, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      take: 50,
+    });
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', margin: 48 });
+      const chunks: Buffer[] = [];
+      doc.on('data', (c) => chunks.push(c as Buffer));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+      doc.fontSize(20).text('Official Portfolio of Evidence');
+      doc.moveDown(0.5);
+      doc.fontSize(12).text(`Learner: ${ctx.learnerName}`);
+      doc.text(`Enrollment: ${ctx.id}`);
+      doc.text(`Generated: ${new Date().toISOString()}`);
+      doc.moveDown();
+      doc.fontSize(14).text('Learning artefacts');
+      doc.moveDown(0.3);
+      doc.fontSize(10);
+      if (!artifacts.length) {
+        doc.text('No PoE artefacts recorded.');
+      }
+      for (const artifact of artifacts) {
+        doc.text(
+          `• ${artifact.kind} — ${artifact.title} (${artifact.status}${artifact.moderationOutcome ? `, ${artifact.moderationOutcome}` : ''})`,
+        );
+      }
+      doc.moveDown();
+      doc.fontSize(14).text('Supporting documents');
+      doc.moveDown(0.3);
+      doc.fontSize(10);
+      if (!documents.length) {
+        doc.text('No supporting documents attached.');
+      }
+      for (const file of documents) {
+        doc.text(`• ${file.name} [${file.category}]`);
+      }
+      doc.end();
+    });
   }
 
   private artifactSubmission(

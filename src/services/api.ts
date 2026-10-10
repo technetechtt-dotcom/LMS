@@ -1,6 +1,5 @@
-import { apiFetchJSON, apiFetchFormData, apiFetchBlob, buildQuery } from './httpClient';
+import { apiFetchJSON, apiFetchFormData, apiFetchBlob, buildQuery, refreshSessionViaCookie } from './httpClient';
 import { getAuthPortal } from '../config/authPortal';
-import { applyRefreshedTokens } from '../config/authStorage';
 import type {
   User,
   Learner,
@@ -98,14 +97,14 @@ type RemoteLoginEnvelope = {
 
 export const authService = {
   refreshSession: async (): Promise<RemoteLoginEnvelope> => {
-    const session = await apiFetchJSON<RemoteLoginEnvelope>('/auth/refresh', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
-    if (session.accessToken) {
-      applyRefreshedTokens(session.accessToken, undefined, session.user);
+    const session = await refreshSessionViaCookie();
+    if (!session.accessToken) {
+      throw new Error('Session refresh failed');
     }
-    return session;
+    return {
+      accessToken: session.accessToken,
+      user: session.user as User,
+    };
   },
 
   login: async (
@@ -299,11 +298,20 @@ export const learnerService = {
 
   exportPOE: async (
     learnerId: string,
-  ): Promise<ApiResponse<{ url: string }>> => {
-    return remotePostJson<{ url: string }>(
+  ): Promise<ApiResponse<{ url: string; fileUrl?: string; filename?: string }>> => {
+    return remotePostJson<{ url: string; fileUrl?: string; filename?: string }>(
       `/learners/${encodeURIComponent(learnerId)}/poe-export`,
       {},
     );
+  },
+
+  downloadOfficialPoe: async (
+    learnerId: string,
+  ): Promise<{ blob: Blob; filename: string }> => {
+    const file = await apiFetchBlob(
+      `/learners/${encodeURIComponent(learnerId)}/poe-export`,
+    );
+    return { blob: file.blob, filename: file.filename || `poe-${learnerId}.pdf` };
   },
 };
 
@@ -838,6 +846,112 @@ export const privacyService = {
       type: 'ACCESS',
     });
   },
+
+  listDsar: async (): Promise<ApiResponse<Array<Record<string, unknown>>>> => {
+    const raw = await apiFetchJSON<unknown>('/privacy/dsar');
+    const data = unwrapData(raw);
+    return { data: Array.isArray(data) ? data : [], success: true };
+  },
+
+  progressDsar: async (
+    id: string,
+    body: { status: 'IN_PROGRESS' | 'COMPLETED' | 'REJECTED'; notes?: string },
+  ): Promise<ApiResponse<Record<string, unknown>>> =>
+    remotePostJson<Record<string, unknown>>(
+      `/privacy/dsar/${encodeURIComponent(id)}`,
+      body,
+      'PATCH',
+    ),
+
+  listIncidents: async (): Promise<ApiResponse<Array<Record<string, unknown>>>> => {
+    const raw = await apiFetchJSON<unknown>('/privacy/incidents');
+    const data = unwrapData(raw);
+    return { data: Array.isArray(data) ? data : [], success: true };
+  },
+
+  reportIncident: async (body: {
+    severity: string;
+    title: string;
+    description: string;
+  }): Promise<ApiResponse<Record<string, unknown>>> =>
+    remotePostJson<Record<string, unknown>>('/privacy/incidents', body),
+
+  progressIncident: async (
+    id: string,
+    body: { status: string; description?: string },
+  ): Promise<ApiResponse<Record<string, unknown>>> =>
+    remotePostJson<Record<string, unknown>>(
+      `/privacy/incidents/${encodeURIComponent(id)}`,
+      body,
+      'PATCH',
+    ),
+
+  listRetention: async (): Promise<ApiResponse<Array<Record<string, unknown>>>> => {
+    const raw = await apiFetchJSON<unknown>('/privacy/retention-policies');
+    const data = unwrapData(raw);
+    return { data: Array.isArray(data) ? data : [], success: true };
+  },
+
+  upsertRetention: async (body: {
+    entityType: string;
+    retainDays: number;
+  }): Promise<ApiResponse<Record<string, unknown>>> =>
+    remotePostJson<Record<string, unknown>>('/privacy/retention-policies', body),
+
+  listExports: async (): Promise<ApiResponse<Array<Record<string, unknown>>>> => {
+    const raw = await apiFetchJSON<unknown>('/privacy/exports');
+    const data = unwrapData(raw);
+    return { data: Array.isArray(data) ? data : [], success: true };
+  },
+
+  requestAdminExport: async (
+    subjectUserId: string,
+  ): Promise<ApiResponse<Record<string, unknown>>> =>
+    remotePostJson<Record<string, unknown>>('/privacy/export', { subjectUserId }),
+};
+
+export const learningProgressService = {
+  summary: async (enrollmentId: string) =>
+    apiFetchJSON<{
+      enrollmentId: string;
+      modules: Array<{ key: string; title: string; total: number; completed: number; percent: number }>;
+      materials: Array<{
+        id: string;
+        title: string;
+        moduleKey: string;
+        read: boolean;
+        completed: boolean;
+        bookmarked: boolean;
+      }>;
+    }>(`/learning-progress${buildQuery({ enrollmentId })}`),
+
+  record: async (body: {
+    enrollmentId: string;
+    materialId?: string;
+    moduleKey?: string;
+    kind: 'MATERIAL_READ' | 'MATERIAL_COMPLETED' | 'BOOKMARK';
+  }) => remotePostJson('/learning-progress', body),
+};
+
+export const remedialService = {
+  list: async (enrollmentId?: string) => {
+    const raw = await apiFetchJSON<unknown>(
+      `/remedial-assignments${buildQuery({ enrollmentId })}`,
+    );
+    const data = unwrapData(raw);
+    return { data: Array.isArray(data) ? data : [], success: true };
+  },
+  create: async (body: {
+    enrollmentId: string;
+    materialId?: string;
+    title: string;
+    instructions?: string;
+    dueAt?: string;
+  }) => remotePostJson('/remedial-assignments', body),
+  acknowledge: async (id: string) =>
+    remotePostJson(`/remedial-assignments/${encodeURIComponent(id)}/acknowledge`, {}),
+  complete: async (id: string) =>
+    remotePostJson(`/remedial-assignments/${encodeURIComponent(id)}/complete`, {}),
 };
 
 export type PoeArtifactKind = 'WORKBOOK' | 'SUMMATIVE' | 'LEARNER_GUIDE';
@@ -1029,6 +1143,16 @@ export const complianceService = {
     notes?: string;
   }): Promise<ApiResponse<SETASubmission>> =>
     remotePostJson<SETASubmission>('/compliance/seta-submissions', body),
+
+  transitionSchedule: async (
+    id: string,
+    status: 'COMPLETED' | 'CANCELLED',
+  ): Promise<ApiResponse<SETASubmission>> =>
+    remotePostJson<SETASubmission>(
+      `/compliance/schedules/${encodeURIComponent(id)}`,
+      { status },
+      'PATCH',
+    ),
 
   scheduleAudit: async (body: {
     type: string;
@@ -2183,6 +2307,28 @@ export const workplaceLogService = {
       { decision, feedback },
     );
   },
+
+  update: async (
+    id: string,
+    body: Partial<{
+      logDate: string;
+      hoursWorked: number;
+      activity: string;
+      supervisorName: string;
+      supervisorEmail: string;
+    }>,
+  ): Promise<ApiResponse<WorkplaceLogRow>> =>
+    remotePostJson<WorkplaceLogRow>(
+      `/workplace-logs/${encodeURIComponent(id)}`,
+      body,
+      'PATCH',
+    ),
+
+  resubmit: async (id: string): Promise<ApiResponse<WorkplaceLogRow>> =>
+    remotePostJson<WorkplaceLogRow>(
+      `/workplace-logs/${encodeURIComponent(id)}/resubmit`,
+      {},
+    ),
 };
 
 export type WorkplaceLogRow = {
@@ -2192,6 +2338,7 @@ export type WorkplaceLogRow = {
   hoursWorked: number | string;
   activity: string;
   supervisorName: string;
+  supervisorEmail?: string | null;
   mentorStatus: string;
   mentorFeedback?: string | null;
   enrollment?: {

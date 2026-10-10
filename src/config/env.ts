@@ -5,3 +5,8 @@ export const API_BASE_URL = (raw || 'http://localhost:8787').replace(/\/$/, '');
 
 /** Kept for incremental migration; always true when using default API URL. */
 export const HAS_REMOTE_API = API_BASE_URL.length > 0;
+
+export const SUPPORT_URL = (
+  (import.meta.env.VITE_SUPPORT_URL as string | undefined)?.trim() ||
+  '/help'
+).replace(/\/$/, '') || '/help';

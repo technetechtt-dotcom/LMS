@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateWorkplaceLogDto } from './workplace-logs.dto';
+import { CreateWorkplaceLogDto, UpdateWorkplaceLogDto } from './workplace-logs.dto';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   assertEnrollmentAccess,
@@ -28,12 +28,26 @@ function isMentorScoped(user?: AuthUser): boolean {
 function mentorEnrollmentWhere(user?: AuthUser): Prisma.EnrollmentWhereInput {
   return isMentorScoped(user)
     ? {
-        metadata: {
-          path: ['workplaceMentorId'],
-          equals: user!.userId,
-        },
+        OR: [
+          { workplaceMentorId: user!.userId },
+          {
+            metadata: {
+              path: ['workplaceMentorId'],
+              equals: user!.userId,
+            },
+          },
+        ],
       }
     : {};
+}
+
+function assignedMentorId(enrollment: {
+  workplaceMentorId?: string | null;
+  metadata: unknown;
+}): string | undefined {
+  if (enrollment.workplaceMentorId) return enrollment.workplaceMentorId;
+  const meta = (enrollment.metadata as { workplaceMentorId?: string } | null) ?? {};
+  return meta.workplaceMentorId;
 }
 
 @Injectable()
@@ -84,7 +98,7 @@ export class WorkplaceLogsService {
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
       },
-      select: { id: true, learnerId: true, metadata: true },
+      select: { id: true, learnerId: true, metadata: true, workplaceMentorId: true },
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
     assertEnrollmentAccess(user, enrollment, 'Workplace log');
@@ -101,10 +115,10 @@ export class WorkplaceLogsService {
       },
     });
 
-    const meta = (enrollment.metadata as { workplaceMentorId?: string } | null) ?? {};
-    if (meta.workplaceMentorId) {
+    const mentorId = assignedMentorId(enrollment);
+    if (mentorId) {
       await this.notifications?.notify(
-        meta.workplaceMentorId,
+        mentorId,
         'workplace',
         'Workplace log awaiting verification',
         'A learner submitted a workplace logbook entry for your review.',
@@ -112,6 +126,42 @@ export class WorkplaceLogsService {
       );
     }
     return log;
+  }
+
+  async update(id: string, dto: UpdateWorkplaceLogDto, user?: AuthUser) {
+    const organisationId = requireOrganisationId(user);
+    const row = await this.prisma.workplaceLog.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        enrollment: {
+          ...enrollmentOrgWhere(organisationId),
+          ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
+        },
+      },
+    });
+    if (!row) throw new NotFoundException('Workplace log not found');
+    if (row.mentorStatus === 'VERIFIED') {
+      throw new BadRequestException('Verified logs cannot be edited');
+    }
+    return this.prisma.workplaceLog.update({
+      where: { id },
+      data: {
+        ...(dto.logDate ? { logDate: new Date(dto.logDate) } : {}),
+        ...(dto.hoursWorked !== undefined ? { hoursWorked: dto.hoursWorked } : {}),
+        ...(dto.activity ? { activity: dto.activity } : {}),
+        ...(dto.supervisorName ? { supervisorName: dto.supervisorName } : {}),
+        ...(dto.supervisorEmail !== undefined
+          ? { supervisorEmail: dto.supervisorEmail }
+          : {}),
+        mentorStatus: row.mentorStatus === 'REJECTED' ? 'PENDING' : row.mentorStatus,
+        mentorFeedback: row.mentorStatus === 'REJECTED' ? null : row.mentorFeedback,
+      },
+    });
+  }
+
+  async resubmit(id: string, user?: AuthUser) {
+    return this.update(id, {}, user);
   }
 
   async mentorVerify(
@@ -134,10 +184,7 @@ export class WorkplaceLogsService {
         deletedAt: null,
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
-          metadata: {
-            path: ['workplaceMentorId'],
-            equals: user.userId,
-          },
+          ...mentorEnrollmentWhere(user),
         },
       },
       include: { enrollment: { select: { learnerId: true } } },

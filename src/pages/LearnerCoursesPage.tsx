@@ -14,7 +14,7 @@ import { Badge } from '../components/ui/Badge';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { Input } from '../components/ui/Input';
 import { useAuth } from '../contexts/AuthContext';
-import { learnerService, materialService } from '../services/api';
+import { learnerService, learningProgressService, materialService } from '../services/api';
 import type { TrainingMaterial } from '../types';
 import { openFileUrl } from '../utils/exportData';
 
@@ -33,6 +33,7 @@ export function LearnerCoursesPage() {
   const [materials, setMaterials] = useState<TrainingMaterial[]>([]);
   const [programmeName, setProgrammeName] = useState('Your programme');
   const [progress, setProgress] = useState(0);
+  const [moduleProgress, setModuleProgress] = useState<Record<string, number>>({});
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -46,6 +47,17 @@ export function LearnerCoursesPage() {
           programmeId = learnerRes.data?.programmeId;
           setProgrammeName(learnerRes.data?.programmeName ?? 'Your programme');
           setProgress(learnerRes.data?.progress ?? 0);
+          try {
+            const summary = await learningProgressService.summary(linkedLearnerId);
+            const next: Record<string, number> = {};
+            for (const mod of summary.modules ?? []) {
+              next[mod.key] = mod.percent;
+              next[mod.title] = mod.percent;
+            }
+            if (!cancelled) setModuleProgress(next);
+          } catch {
+            /* keep programme-level fallback until progress exists */
+          }
         }
         const matRes = await materialService.getAll(
           programmeId ? { programme: programmeId } : undefined,
@@ -74,9 +86,9 @@ export function LearnerCoursesPage() {
       programme: items[0]?.programmeName ?? programmeName,
       materialCount: items.length,
       status: 'Available' as const,
-      progress: progress,
+      progress: moduleProgress[title] ?? moduleProgress[items[0]?.moduleId ?? ''] ?? progress,
     }));
-  }, [materials, programmeName, progress]);
+  }, [materials, programmeName, progress, moduleProgress]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -168,6 +180,7 @@ export function LearnerCoursesPage() {
                   <Button
                     size="sm"
                     variant="outline"
+                    aria-label={`Open first material in ${mod.title}`}
                     onClick={() => {
                       const first = materials.find(
                         (m) => (m.moduleName || m.moduleId) === mod.title,

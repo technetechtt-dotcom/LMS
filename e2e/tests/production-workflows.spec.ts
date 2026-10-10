@@ -611,6 +611,27 @@ test.describe('production workflow acceptance', () => {
     })));
     provisionedEnrollment = provisionedLearners.find((item) => item.programmeId === provisionedProgramme.id)!;
     expect(provisionedEnrollment?.id).toBeTruthy();
+
+    const foreignCohort = dataOf(await jsonOk(await api.post(
+      `/programmes/${programme.id}/cohorts`,
+      {
+        headers: headers('admin'),
+        data: { name: `Foreign cohort ${stamp}` },
+      },
+    )));
+    const rejected = await api.post('/users', {
+      headers: headers('platform', provisionedOrganisation.id),
+      data: {
+        email: `bad-cohort-${stamp}@example.test`,
+        firstName: 'Bad',
+        lastName: 'Cohort',
+        roleId: learnerRole!.id,
+        organisationId: provisionedOrganisation.id,
+        programmeId: provisionedProgramme.id,
+        cohortId: foreignCohort.id,
+      },
+    });
+    expect(rejected.status(), await rejected.text()).toBe(400);
   });
 
   test('negative cross-tenant and unassigned-resource access for every role', async () => {

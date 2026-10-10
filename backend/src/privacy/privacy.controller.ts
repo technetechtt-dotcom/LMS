@@ -282,4 +282,43 @@ export class PrivacyController {
       take: 100,
     });
   }
+
+  @Roles('ADMIN', 'QA_OFFICER')
+  @Patch('incidents/:id')
+  async progressIncident(
+    @Param('id') id: string,
+    @Body() body: { status: string; description?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const organisationId = requireOrganisationId(req.user);
+    const allowed = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
+    if (!allowed.includes(body.status)) {
+      throw new BadRequestException(`status must be one of ${allowed.join(', ')}`);
+    }
+    const row = await this.prisma.incident.findFirst({
+      where: { id, organisationId },
+    });
+    if (!row) throw new BadRequestException('Incident not found');
+    return this.prisma.incident.update({
+      where: { id },
+      data: {
+        status: body.status,
+        description: body.description ?? row.description,
+        resolvedAt: ['RESOLVED', 'CLOSED'].includes(body.status)
+          ? new Date()
+          : row.resolvedAt,
+      },
+    });
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER')
+  @Get('exports')
+  listExports(@Req() req: Request & { user?: AuthUser }) {
+    const organisationId = requireOrganisationId(req.user);
+    return this.prisma.dataExportJob.findMany({
+      where: { organisationId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+  }
 }

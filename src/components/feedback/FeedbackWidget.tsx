@@ -53,6 +53,8 @@ export function FeedbackWidget() {
             <div className="bg-brand-navy px-4 py-3 flex justify-between items-center">
               <h3 className="text-white font-medium text-sm">Send Feedback</h3>
               <button
+              type="button"
+              aria-label="Close feedback"
               onClick={() => setIsOpen(false)}
               className="text-blue-200 hover:text-white transition-colors">
               
@@ -70,6 +72,8 @@ export function FeedbackWidget() {
                 <button
                   key={star}
                   type="button"
+                  aria-label={`Rate ${star} out of 5`}
+                  aria-pressed={star <= rating}
                   onClick={() => setRating(star)}
                   className="focus:outline-none transition-transform hover:scale-110">
                   

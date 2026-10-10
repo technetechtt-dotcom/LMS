@@ -47,6 +47,7 @@ export class CompletionGateService {
     const requireAllAssessmentsC = reqs.requireAllAssessmentsC !== false;
     const requireWorkbook = reqs.requireWorkbook !== false;
     const requireSummative = reqs.requireSummative !== false;
+    const requireModeration = reqs.requireModeration !== false;
     const minVerifiedHours = Number(reqs.minVerifiedWorkplaceHours ?? 0);
     const minAttendanceRate = Number(reqs.minAttendanceRatePercent ?? 0);
 
@@ -120,23 +121,33 @@ export class CompletionGateService {
       }
     }
 
-    const assessmentsForModeration = await this.prisma.assessment.findMany({
-      where: { enrollmentId, deletedAt: null },
-      select: {
-        id: true,
-        moderation: {
-          where: { deletedAt: null },
-          orderBy: { round: 'desc' },
-          take: 1,
-          select: { decision: true },
+    if (requireModeration) {
+      const assessmentsForModeration = await this.prisma.assessment.findMany({
+        where: { enrollmentId, deletedAt: null },
+        select: {
+          id: true,
+          moderation: {
+            where: { deletedAt: null },
+            orderBy: { round: 'desc' },
+            take: 1,
+            select: { decision: true },
+          },
         },
-      },
-    });
-    const moderationApproved = assessmentsForModeration.every(
-      (assessment) => assessment.moderation[0]?.decision === 'APPROVED',
-    );
-    checks.requiredModerationApproved = moderationApproved;
-    if (!moderationApproved) reasons.push('Required assessment moderation is not approved');
+      });
+      const moderationApproved =
+        assessmentsForModeration.length > 0 &&
+        assessmentsForModeration.every(
+          (assessment) => assessment.moderation[0]?.decision === 'APPROVED',
+        );
+      checks.requiredModerationApproved = moderationApproved;
+      if (!moderationApproved) {
+        reasons.push(
+          assessmentsForModeration.length
+            ? 'Required assessment moderation is not approved'
+            : 'No moderated assessments recorded',
+        );
+      }
+    }
 
     const blockingCompliance = await this.prisma.complianceDecision.count({
       where: { organisationId, status: 'ACTION_REQUIRED' },

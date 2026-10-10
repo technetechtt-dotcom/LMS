@@ -687,6 +687,44 @@ describe('integrity DB E2E', () => {
     expect(await prisma.user.findUnique({ where: { email: failedEmail } })).toBeNull();
   });
 
+  it('rejects learner provisioning against a cohort outside the programme or organisation', async () => {
+    const foreignProgramme = await prisma.programme.create({
+      data: {
+        organisationId: orgB,
+        qualificationId: qual.id,
+        code: `PX-${suffix}`,
+        title: 'Foreign integrity programme',
+      },
+    });
+    const foreignCohort = await prisma.cohort.create({
+      data: {
+        name: `Foreign cohort-${suffix}`,
+        programmeId: foreignProgramme.id,
+        organisationId: orgB,
+      },
+    });
+    const email = `cross-cohort-${suffix}@e2e.test`;
+    await expect(
+      users.create(
+        {
+          email,
+          firstName: 'Cross',
+          lastName: 'Tenant',
+          roleId: roleLearnerId,
+          programmeId,
+          cohortId: foreignCohort.id,
+        },
+        asAdmin(),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
+    expect(
+      await prisma.enrollment.findFirst({
+        where: { programmeId, cohortId: foreignCohort.id },
+      }),
+    ).toBeNull();
+  });
+
   it('cohort management CRUD and facilitator cohort-level allocation', async () => {
     const cohort = await prisma.cohort.create({
       data: {

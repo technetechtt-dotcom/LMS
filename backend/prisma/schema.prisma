@@ -138,6 +138,9 @@ model User {
   breakGlassApprovals              BreakGlassAccess[]      @relation("BreakGlassApprover")
   facilitatorAssignments           FacilitatorAssignment[] @relation("FacilitatorAssignments")
   learnerFacilitatorAssignments    FacilitatorAssignment[] @relation("LearnerFacilitatorAssignments")
+  mentoredEnrollments              Enrollment[]            @relation("EnrollmentWorkplaceMentor")
+  complianceSchedulesCreated       ComplianceSchedule[]    @relation("ComplianceScheduleCreatedBy")
+  remedialAssignmentsAssigned      RemedialAssignment[]    @relation("RemedialAssignmentAssignedBy")
 }
 
 model Role {
@@ -186,6 +189,7 @@ model Organisation {
   breakGlassRequests     BreakGlassAccess[]
   facilitatorAssignments FacilitatorAssignment[]
   cohorts                Cohort[]
+  complianceSchedules    ComplianceSchedule[]
 }
 
 model UserOrganisation {
@@ -380,6 +384,7 @@ model Enrollment {
   sdioOrganisationId     String                 @db.Uuid
   employerOrganisationId String?                @db.Uuid
   cohortId               String?                @db.Uuid
+  workplaceMentorId      String?                @db.Uuid
   status                 LearnerLifecycleStatus @default(ENROLLED)
   startedAt              DateTime?
   completedAt            DateTime?
@@ -389,6 +394,7 @@ model Enrollment {
   sdioOrganisation       Organisation           @relation("SdioOrganisationEnrollment", fields: [sdioOrganisationId], references: [id])
   employerOrganisation   Organisation?          @relation("EmployerOrganisationEnrollment", fields: [employerOrganisationId], references: [id])
   cohort                 Cohort?                @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+  workplaceMentor        User?                  @relation("EnrollmentWorkplaceMentor", fields: [workplaceMentorId], references: [id], onDelete: SetNull)
   evidence               Evidence[]
   workplaceLogs          WorkplaceLog[]
   assessments            Assessment[]
@@ -398,12 +404,15 @@ model Enrollment {
   poeLearningArtifacts   PoeLearningArtifact[]
   assessmentSubmissions  AssessmentSubmission[]
   credentials            Credential[]
+  learningProgress       LearningProgress[]
+  remedialAssignments    RemedialAssignment[]
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
   deletedAt              DateTime?
 
   @@index([programmeId, status])
   @@index([learnerId, status])
+  @@index([workplaceMentorId])
 }
 
 /// Learner Guide (textbook), Workbook (facilitator-built homework), or Summative — with PoE marking workflow.
@@ -717,6 +726,9 @@ model LearningMaterial {
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
   deletedAt         DateTime?
+
+  learningProgress    LearningProgress[]
+  remedialAssignments RemedialAssignment[]
 
   @@index([organisationId, poeComponent])
   @@index([organisationId, artifactSlug])
@@ -1274,4 +1286,79 @@ model SetaGatewaySubmission {
   organisation      Organisation @relation(fields: [organisationId], references: [id])
 
   @@index([organisationId, batchId])
+}
+
+enum LearningProgressKind {
+  MATERIAL_READ
+  MATERIAL_COMPLETED
+  BOOKMARK
+}
+
+model LearningProgress {
+  id           String               @id @default(uuid()) @db.Uuid
+  enrollmentId String               @db.Uuid
+  materialId   String?              @db.Uuid
+  moduleKey    String?
+  kind         LearningProgressKind
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  enrollment   Enrollment           @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  material     LearningMaterial?    @relation(fields: [materialId], references: [id], onDelete: SetNull)
+
+  @@unique([enrollmentId, materialId, kind])
+  @@index([enrollmentId, moduleKey])
+}
+
+enum ComplianceScheduleKind {
+  SUBMISSION
+  AUDIT
+}
+
+enum ComplianceScheduleStatus {
+  SCHEDULED
+  REMINDED
+  COMPLETED
+  CANCELLED
+  OVERDUE
+}
+
+model ComplianceSchedule {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organisationId String                   @db.Uuid
+  kind           ComplianceScheduleKind
+  type           String
+  reference      String?
+  scheduledFor   DateTime
+  status         ComplianceScheduleStatus @default(SCHEDULED)
+  notes          String?
+  conductor      String?
+  reminderSentAt DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+  createdById    String                   @db.Uuid
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  organisation   Organisation             @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  createdBy      User                     @relation("ComplianceScheduleCreatedBy", fields: [createdById], references: [id])
+
+  @@index([organisationId, status, scheduledFor])
+}
+
+model RemedialAssignment {
+  id             String            @id @default(uuid()) @db.Uuid
+  enrollmentId   String            @db.Uuid
+  materialId     String?           @db.Uuid
+  title          String
+  instructions   String?
+  dueAt          DateTime?
+  assignedById   String            @db.Uuid
+  acknowledgedAt DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  enrollment     Enrollment        @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  material       LearningMaterial? @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  assignedBy     User              @relation("RemedialAssignmentAssignedBy", fields: [assignedById], references: [id])
+
+  @@index([enrollmentId, dueAt])
 }

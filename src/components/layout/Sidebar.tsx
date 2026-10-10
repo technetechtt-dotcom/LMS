@@ -18,8 +18,9 @@ import {
   Award,
   ShieldCheck,
   ClipboardCheck,
-  Building } from
-'lucide-react';
+  Building,
+  Briefcase,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 interface SidebarProps {
   userRole: string;
@@ -129,6 +130,11 @@ export function Sidebar({
           path: '/users'
         },
         {
+          name: 'Privacy operations',
+          icon: <ShieldCheck size={20} />,
+          path: '/privacy-operations'
+        },
+        {
           name: 'Messaging',
           icon: <MessageSquare size={20} />,
           path: '/messages'
@@ -166,6 +172,21 @@ export function Sidebar({
           name: 'Learners',
           icon: <Users size={20} />,
           path: '/learners'
+        },
+        {
+          name: 'Materials',
+          icon: <FolderOpen size={20} />,
+          path: '/materials'
+        },
+        {
+          name: 'Attendance',
+          icon: <CalendarCheck size={20} />,
+          path: '/attendance'
+        },
+        {
+          name: 'Privacy operations',
+          icon: <ShieldCheck size={20} />,
+          path: '/privacy-operations'
         },
         {
           name: 'Audit',
@@ -228,6 +249,16 @@ export function Sidebar({
           name: 'Certificates',
           icon: <Award size={20} />,
           path: '/learner-certificates'
+        },
+        {
+          name: 'Workplace logbook',
+          icon: <Briefcase size={20} />,
+          path: '/workplace-logbook'
+        },
+        {
+          name: 'Remedial work',
+          icon: <FileCheck size={20} />,
+          path: '/remedial'
         },
         {
           name: 'Schedule',

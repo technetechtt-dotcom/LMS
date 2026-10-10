@@ -7,7 +7,7 @@ import {
   Play,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { learnerService, materialService } from '../services/api';
+import { learnerService, learningProgressService, materialService } from '../services/api';
 import type { TrainingMaterial } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -22,6 +22,7 @@ export function CourseDetailPage() {
   const [materials, setMaterials] = useState<TrainingMaterial[]>([]);
   const [programmeName, setProgrammeName] = useState('Your programme');
   const [progress, setProgress] = useState(0);
+  const [modulePercents, setModulePercents] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -34,6 +35,17 @@ export function CourseDetailPage() {
           programmeId = learnerRes.data?.programmeId;
           setProgrammeName(learnerRes.data?.programmeName ?? 'Your programme');
           setProgress(learnerRes.data?.progress ?? 0);
+          try {
+            const summary = await learningProgressService.summary(linkedLearnerId);
+            const next: Record<string, number> = {};
+            for (const mod of summary.modules ?? []) {
+              next[mod.key] = mod.percent;
+              next[mod.title] = mod.percent;
+            }
+            if (!cancelled) setModulePercents(next);
+          } catch {
+            /* keep programme-level fallback */
+          }
         }
         const matRes = await materialService.getAll(
           programmeId ? { programme: programmeId } : undefined,
@@ -61,7 +73,10 @@ export function CourseDetailPage() {
     moduleMaterials[0]?.moduleId ??
     (courseId ? decodeURIComponent(courseId) : 'Module');
 
-  const moduleProgress = progress;
+  const moduleProgress =
+    modulePercents[moduleTitle] ??
+    modulePercents[courseId ? decodeURIComponent(courseId) : ''] ??
+    progress;
 
   if (loading) {
     return <p className="text-gray-500 p-6">Loading module…</p>;
@@ -98,7 +113,7 @@ export function CourseDetailPage() {
 
       <Card title="Progress">
         <div className="flex justify-between text-sm mb-2">
-          <span>Overall programme</span>
+          <span>Module progress</span>
           <span>{moduleProgress}%</span>
         </div>
         <ProgressBar value={moduleProgress} size="sm" aria-label={`${moduleTitle} progress`} />
@@ -107,12 +122,23 @@ export function CourseDetailPage() {
       <Card title="Module content">
         <div className="divide-y divide-gray-100">
           {moduleMaterials.map((item) => (
-            <button
+            <div
               key={item.id}
-              type="button"
-              className="w-full p-4 flex items-center justify-between hover:bg-gray-50 text-left"
-              onClick={() => openFileUrl(item.fileUrl, item.title)}>
-              <div className="flex items-center gap-3 min-w-0">
+              className="w-full p-4 flex items-center justify-between hover:bg-gray-50 text-left">
+              <button
+                type="button"
+                className="flex items-center gap-3 min-w-0 text-left"
+                onClick={() => {
+                  openFileUrl(item.fileUrl, item.title);
+                  if (linkedLearnerId) {
+                    void learningProgressService.record({
+                      enrollmentId: linkedLearnerId,
+                      materialId: item.id,
+                      moduleKey: item.moduleId || item.moduleName,
+                      kind: 'MATERIAL_READ',
+                    });
+                  }
+                }}>
                 {item.type === 'video' ? (
                   <Play className="h-4 w-4 text-gray-400 shrink-0" />
                 ) : item.type === 'document' ? (
@@ -126,9 +152,38 @@ export function CourseDetailPage() {
                   </p>
                   <p className="text-xs text-gray-500 capitalize">{item.type}</p>
                 </div>
+              </button>
+              <div className="flex items-center gap-2">
+                {linkedLearnerId && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void learningProgressService
+                        .record({
+                          enrollmentId: linkedLearnerId,
+                          materialId: item.id,
+                          moduleKey: item.moduleId || item.moduleName,
+                          kind: 'MATERIAL_COMPLETED',
+                        })
+                        .then(() =>
+                          learningProgressService.summary(linkedLearnerId).then((summary) => {
+                            const next: Record<string, number> = {};
+                            for (const mod of summary.modules ?? []) {
+                              next[mod.key] = mod.percent;
+                              next[mod.title] = mod.percent;
+                            }
+                            setModulePercents(next);
+                          }),
+                        );
+                    }}>
+                    Mark complete
+                  </Button>
+                )}
+                <Badge variant="neutral">Open</Badge>
               </div>
-              <Badge variant="neutral">Open</Badge>
-            </button>
+            </div>
           ))}
         </div>
 

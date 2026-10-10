@@ -43,6 +43,25 @@ export class HealthController {
     return { revision: this.revision() || 'unknown' };
   }
 
+  @Get('health/support')
+  async support() {
+    const url = this.config.get<string>('SUPPORT_URL')?.trim() || '';
+    if (!url) {
+      return { ok: false, configured: false, detail: 'SUPPORT_URL is not configured' };
+    }
+    try {
+      const res = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: AbortSignal.timeout(4000) });
+      return { ok: res.ok, configured: true, url, status: res.status };
+    } catch (error) {
+      return {
+        ok: false,
+        configured: true,
+        url,
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   private async integrationChecks(): Promise<Record<string, Check>> {
     const storage = await this.files.readinessProbe()
       .then((result) => ({ ...result } as Check))
@@ -76,7 +95,7 @@ export class HealthController {
       checks.database = { ok: false, detail: error instanceof Error ? error.message : 'unavailable' };
     }
     try {
-      const latestRequiredMigration = '20261008120000_cohort_archive_and_safety_reconciliation';
+      const latestRequiredMigration = '20261011120000_integrity_progress_schedules_remedial';
       const migrationState = await this.prisma.$queryRaw<Array<{
         failed: bigint;
         latest_applied: boolean;

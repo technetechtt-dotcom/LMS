@@ -384,6 +384,7 @@ async function main() {
   await prisma.enrollment.update({
     where: { id: enrollment.id },
     data: {
+      workplaceMentorId: mentor.id,
       metadata: {
         ...((enrollment.metadata as Record<string, unknown> | null) ?? {}),
         workplaceMentorId: mentor.id,
@@ -636,6 +637,341 @@ async function main() {
     ],
     skipDuplicates: true,
   });
+
+  const otherSdio = await prisma.organisation.upsert({
+    where: { id: '00000000-0000-0000-0000-000000000004' },
+    update: {},
+    create: {
+      id: '00000000-0000-0000-0000-000000000004',
+      name: 'Northwind Skills Academy',
+      type: OrganisationType.SDIO,
+      registrationNo: 'SDIO-004',
+    },
+  });
+
+  const otherAdmin = await prisma.user.upsert({
+    where: { email: 'admin.northwind@skillforge.co.za' },
+    update: {},
+    create: {
+      email: 'admin.northwind@skillforge.co.za',
+      passwordHash,
+      firstName: 'Northwind',
+      lastName: 'Admin',
+    },
+  });
+  const otherAdminRole = await prisma.role.findFirst({ where: { code: 'ADMIN' } });
+  if (otherAdminRole) {
+    await prisma.userOrganisation.upsert({
+      where: {
+        userId_roleId_organisationId: {
+          userId: otherAdmin.id,
+          roleId: otherAdminRole.id,
+          organisationId: otherSdio.id,
+        },
+      },
+      update: {},
+      create: {
+        userId: otherAdmin.id,
+        roleId: otherAdminRole.id,
+        organisationId: otherSdio.id,
+        isPrimary: true,
+      },
+    });
+  }
+
+  const extraStates: Array<{
+    email: string;
+    first: string;
+    last: string;
+    status: LearnerLifecycleStatus;
+  }> = [
+    { email: 'learner.rejected@skillforge.co.za', first: 'Rejected', last: 'Learner', status: LearnerLifecycleStatus.ENROLLED },
+    { email: 'learner.suspended@skillforge.co.za', first: 'Suspended', last: 'Learner', status: LearnerLifecycleStatus.TRAINING },
+    { email: 'learner.completed@skillforge.co.za', first: 'Completed', last: 'Learner', status: LearnerLifecycleStatus.COMPLETED },
+    { email: 'learner.withdrawn@skillforge.co.za', first: 'Withdrawn', last: 'Learner', status: LearnerLifecycleStatus.ENROLLED },
+  ];
+  const extraLearnerRole = await prisma.role.findFirst({ where: { code: 'LEARNER' } });
+  for (const extra of extraStates) {
+    const extraUser = await prisma.user.upsert({
+      where: { email: extra.email },
+      update: extra.status === LearnerLifecycleStatus.TRAINING && extra.email.includes('suspended')
+        ? { isActive: false }
+        : {},
+      create: {
+        email: extra.email,
+        passwordHash,
+        firstName: extra.first,
+        lastName: extra.last,
+        isActive: extra.email.includes('suspended') ? false : true,
+      },
+    });
+    if (extraLearnerRole) {
+      await prisma.userOrganisation.upsert({
+        where: {
+          userId_roleId_organisationId: {
+            userId: extraUser.id,
+            roleId: extraLearnerRole.id,
+            organisationId: sdio.id,
+          },
+        },
+        update: {},
+        create: {
+          userId: extraUser.id,
+          roleId: extraLearnerRole.id,
+          organisationId: sdio.id,
+          isPrimary: true,
+        },
+      });
+    }
+    const extraEnr =
+      (await prisma.enrollment.findFirst({
+        where: { learnerId: extraUser.id, programmeId: programme.id, deletedAt: null },
+      })) ??
+      (await prisma.enrollment.create({
+        data: {
+          learnerId: extraUser.id,
+          programmeId: programme.id,
+          sdioOrganisationId: sdio.id,
+          workplaceMentorId: mentor.id,
+          status: extra.status,
+          startedAt: new Date(),
+          completedAt: extra.status === LearnerLifecycleStatus.COMPLETED ? new Date() : undefined,
+          metadata: {
+            lifecycleNote: extra.email.split('@')[0],
+            workplaceMentorId: mentor.id,
+          },
+        },
+      }));
+    if (extra.email.includes('withdrawn')) {
+      await prisma.enrollment.update({
+        where: { id: extraEnr.id },
+        data: { deletedAt: extraEnr.deletedAt ?? new Date() },
+      });
+    }
+  }
+
+  const cohortA =
+    (await prisma.cohort.findFirst({
+      where: { programmeId: programme.id, name: 'Cohort A 2026', deletedAt: null },
+    })) ??
+    (await prisma.cohort.create({
+      data: {
+        organisationId: sdio.id,
+        programmeId: programme.id,
+        name: 'Cohort A 2026',
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 180 * 86_400_000),
+      },
+    }));
+  await prisma.enrollment.update({
+    where: { id: enrollment.id },
+    data: { cohortId: enrollment.cohortId ?? cohortA.id, workplaceMentorId: mentor.id },
+  });
+
+  if ((await prisma.workplaceLog.count({ where: { enrollmentId: enrollment.id } })) === 0) {
+    await prisma.workplaceLog.createMany({
+      data: [
+        {
+          enrollmentId: enrollment.id,
+          logDate: new Date(),
+          hoursWorked: 8,
+          activity: 'Assisted with network cabinet labelling',
+          supervisorName: 'Alex Mentor',
+          mentorStatus: 'PENDING',
+        },
+        {
+          enrollmentId: enrollment.id,
+          logDate: new Date(Date.now() - 2 * 86_400_000),
+          hoursWorked: 6,
+          activity: 'Observed change-control meeting',
+          supervisorName: 'Alex Mentor',
+          mentorStatus: 'REJECTED',
+          mentorFeedback: 'Add evidence of your own contribution.',
+        },
+        {
+          enrollmentId: enrollment.id,
+          logDate: new Date(Date.now() - 5 * 86_400_000),
+          hoursWorked: 7,
+          activity: 'Corrected log after mentor feedback',
+          supervisorName: 'Alex Mentor',
+          mentorStatus: 'PENDING',
+        },
+        {
+          enrollmentId: enrollment.id,
+          logDate: new Date(Date.now() - 9 * 86_400_000),
+          hoursWorked: 8,
+          activity: 'Configured access points under supervision',
+          supervisorName: 'Alex Mentor',
+          mentorStatus: 'VERIFIED',
+          mentorVerifiedAt: new Date(),
+          mentorVerifiedById: mentor.id,
+        },
+      ],
+    });
+  }
+
+  const firstMaterial = await prisma.learningMaterial.findFirst({
+    where: { programmeId: programme.id, deletedAt: null },
+  });
+  if (firstMaterial && (await prisma.learningProgress.count({ where: { enrollmentId: enrollment.id } })) === 0) {
+    await prisma.learningProgress.createMany({
+      data: [
+        {
+          enrollmentId: enrollment.id,
+          materialId: firstMaterial.id,
+          moduleKey: firstMaterial.moduleCode ?? firstMaterial.moduleKey,
+          kind: 'MATERIAL_READ',
+        },
+        {
+          enrollmentId: enrollment.id,
+          materialId: firstMaterial.id,
+          moduleKey: firstMaterial.moduleCode ?? firstMaterial.moduleKey,
+          kind: 'MATERIAL_COMPLETED',
+        },
+        {
+          enrollmentId: enrollment.id,
+          materialId: firstMaterial.id,
+          moduleKey: firstMaterial.moduleCode ?? firstMaterial.moduleKey,
+          kind: 'BOOKMARK',
+        },
+      ],
+    });
+  }
+  if (firstMaterial && (await prisma.remedialAssignment.count({ where: { enrollmentId: enrollment.id } })) === 0) {
+    await prisma.remedialAssignment.create({
+      data: {
+        enrollmentId: enrollment.id,
+        materialId: firstMaterial.id,
+        title: 'Revise KM-01 knowledge check',
+        instructions: 'Re-read the learner guide and acknowledge completion.',
+        dueAt: new Date(Date.now() + 7 * 86_400_000),
+        assignedById: facilitator.id,
+      },
+    });
+  }
+
+  if ((await prisma.complianceSchedule.count({ where: { organisationId: sdio.id } })) === 0) {
+    await prisma.complianceSchedule.createMany({
+      data: [
+        {
+          organisationId: sdio.id,
+          kind: 'SUBMISSION',
+          type: 'Quarterly upload',
+          reference: 'SETA-SUB-SEED',
+          scheduledFor: new Date(Date.now() + 14 * 86_400_000),
+          status: 'SCHEDULED',
+          createdById: admin.id,
+          conductor: admin.email,
+        },
+        {
+          organisationId: sdio.id,
+          kind: 'AUDIT',
+          type: 'External verification',
+          reference: 'AUDIT-SEED',
+          scheduledFor: new Date(Date.now() - 2 * 86_400_000),
+          status: 'OVERDUE',
+          createdById: admin.id,
+          conductor: 'SETA Lead Auditor',
+        },
+      ],
+    });
+  }
+
+  if ((await prisma.attendanceSession.count({ where: { organisationId: sdio.id } })) < 3) {
+    const token = (label: string) => `seed-session-${label}`;
+    await prisma.attendanceSession.createMany({
+      data: [
+        {
+          organisationId: sdio.id,
+          programmeId: programme.id,
+          openedById: facilitator.id,
+          tokenHash: token('upcoming'),
+          expiresAt: new Date(Date.now() + 3 * 86_400_000),
+          scheduledAt: new Date(Date.now() + 2 * 86_400_000),
+          mandatory: true,
+        },
+        {
+          organisationId: sdio.id,
+          programmeId: programme.id,
+          openedById: facilitator.id,
+          tokenHash: token('open'),
+          expiresAt: new Date(Date.now() + 2 * 3600_000),
+          scheduledAt: new Date(),
+          mandatory: true,
+        },
+        {
+          organisationId: sdio.id,
+          programmeId: programme.id,
+          openedById: facilitator.id,
+          tokenHash: token('closed'),
+          expiresAt: new Date(Date.now() - 3600_000),
+          scheduledAt: new Date(Date.now() - 2 * 86_400_000),
+          closedAt: new Date(Date.now() - 86_400_000),
+          mandatory: true,
+        },
+      ],
+      skipDuplicates: true,
+    });
+  }
+
+  if ((await prisma.dataSubjectRequest.count({ where: { organisationId: sdio.id } })) === 0) {
+    await prisma.dataSubjectRequest.create({
+      data: {
+        organisationId: sdio.id,
+        subjectUserId: learner.id,
+        type: 'ACCESS',
+        status: 'RECEIVED',
+        notes: 'Learner requested an access export',
+      },
+    });
+  }
+  if ((await prisma.incident.count({ where: { organisationId: sdio.id } })) === 0) {
+    await prisma.incident.create({
+      data: {
+        organisationId: sdio.id,
+        severity: 'MEDIUM',
+        title: 'Seeded privacy incident',
+        description: 'Demonstration incident for admin processing UI',
+        status: 'OPEN',
+        reportedById: admin.id,
+      },
+    });
+  }
+  if ((await prisma.retentionPolicy.count({ where: { organisationId: sdio.id } })) === 0) {
+    await prisma.retentionPolicy.create({
+      data: {
+        organisationId: sdio.id,
+        entityType: 'UPLOAD',
+        retainDays: 2555,
+        disposalMethod: 'SOFT_DELETE',
+      },
+    });
+  }
+  if ((await prisma.invitation.count({ where: { organisationId: sdio.id } })) === 0) {
+    const roleId = extraLearnerRole?.id ?? (await prisma.role.findFirst({ where: { code: 'LEARNER' } }))!.id;
+    await prisma.invitation.createMany({
+      data: [
+        {
+          organisationId: sdio.id,
+          email: 'pending.invite@skillforge.co.za',
+          roleId,
+          invitedById: admin.id,
+          tokenHash: 'seed-invite-pending',
+          expiresAt: new Date(Date.now() + 7 * 86_400_000),
+          status: 'PENDING',
+        },
+        {
+          organisationId: sdio.id,
+          email: 'expired.invite@skillforge.co.za',
+          roleId,
+          invitedById: admin.id,
+          tokenHash: 'seed-invite-expired',
+          expiresAt: new Date(Date.now() - 2 * 86_400_000),
+          status: 'EXPIRED',
+        },
+      ],
+    });
+  }
 }
 
 main()

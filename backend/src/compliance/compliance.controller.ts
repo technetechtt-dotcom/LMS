@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Put,
   Req,
@@ -67,6 +68,20 @@ export class ComplianceController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     const data = await this.compliance.scheduleAudit(body, req.user);
+    return { success: true, data };
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER', 'SETA', 'FACILITATOR')
+  @Patch('schedules/:id')
+  async transitionSchedule(
+    @Param('id') id: string,
+    @Body() body: { status: 'COMPLETED' | 'CANCELLED' },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (body.status !== 'COMPLETED' && body.status !== 'CANCELLED') {
+      throw new BadRequestException('status must be COMPLETED or CANCELLED');
+    }
+    const data = await this.compliance.transitionSchedule(id, body, req.user);
     return { success: true, data };
   }
 

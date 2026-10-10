@@ -426,6 +426,7 @@ export class QaOfficerService {
       data: {
         employerOrganisationId: dto.employerOrganisationId,
         status: row.status === 'ENROLLED' ? 'WORKPLACE' : row.status,
+        workplaceMentorId: dto.workplaceMentorId || null,
         metadata: {
           ...meta,
           placementStatus: 'placed',

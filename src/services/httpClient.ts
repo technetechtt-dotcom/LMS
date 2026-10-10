@@ -36,11 +36,15 @@ export function parseApiErrorMessage(err: unknown, fallback = 'Request failed'):
   return fallback;
 }
 
+function looksLikeJwt(token?: string | null): token is string {
+  return Boolean(token && token.split('.').length === 3);
+}
+
 function resolveAuthHeader(
   options?: RequestInit & { accessToken?: string | null },
 ): string | undefined {
-  if (options?.accessToken) return options.accessToken;
-  return getStoredAccessToken();
+  const token = options?.accessToken ?? getStoredAccessToken();
+  return looksLikeJwt(token) ? token : undefined;
 }
 
 function withTenantHeaders(headers: Headers) {
@@ -54,9 +58,12 @@ function withTenantHeaders(headers: Headers) {
   }
 }
 
-let refreshInFlight: Promise<string | undefined> | null = null;
+let refreshInFlight: Promise<{ accessToken?: string; user?: unknown }> | null = null;
 
-async function performSilentRefresh(): Promise<string | undefined> {
+async function performCookieRefresh(): Promise<{
+  accessToken?: string;
+  user?: unknown;
+}> {
   const url = `${API_BASE_URL}/auth/refresh`;
   const portal = getAuthPortal();
   const res = await fetch(url, {
@@ -69,29 +76,37 @@ async function performSilentRefresh(): Promise<string | undefined> {
     body: JSON.stringify({}),
   });
   const text = await res.text();
-  if (!res.ok || !text) return undefined;
+  if (!res.ok || !text) return {};
   try {
     const data = JSON.parse(text) as {
       accessToken?: string;
       refreshToken?: string;
       user?: unknown;
     };
-    if (!data.accessToken) return undefined;
-    applyRefreshedTokens(data.accessToken, undefined, data.user);
-    return data.accessToken;
+    if (data.accessToken) {
+      applyRefreshedTokens(data.accessToken, undefined, data.user);
+    }
+    return data;
   } catch {
-    return undefined;
+    return {};
   }
 }
 
-/** Collapse simultaneous 401 responses into one refresh-token rotation. */
-function trySilentRefresh(): Promise<string | undefined> {
+/** Collapse simultaneous refresh attempts into one cookie rotation. */
+export function refreshSessionViaCookie(): Promise<{
+  accessToken?: string;
+  user?: unknown;
+}> {
   if (!refreshInFlight) {
-    refreshInFlight = performSilentRefresh().finally(() => {
+    refreshInFlight = performCookieRefresh().finally(() => {
       refreshInFlight = null;
     });
   }
   return refreshInFlight;
+}
+
+function trySilentRefresh(): Promise<string | undefined> {
+  return refreshSessionViaCookie().then((session) => session.accessToken);
 }
 
 function invalidateLocalSession(path: string, status: number) {

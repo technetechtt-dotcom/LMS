@@ -802,8 +802,11 @@ export function LearnersPage() {
                 className="w-full justify-start"
                 onClick={() => {
                   setShowRiskModal(false);
-                  navigate('/materials');
-                  toast.info('Browse remedial materials in the library');
+                  navigate(
+                    selectedLearner
+                      ? `/remedial?enrollmentId=${encodeURIComponent(selectedLearner.id)}`
+                      : '/remedial',
+                  );
                 }}>
                 <BookOpen className="w-4 h-4 mr-2" />
                 Browse Remedial Materials

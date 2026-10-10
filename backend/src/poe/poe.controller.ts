@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Req,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -79,9 +80,21 @@ export class PoeController {
     @Param('learnerId') learnerId: string,
     @Req() req: Request & { user?: AuthUser },
   ) {
-    await this.poe.assertCanExport(learnerId, req.user);
-    const data = this.poe.exportPoe(learnerId, req.user);
+    const data = await this.poe.exportPoe(learnerId, req.user);
     return { success: true, data };
+  }
+
+  @Get('learners/:learnerId/poe-export')
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  async download(
+    @Param('learnerId') learnerId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const { buffer, filename } = await this.poe.exportPdf(learnerId, req.user);
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="${filename}"`,
+    });
   }
 
   @Roles('ADMIN', 'FACILITATOR', 'ASSESSOR', 'MODERATOR', 'QA_OFFICER')

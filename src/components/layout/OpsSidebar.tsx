@@ -8,6 +8,7 @@ import {
   FileText,
   Mail,
   LogOut,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Select } from '../ui/Select';
@@ -22,7 +23,13 @@ const navItems = [
   { name: 'Invitations', path: '/invitations', icon: Mail },
 ];
 
-export function OpsSidebar() {
+export function OpsSidebar({
+  mobileOpen = false,
+  onClose,
+}: {
+  mobileOpen?: boolean;
+  onClose?: () => void;
+}) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const {
@@ -39,13 +46,30 @@ export function OpsSidebar() {
   };
 
   return (
-    <aside className="w-64 flex-shrink-0 bg-slate-900 text-slate-100 flex flex-col min-h-screen">
+    <>
+    {mobileOpen && (
+      <button
+        type="button"
+        aria-label="Close operations navigation"
+        className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+        onClick={onClose}
+      />
+    )}
+    <aside className={`w-64 flex-shrink-0 bg-slate-900 text-slate-100 flex flex-col min-h-screen fixed inset-y-0 left-0 z-40 transform transition-transform lg:static lg:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
       <div className="p-5 border-b border-slate-700">
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
           SkillForge Ops
         </p>
         <h1 className="text-lg font-bold text-white mt-1">Backend Console</h1>
         <p className="text-xs text-slate-400 mt-1 truncate">{user?.email}</p>
+        <button
+          type="button"
+          className="lg:hidden mt-3 text-slate-300 text-sm inline-flex items-center gap-1"
+          aria-label="Close operations navigation"
+          onClick={onClose}>
+          <X size={16} />
+          Close
+        </button>
       </div>
 
       {(isPlatformAdmin || organisations.length > 1) && (
@@ -95,5 +119,6 @@ export function OpsSidebar() {
         </button>
       </div>
     </aside>
+    </>
   );
 }

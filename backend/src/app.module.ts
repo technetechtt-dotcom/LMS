@@ -42,6 +42,8 @@ import { HealthController } from './health/health.controller';
 import { DirectoryModule } from './directory/directory.module';
 import { MailModule } from './mail/mail.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { LearningProgressModule } from './learning-progress/learning-progress.module';
+import { RemedialModule } from './remedial/remedial.module';
 
 @Module({
   imports: [
@@ -86,6 +88,8 @@ import { FeedbackModule } from './feedback/feedback.module';
     DirectoryModule,
     MailModule,
     FeedbackModule,
+    LearningProgressModule,
+    RemedialModule,
   ],
   controllers: [HealthController],
   providers: [
