@@ -341,6 +341,8 @@ async function main() {
       facilitatorId: facilitator.id,
       programmeId: programme.id,
       isActive: true,
+      startDate: null,
+      endDate: null,
     },
   });
   await prisma.programme.update({

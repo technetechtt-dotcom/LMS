@@ -572,8 +572,8 @@ export class ProgrammesService {
         cohortId: dto.cohortId,
         moduleId: dto.moduleId,
         learnerId: dto.learnerId,
-        startDate,
-        endDate,
+        startDate: startDate ?? null,
+        endDate: endDate ?? null,
         isActive: dto.isActive ?? true,
       },
       include: {

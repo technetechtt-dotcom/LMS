@@ -271,6 +271,8 @@ describe('integrity DB E2E', () => {
         facilitatorId: facilitator.id,
         organisationId: orgA,
         isActive: true,
+        startDate: null,
+        endDate: null,
       },
     });
     const otherProg = await prisma.programme.create({
@@ -755,6 +757,8 @@ describe('integrity DB E2E', () => {
         organisationId: orgA,
         cohortId: cohort.id,
         isActive: true,
+        startDate: null,
+        endDate: null,
       },
     });
     expect(fa.cohortId).toBe(cohort.id);
@@ -801,6 +805,8 @@ describe('integrity DB E2E', () => {
         organisationId: orgA,
         cohortId: cohort.id,
         isActive: true,
+        startDate: null,
+        endDate: null,
       },
     });
     expect(fa.cohortId).toBe(cohort.id);
