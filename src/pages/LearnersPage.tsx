@@ -23,7 +23,7 @@ import { DataTable } from '../components/ui/DataTable';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { Avatar } from '../components/ui/Avatar';
 import { Modal } from '../components/ui/Modal';
-import { learnerService, programmeService } from '../services/api';
+import { enrollmentService, learnerService, programmeService } from '../services/api';
 import { exportRecordsAsJson } from '../utils/exportData';
 import { messagingService } from '../services/api';
 import type { Learner, Programme } from '../types';
@@ -699,6 +699,52 @@ export function LearnersPage() {
               }
               options={programmes.map((p) => ({ value: p.id, label: p.title }))}
             />
+          </div>
+          <div className="space-y-2 pt-2 border-t border-slate-100">
+            <p className="text-sm font-medium text-slate-700">Lifecycle actions</p>
+            <p className="text-xs text-slate-500">
+              Current status: {selectedLearner?.status}. These actions are audited on the enrolment.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ['SUSPEND', 'Suspend'],
+                  ['WITHDRAW', 'Withdraw'],
+                  ['REJECT', 'Reject'],
+                  ['CANCEL', 'Cancel'],
+                  ['REINSTATE', 'Reinstate'],
+                ] as const
+              ).map(([action, label]) => (
+                <Button
+                  key={action}
+                  size="sm"
+                  variant="outline"
+                  disabled={savingLearner || !selectedLearner}
+                  onClick={() => {
+                    if (!selectedLearner) return;
+                    setSavingLearner(true);
+                    enrollmentService
+                      .transition(
+                        selectedLearner.id,
+                        action,
+                        `${label} via Learners page`,
+                      )
+                      .then(() => {
+                        toast.success(`Learner ${label.toLowerCase()}ed`);
+                        setShowEditModal(false);
+                        window.location.reload();
+                      })
+                      .catch((err) =>
+                        toast.error(
+                          err instanceof Error ? err.message : `Could not ${label.toLowerCase()}`,
+                        ),
+                      )
+                      .finally(() => setSavingLearner(false));
+                  }}>
+                  {label}
+                </Button>
+              ))}
+            </div>
           </div>
           <div className="flex justify-end space-x-2 pt-4">
             <Button variant="outline" onClick={() => setShowEditModal(false)}>

@@ -866,4 +866,35 @@ describe('integrity DB E2E', () => {
     expect((await enrollments.transition(extra.id, { action: 'WITHDRAW', reason: 'Learner request' }, adminId, asAdmin())).status).toBe('WITHDRAWN');
     expect((await enrollments.transition(extra.id, { action: 'REINSTATE', reason: 'Appeal upheld' }, adminId, asAdmin())).status).toBe('ENROLLED');
   });
+
+  it('scopes remedial materials to the learner programme', async () => {
+    const remedial = new RemedialService(prisma);
+    const otherProgramme = await prisma.programme.create({
+      data: {
+        organisationId: orgA,
+        qualificationId: qual.id,
+        code: `P-REM-${suffix}`,
+        title: 'Other remedial programme',
+      },
+    });
+    const foreignMaterial = await prisma.learningMaterial.create({
+      data: {
+        organisationId: orgA,
+        programmeId: otherProgramme.id,
+        title: `Wrong programme material-${suffix}`,
+        url: 'https://example.test/wrong.pdf',
+        uploadedById: adminId,
+      },
+    });
+    await expect(
+      remedial.create(
+        {
+          enrollmentId,
+          materialId: foreignMaterial.id,
+          title: 'Cross-programme remedial',
+        },
+        asAdmin(),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
 });

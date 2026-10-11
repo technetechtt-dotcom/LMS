@@ -259,10 +259,14 @@ export function FacilitatorSETACompliancePage() {
     }
   };
 
-  const isOpenSchedule = (sub: SubmissionRow) =>
-    Boolean(sub.kind) &&
-    !['COMPLETED', 'CANCELLED'].includes(String(sub.lifecycleStatus ?? '').toUpperCase()) &&
-    !['completed', 'cancelled'].includes(sub.status.toLowerCase());
+  const isOpenSchedule = (row: {
+    kind?: string;
+    lifecycleStatus?: string;
+    status: string;
+  }) =>
+    Boolean(row.kind) &&
+    !['COMPLETED', 'CANCELLED'].includes(String(row.lifecycleStatus ?? '').toUpperCase()) &&
+    !['completed', 'cancelled'].includes(row.status.toLowerCase());
 
   const updateSchedule = async (
     id: string,

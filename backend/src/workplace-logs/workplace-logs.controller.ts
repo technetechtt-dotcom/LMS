@@ -54,6 +54,16 @@ export class WorkplaceLogsController {
     return this.logs.resubmit(id, req.user);
   }
 
+  @Roles('ADMIN', 'FACILITATOR', 'QA_OFFICER')
+  @Post(':id/staff-correct')
+  staffCorrect(
+    @Param('id') id: string,
+    @Body() body: UpdateWorkplaceLogDto & { reason: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.logs.staffCorrect(id, body, req.user);
+  }
+
   @Roles('MENTOR')
   @Post(':id/mentor-verify')
   mentorVerify(

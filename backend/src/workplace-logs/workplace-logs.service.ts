@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   Optional,
@@ -10,8 +11,10 @@ import { CreateWorkplaceLogDto, UpdateWorkplaceLogDto } from './workplace-logs.d
 import type { AuthUser } from '../common/types/request-with-user';
 import {
   assertEnrollmentAccess,
+  enrollmentActorWhere,
   enrollmentOrgWhere,
   isLearnerOnly,
+  isStaffUser,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -65,8 +68,9 @@ export class WorkplaceLogsService {
           id: enrollmentId,
           deletedAt: null,
           ...enrollmentOrgWhere(organisationId),
+          ...enrollmentActorWhere(user),
         },
-        select: { learnerId: true },
+        select: { learnerId: true, workplaceMentorId: true, metadata: true },
       });
       assertEnrollmentAccess(user, enrollment, 'Workplace log');
     }
@@ -77,7 +81,7 @@ export class WorkplaceLogsService {
         ...(enrollmentId ? { enrollmentId } : {}),
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
-          ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
+          ...enrollmentActorWhere(user),
           ...mentorEnrollmentWhere(user),
         },
       },
@@ -97,11 +101,15 @@ export class WorkplaceLogsService {
         id: dto.enrollmentId,
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
+        ...enrollmentActorWhere(user),
       },
       select: { id: true, learnerId: true, metadata: true, workplaceMentorId: true },
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
     assertEnrollmentAccess(user, enrollment, 'Workplace log');
+    if (!isLearnerOnly(user) && enrollment.learnerId !== user?.userId) {
+      throw new ForbiddenException('Only the enrolled learner may submit workplace logs');
+    }
 
     const log = await this.prisma.workplaceLog.create({
       data: {
@@ -129,6 +137,11 @@ export class WorkplaceLogsService {
   }
 
   async update(id: string, dto: UpdateWorkplaceLogDto, user?: AuthUser) {
+    if (!isLearnerOnly(user)) {
+      throw new ForbiddenException(
+        'Staff must use the audited staff-correction endpoint to edit workplace logs',
+      );
+    }
     const organisationId = requireOrganisationId(user);
     const row = await this.prisma.workplaceLog.findFirst({
       where: {
@@ -136,7 +149,7 @@ export class WorkplaceLogsService {
         deletedAt: null,
         enrollment: {
           ...enrollmentOrgWhere(organisationId),
-          ...(isLearnerOnly(user) ? { learnerId: user!.userId } : {}),
+          learnerId: user!.userId,
         },
       },
     });
@@ -158,6 +171,70 @@ export class WorkplaceLogsService {
         mentorFeedback: row.mentorStatus === 'REJECTED' ? null : row.mentorFeedback,
       },
     });
+  }
+
+  async staffCorrect(
+    id: string,
+    body: UpdateWorkplaceLogDto & { reason: string },
+    user?: AuthUser,
+  ) {
+    if (!user?.userId) throw new BadRequestException('Authentication required');
+    if (!isStaffUser(user) || isLearnerOnly(user)) {
+      throw new ForbiddenException('Only staff may apply workplace log corrections');
+    }
+    const reason = body.reason?.trim() ?? '';
+    if (reason.length < 8) {
+      throw new BadRequestException('A staff correction requires a reason of at least 8 characters');
+    }
+    const organisationId = requireOrganisationId(user);
+    const row = await this.prisma.workplaceLog.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        enrollment: {
+          ...enrollmentOrgWhere(organisationId),
+          ...enrollmentActorWhere(user),
+        },
+      },
+    });
+    if (!row) throw new NotFoundException('Workplace log not found');
+    if (row.mentorStatus === 'VERIFIED') {
+      throw new BadRequestException('Verified logs cannot be corrected');
+    }
+    const updated = await this.prisma.workplaceLog.update({
+      where: { id },
+      data: {
+        ...(body.logDate ? { logDate: new Date(body.logDate) } : {}),
+        ...(body.hoursWorked !== undefined ? { hoursWorked: body.hoursWorked } : {}),
+        ...(body.activity ? { activity: body.activity } : {}),
+        ...(body.supervisorName ? { supervisorName: body.supervisorName } : {}),
+        ...(body.supervisorEmail !== undefined
+          ? { supervisorEmail: body.supervisorEmail }
+          : {}),
+        mentorStatus: 'PENDING',
+      },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        organisationId,
+        actorId: user.userId,
+        entityType: 'WorkplaceLog',
+        entityId: id,
+        action: 'STAFF_CORRECTION',
+        beforeValue: {
+          activity: row.activity,
+          hoursWorked: row.hoursWorked,
+          mentorStatus: row.mentorStatus,
+        },
+        afterValue: {
+          reason,
+          activity: updated.activity,
+          hoursWorked: updated.hoursWorked,
+          mentorStatus: updated.mentorStatus,
+        },
+      },
+    });
+    return updated;
   }
 
   async resubmit(id: string, user?: AuthUser) {

@@ -686,6 +686,29 @@ test.describe('production workflow acceptance', () => {
     expect(String(completed.lifecycleStatus || completed.status).toUpperCase()).toMatch(/COMPLETED/);
   });
 
+  test('learning progress writes are learner-only and programme-scoped', async () => {
+    const materials = rowsOf(await jsonOk(await api.get('/materials', { headers: headers('admin') })));
+    const material = materials[0];
+    expect(material?.id).toBeTruthy();
+    const staffDenied = await api.post('/learning-progress', {
+      headers: headers('facilitator'),
+      data: {
+        enrollmentId: enrollment.id,
+        materialId: material.id,
+        kind: 'MATERIAL_READ',
+      },
+    });
+    expect([403, 401]).toContain(staffDenied.status());
+    await jsonOk(await api.post('/learning-progress', {
+      headers: headers('learner'),
+      data: {
+        enrollmentId: enrollment.id,
+        materialId: material.id,
+        kind: 'MATERIAL_READ',
+      },
+    }));
+  });
+
   test('exceptional learner lifecycle states are first-class', async () => {
     const stamp = Date.now();
     const roles = rowsOf(await jsonOk(await api.get('/users/roles', { headers: headers('admin') })));

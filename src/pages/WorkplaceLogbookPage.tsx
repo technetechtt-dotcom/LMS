@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -23,10 +23,10 @@ export function WorkplaceLogbookPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Record<string, string>>({});
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const res = await workplaceLogService.list(isLearner ? linkedLearnerId ?? undefined : undefined);
     setLogs(res.data ?? []);
-  };
+  }, [isLearner, linkedLearnerId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +46,7 @@ export function WorkplaceLogbookPage() {
     return () => {
       cancelled = true;
     };
-  }, [linkedLearnerId, isLearner]);
+  }, [linkedLearnerId, isLearner, load]);
 
   const submit = async () => {
     if (!linkedLearnerId) {

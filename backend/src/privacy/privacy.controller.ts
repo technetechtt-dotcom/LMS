@@ -90,6 +90,9 @@ export class PrivacyController {
     const organisationId = requireOrganisationId(req.user);
     return this.prisma.dataSubjectRequest.findMany({
       where: { organisationId },
+      include: {
+        subject: { select: { id: true, email: true, firstName: true, lastName: true } },
+      },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
@@ -98,20 +101,35 @@ export class PrivacyController {
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('dsar')
   create(
-    @Body() body: { type: (typeof DSAR_TYPES)[number]; notes?: string },
+    @Body()
+    body: {
+      type: (typeof DSAR_TYPES)[number];
+      notes?: string;
+      subjectUserId?: string;
+    },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const organisationId = requireOrganisationId(req.user);
     if (!DSAR_TYPES.includes(body.type)) {
       throw new BadRequestException('Invalid DSAR type');
     }
+    const subjectUserId = body.subjectUserId?.trim() || req.user!.userId;
+    const dueAt = new Date(Date.now() + 30 * 86_400_000);
     return this.prisma.dataSubjectRequest.create({
       data: {
         organisationId,
-        subjectUserId: req.user!.userId,
+        subjectUserId,
         type: body.type,
         notes: body.notes,
         status: 'RECEIVED',
+        dueAt,
+        statusHistory: [
+          {
+            status: 'RECEIVED',
+            at: new Date().toISOString(),
+            by: req.user!.userId,
+          },
+        ],
       },
     });
   }
@@ -125,6 +143,8 @@ export class PrivacyController {
       status: 'IN_PROGRESS' | 'COMPLETED' | 'REJECTED';
       notes?: string;
       retentionUntil?: string;
+      assignedToId?: string;
+      evidenceDocumentIds?: string[];
     },
     @Req() req: Request & { user?: AuthUser },
   ) {
@@ -133,16 +153,30 @@ export class PrivacyController {
       where: { id, organisationId },
     });
     if (!row) throw new BadRequestException('DSAR not found');
+    const history = Array.isArray(row.statusHistory)
+      ? [...(row.statusHistory as object[])]
+      : [];
+    history.push({
+      status: body.status,
+      at: new Date().toISOString(),
+      by: req.user!.userId,
+      notes: body.notes ?? null,
+    });
     return this.prisma.dataSubjectRequest.update({
       where: { id },
       data: {
         status: body.status,
         notes: body.notes ?? row.notes,
+        assignedToId: body.assignedToId ?? row.assignedToId,
+        evidenceDocumentIds: body.evidenceDocumentIds ?? row.evidenceDocumentIds ?? undefined,
+        statusHistory: history as unknown as object,
         retentionUntil: body.retentionUntil
           ? new Date(body.retentionUntil)
           : row.retentionUntil,
         completedAt:
-          body.status === 'COMPLETED' ? new Date() : row.completedAt,
+          body.status === 'COMPLETED' || body.status === 'REJECTED'
+            ? new Date()
+            : row.completedAt,
       },
     });
   }
@@ -256,18 +290,42 @@ export class PrivacyController {
   @Post('incidents')
   reportIncident(
     @Body()
-    body: { severity: string; title: string; description: string },
+    body: {
+      severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+      title: string;
+      description: string;
+      assignedToId?: string;
+    },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const organisationId = requireOrganisationId(req.user);
+    const severity = String(body.severity ?? '').toUpperCase();
+    if (!['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(severity)) {
+      throw new BadRequestException('severity must be LOW, MEDIUM, HIGH, or CRITICAL');
+    }
+    if (!body.title?.trim() || body.title.trim().length < 3) {
+      throw new BadRequestException('title must be at least 3 characters');
+    }
+    if (!body.description?.trim() || body.description.trim().length < 10) {
+      throw new BadRequestException('description must be at least 10 characters');
+    }
+    const now = new Date().toISOString();
     return this.prisma.incident.create({
       data: {
         organisationId,
-        severity: body.severity,
-        title: body.title,
-        description: body.description,
+        severity: severity as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL',
+        title: body.title.trim(),
+        description: body.description.trim(),
         reportedById: req.user?.userId,
+        assignedToId: body.assignedToId,
         status: 'OPEN',
+        timeline: [
+          {
+            event: 'REPORTED',
+            at: now,
+            by: req.user?.userId,
+          },
+        ],
       },
     });
   }
@@ -287,7 +345,14 @@ export class PrivacyController {
   @Patch('incidents/:id')
   async progressIncident(
     @Param('id') id: string,
-    @Body() body: { status: string; description?: string },
+    @Body()
+    body: {
+      status: string;
+      description?: string;
+      assignedToId?: string;
+      resolutionNotes?: string;
+      evidenceDocumentIds?: string[];
+    },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const organisationId = requireOrganisationId(req.user);
@@ -299,11 +364,22 @@ export class PrivacyController {
       where: { id, organisationId },
     });
     if (!row) throw new BadRequestException('Incident not found');
+    const timeline = Array.isArray(row.timeline) ? [...(row.timeline as object[])] : [];
+    timeline.push({
+      event: body.status,
+      at: new Date().toISOString(),
+      by: req.user?.userId,
+      notes: body.resolutionNotes ?? body.description ?? null,
+    });
     return this.prisma.incident.update({
       where: { id },
       data: {
         status: body.status,
         description: body.description ?? row.description,
+        assignedToId: body.assignedToId ?? row.assignedToId,
+        resolutionNotes: body.resolutionNotes ?? row.resolutionNotes,
+        evidenceDocumentIds: body.evidenceDocumentIds ?? row.evidenceDocumentIds ?? undefined,
+        timeline: timeline as unknown as object,
         resolvedAt: ['RESOLVED', 'CLOSED'].includes(body.status)
           ? new Date()
           : row.resolvedAt,
@@ -320,5 +396,45 @@ export class PrivacyController {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER')
+  @Get('exports/:id/download')
+  async downloadExport(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const organisationId = requireOrganisationId(req.user);
+    const job = await this.prisma.dataExportJob.findFirst({
+      where: { id, organisationId },
+    });
+    if (!job?.storageKey) throw new BadRequestException('Export not available');
+    const downloadUrl = await this.files.getSignedDownloadUrl(job.storageKey);
+    return { id: job.id, downloadUrl, storageKey: job.storageKey, status: job.status };
+  }
+
+  @Roles('ADMIN', 'QA_OFFICER')
+  @Get('retention-enforcement')
+  async retentionEnforcement(@Req() req: Request & { user?: AuthUser }) {
+    const organisationId = requireOrganisationId(req.user);
+    const [policies, purged, pending] = await Promise.all([
+      this.prisma.retentionPolicy.findMany({ where: { organisationId } }),
+      this.prisma.uploadRecord.count({
+        where: { organisationId, status: 'PURGED' },
+      }),
+      this.prisma.uploadRecord.count({
+        where: {
+          organisationId,
+          status: { not: 'PURGED' },
+          retentionUntil: { lte: new Date() },
+        },
+      }),
+    ]);
+    return {
+      policies,
+      purgedUploads: purged,
+      pendingDisposal: pending,
+      checkedAt: new Date().toISOString(),
+    };
   }
 }

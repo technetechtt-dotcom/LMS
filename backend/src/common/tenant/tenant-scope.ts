@@ -215,10 +215,15 @@ export function enrollmentActorWhere(
   if (isLearnerOnly(user)) return { learnerId: user!.userId };
   if (isMentorOnly(user)) {
     return {
-      metadata: {
-        path: ['workplaceMentorId'],
-        equals: user!.userId,
-      },
+      OR: [
+        { workplaceMentorId: user!.userId },
+        {
+          metadata: {
+            path: ['workplaceMentorId'],
+            equals: user!.userId,
+          },
+        },
+      ],
     };
   }
   if (!user?.userId) return { id: '__no_authenticated_actor__' };
@@ -562,7 +567,10 @@ export function poeArtifactActorWhere(
   if (user.roleCodes.includes('MENTOR')) {
     scopes.push({
       enrollment: {
-        metadata: { path: ['workplaceMentorId'], equals: user.userId },
+        OR: [
+          { workplaceMentorId: user.userId },
+          { metadata: { path: ['workplaceMentorId'], equals: user.userId } },
+        ],
       },
     });
   }
@@ -600,6 +608,7 @@ export function assertEnrollmentAccess(
   enrollment: {
     learnerId: string;
     cohortId?: string | null;
+    workplaceMentorId?: string | null;
     metadata?: unknown;
     programme?: {
       facilitatorAssignments?: Array<{
@@ -629,7 +638,8 @@ export function assertEnrollmentAccess(
       enrollment.metadata && typeof enrollment.metadata === 'object'
         ? (enrollment.metadata as { workplaceMentorId?: string })
         : {};
-    if (metadata.workplaceMentorId !== user?.userId) {
+    const typedMentorId = (enrollment as { workplaceMentorId?: string | null }).workplaceMentorId;
+    if (typedMentorId !== user?.userId && metadata.workplaceMentorId !== user?.userId) {
       throw new ForbiddenException(`${label} access denied: mentor not assigned to this learner`);
     }
   }

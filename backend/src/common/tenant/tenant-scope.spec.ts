@@ -114,15 +114,24 @@ describe('tenant-scope', () => {
     expect(isMentorOnly(mentor)).toBe(true);
     expect(isMentorOnly({ ...mentor, roleCodes: ['MENTOR', 'ADMIN'] })).toBe(false);
     expect(enrollmentActorWhere(mentor)).toEqual({
-      metadata: { path: ['workplaceMentorId'], equals: 'mentor-1' },
+      OR: [
+        { workplaceMentorId: 'mentor-1' },
+        { metadata: { path: ['workplaceMentorId'], equals: 'mentor-1' } },
+      ],
     });
     expect(() =>
       assertEnrollmentAccess(
         mentor,
-        { learnerId: 'learner-1', metadata: { workplaceMentorId: 'other' } },
+        { learnerId: 'learner-1', workplaceMentorId: 'other', metadata: {} },
         'Document',
       ),
     ).toThrow('Document access denied');
+    expect(() =>
+      assertEnrollmentAccess(
+        mentor,
+        { learnerId: 'learner-1', workplaceMentorId: 'mentor-1', metadata: {} },
+      ),
+    ).not.toThrow();
     expect(() =>
       assertEnrollmentAccess(
         mentor,
@@ -180,9 +189,21 @@ describe('tenant-scope', () => {
       AND: [{ OR: [{ moderatorId: 'm1' }] }],
     });
     expect(poeArtifactActorWhere(actor('mentor1', ['MENTOR']))).toEqual({
-      AND: [{ OR: [{ enrollment: { metadata: {
-        path: ['workplaceMentorId'], equals: 'mentor1',
-      } } }] }],
+      AND: [{
+        OR: [{
+          enrollment: {
+            OR: [
+              { workplaceMentorId: 'mentor1' },
+              {
+                metadata: {
+                  path: ['workplaceMentorId'],
+                  equals: 'mentor1',
+                },
+              },
+            ],
+          },
+        }],
+      }],
     });
     expect(poeArtifactActorWhere(actor('s1', ['SETA']))).toEqual({
       AND: [{ OR: [{ enrollment: { programme: { metadata: {

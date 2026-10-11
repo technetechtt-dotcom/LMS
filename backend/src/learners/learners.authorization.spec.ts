@@ -18,7 +18,12 @@ describe('LearnersService allocation authorization', () => {
     ['workplace mentor', {
       userId: 'mentor-1', email: 'mentor@example.test',
       organisationId: 'organisation-1', roleCodes: ['MENTOR'],
-    }, { metadata: { path: ['workplaceMentorId'], equals: 'mentor-1' } }],
+    }, {
+      OR: [
+        { workplaceMentorId: 'mentor-1' },
+        { metadata: { path: ['workplaceMentorId'], equals: 'mentor-1' } },
+      ],
+    }],
   ];
 
   it.each(roleCases)('returns 404 for an unassigned learner requested by a %s', async (_name, actor, scope) => {

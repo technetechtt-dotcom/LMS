@@ -150,6 +150,7 @@ model User {
   mentoredEnrollments              Enrollment[]            @relation("EnrollmentWorkplaceMentor")
   complianceSchedulesCreated       ComplianceSchedule[]    @relation("ComplianceScheduleCreatedBy")
   remedialAssignmentsAssigned      RemedialAssignment[]    @relation("RemedialAssignmentAssignedBy")
+  remedialAssignmentsOverridden    RemedialAssignment[]    @relation("RemedialAssignmentStaffOverrideBy")
 }
 
 model Role {
@@ -1208,6 +1209,10 @@ model DataSubjectRequest {
   status         DataSubjectRequestStatus @default(RECEIVED)
   notes          String?
   retentionUntil DateTime?
+  dueAt          DateTime?
+  assignedToId   String?                  @db.Uuid
+  evidenceDocumentIds Json?
+  statusHistory  Json?
   completedAt    DateTime?
   organisation   Organisation             @relation(fields: [organisationId], references: [id])
   subject        User                     @relation(fields: [subjectUserId], references: [id])
@@ -1216,22 +1221,35 @@ model DataSubjectRequest {
 
   @@index([organisationId, status])
   @@index([subjectUserId])
+  @@index([dueAt])
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 }
 
 model Incident {
-  id             String    @id @default(uuid()) @db.Uuid
-  organisationId String    @db.Uuid
-  severity       String
+  id             String           @id @default(uuid()) @db.Uuid
+  organisationId String           @db.Uuid
+  severity       IncidentSeverity @default(MEDIUM)
   title          String
   description    String
-  status         String    @default("OPEN")
-  reportedById   String?   @db.Uuid
+  status         String           @default("OPEN")
+  reportedById   String?          @db.Uuid
+  assignedToId   String?          @db.Uuid
+  resolutionNotes String?
+  evidenceDocumentIds Json?
+  timeline       Json?
   resolvedAt     DateTime?
   metadata       Json?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   @@index([organisationId, status])
+  @@index([assignedToId])
 }
 
 model RetentionPolicy {
@@ -1316,6 +1334,7 @@ model LearningProgress {
 
   @@unique([enrollmentId, materialId, kind])
   @@index([enrollmentId, moduleKey])
+  @@index([enrollmentId, kind, moduleKey])
 }
 
 enum ComplianceScheduleKind {
@@ -1372,6 +1391,8 @@ model RemedialAssignment {
   enrollment     Enrollment        @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
   material       LearningMaterial? @relation(fields: [materialId], references: [id], onDelete: SetNull)
   assignedBy     User              @relation("RemedialAssignmentAssignedBy", fields: [assignedById], references: [id])
+  staffOverrideBy User?            @relation("RemedialAssignmentStaffOverrideBy", fields: [staffOverrideById], references: [id])
 
   @@index([enrollmentId, dueAt])
+  @@index([staffOverrideById])
 }

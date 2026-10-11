@@ -310,6 +310,16 @@ export function Sidebar({
           path: '/facilitator-assessments'
         },
         {
+          name: 'Remedial work',
+          icon: <FileCheck size={20} />,
+          path: '/remedial'
+        },
+        {
+          name: 'Workplace logbook',
+          icon: <Briefcase size={20} />,
+          path: '/workplace-logbook'
+        },
+        {
           name: 'Progress Reports',
           icon: <BarChart3 size={20} />,
           path: '/facilitator-progress-reports'
@@ -347,6 +357,11 @@ export function Sidebar({
           name: 'Assigned Programmes',
           icon: <FolderOpen size={20} />,
           path: '/programmes'
+        },
+        {
+          name: 'Remedial work',
+          icon: <FileCheck size={20} />,
+          path: '/remedial'
         },
         {
           name: 'Messages',

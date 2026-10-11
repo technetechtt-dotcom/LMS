@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Card } from '../components/ui/Card';
@@ -27,7 +27,7 @@ export function RemedialAssignmentsPage() {
   const enrollmentId = params.get('enrollmentId') || linkedLearnerId || undefined;
   const canAssign = ['Admin', 'Facilitator', 'QA Officer', 'Assessor'].includes(user?.role ?? '');
   const isLearner = user?.role === 'Learner';
-  const [overrideReason, setOverrideReason] = useState('');
+  const [overrideReasons, setOverrideReasons] = useState<Record<string, string>>({});
   const [rows, setRows] = useState<Assignment[]>([]);
   const [materials, setMaterials] = useState<Array<{ id: string; title: string }>>([]);
   const [form, setForm] = useState({
@@ -37,10 +37,10 @@ export function RemedialAssignmentsPage() {
     materialId: '',
   });
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const res = await remedialService.list(enrollmentId);
     setRows((res.data ?? []) as Assignment[]);
-  };
+  }, [enrollmentId]);
 
   useEffect(() => {
     load().catch(() => toast.error('Could not load remedial assignments'));
@@ -50,7 +50,7 @@ export function RemedialAssignmentsPage() {
         .then((res) => setMaterials((res.data ?? []).map((m) => ({ id: m.id, title: m.title }))))
         .catch(() => undefined);
     }
-  }, [enrollmentId, canAssign]);
+  }, [enrollmentId, canAssign, load]);
 
   return (
     <div className="space-y-6">
@@ -151,8 +151,10 @@ export function RemedialAssignmentsPage() {
               <div className="space-y-2">
                 <Input
                   label="Audited staff override reason"
-                  value={overrideReason}
-                  onChange={(e) => setOverrideReason(e.target.value)}
+                  value={overrideReasons[row.id] ?? ''}
+                  onChange={(e) =>
+                    setOverrideReasons((prev) => ({ ...prev, [row.id]: e.target.value }))
+                  }
                 />
                 <div className="flex gap-2">
                   {!row.acknowledgedAt && (
@@ -161,9 +163,9 @@ export function RemedialAssignmentsPage() {
                       variant="outline"
                       onClick={() =>
                         remedialService
-                          .staffOverride(row.id, 'acknowledge', overrideReason)
+                          .staffOverride(row.id, 'acknowledge', overrideReasons[row.id] ?? '')
                           .then(() => {
-                            setOverrideReason('');
+                            setOverrideReasons((prev) => ({ ...prev, [row.id]: '' }));
                             return load();
                           })
                           .catch(() => toast.error('Override requires a documented reason'))
@@ -175,9 +177,9 @@ export function RemedialAssignmentsPage() {
                     size="sm"
                     onClick={() =>
                       remedialService
-                        .staffOverride(row.id, 'complete', overrideReason)
+                        .staffOverride(row.id, 'complete', overrideReasons[row.id] ?? '')
                         .then(() => {
-                          setOverrideReason('');
+                          setOverrideReasons((prev) => ({ ...prev, [row.id]: '' }));
                           return load();
                         })
                         .catch(() => toast.error('Override requires a documented reason'))

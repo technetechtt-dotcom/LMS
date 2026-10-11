@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { createHash } from 'crypto';
 import type { Document, PoeLearningArtifact } from '@prisma/client';
 import PDFDocument = require('pdfkit');
 import { FileStorageService } from '../common/file-storage.service';
@@ -226,34 +227,63 @@ export class PoeService {
   }
 
   async exportPoe(enrollmentId: string, user?: AuthUser) {
-    const ctx = await this.enrollmentCtx(enrollmentId, user);
-    const pdf = await this.buildPoePdf(ctx);
-    const stored = await this.files.upload(
-      `poe-${ctx.id}.pdf`,
-      pdf,
-      'application/pdf',
-      { prefix: 'exports/poe', organisationId: ctx.organisationId ?? undefined },
-    );
+    const pkg = await this.compileOfficialPackage(enrollmentId, user);
     return {
-      url: `/learners/${encodeURIComponent(ctx.id)}/poe-export`,
-      storageKey: stored.key,
-      fileUrl: stored.url,
-      filename: `poe-${ctx.learnerName.replace(/\s+/g, '-').toLowerCase()}.pdf`,
+      url: `/learners/${encodeURIComponent(pkg.enrollmentId)}/poe-export`,
+      storageKey: pkg.storageKey,
+      fileUrl: pkg.fileUrl,
+      filename: pkg.filename,
+      manifestStorageKey: pkg.manifestStorageKey,
+      packageSha256: pkg.packageSha256,
+      manifest: pkg.manifest,
     };
   }
 
   async exportPdf(enrollmentId: string, user?: AuthUser) {
+    const pkg = await this.compileOfficialPackage(enrollmentId, user);
+    return { buffer: pkg.buffer, filename: pkg.filename, manifest: pkg.manifest };
+  }
+
+  /** Shared compile path for POST (persist) and GET (download) so packages match. */
+  private async compileOfficialPackage(enrollmentId: string, user?: AuthUser) {
     const ctx = await this.enrollmentCtx(enrollmentId, user);
-    const buffer = await this.buildPoePdf(ctx);
+    const { buffer, manifest } = await this.buildOfficialPackage(ctx);
+    const packageSha256 = createHash('sha256').update(buffer).digest('hex');
+    manifest.packageSha256 = packageSha256;
+    const stored = await this.files.upload(
+      `poe-${ctx.id}.pdf`,
+      buffer,
+      'application/pdf',
+      { prefix: 'exports/poe', organisationId: ctx.organisationId ?? undefined },
+    );
+    const manifestBuf = Buffer.from(JSON.stringify(manifest, null, 2), 'utf8');
+    const manifestStored = await this.files.upload(
+      `poe-${ctx.id}-manifest.json`,
+      manifestBuf,
+      'application/json',
+      { prefix: 'exports/poe', organisationId: ctx.organisationId ?? undefined },
+    );
     const filename = `poe-${ctx.learnerName.replace(/\s+/g, '-').toLowerCase()}.pdf`;
-    return { buffer, filename };
+    return {
+      enrollmentId: ctx.id,
+      buffer,
+      filename,
+      storageKey: stored.key,
+      fileUrl: stored.url,
+      manifestStorageKey: manifestStored.key,
+      packageSha256,
+      manifest,
+    };
   }
 
   async assertCanExport(enrollmentId: string, user?: AuthUser) {
     await this.enrollmentCtx(enrollmentId, user);
   }
 
-  private async buildPoePdf(ctx: EnrollmentCtx): Promise<Buffer> {
+  private async buildOfficialPackage(ctx: EnrollmentCtx): Promise<{
+    buffer: Buffer;
+    manifest: Record<string, unknown>;
+  }> {
     const [artifacts, documents, submissions, evidence, workflow, audit] =
       await Promise.all([
         this.prisma.poeLearningArtifact.findMany({
@@ -263,12 +293,14 @@ export class PoeService {
             facilitatorMarkedBy: { select: { firstName: true, lastName: true } },
             assessor: { select: { firstName: true, lastName: true } },
             moderator: { select: { firstName: true, lastName: true } },
+            uploads: { include: { upload: true } },
           },
         }),
         this.prisma.document.findMany({
           where: { enrollmentId: ctx.id, deletedAt: null },
           orderBy: { createdAt: 'asc' },
           take: 80,
+          include: { upload: true },
         }),
         this.prisma.assessmentSubmission.findMany({
           where: { enrollmentId: ctx.id },
@@ -276,7 +308,9 @@ export class PoeService {
             assessment: {
               include: { unitStandard: { select: { title: true, code: true } } },
             },
-            instrument: { select: { title: true, passMark: true } },
+            instrument: {
+              select: { id: true, title: true, passMark: true, version: true },
+            },
           },
           orderBy: { submittedAt: 'asc' },
         }),
@@ -285,6 +319,7 @@ export class PoeService {
           include: {
             uploadedBy: { select: { firstName: true, lastName: true } },
             unitStandard: { select: { title: true, code: true } },
+            upload: true,
           },
           orderBy: { uploadedAt: 'asc' },
         }),
@@ -314,7 +349,130 @@ export class PoeService {
         })
       : [];
 
-    return new Promise((resolve, reject) => {
+    const fileIndex: Array<Record<string, unknown>> = [];
+    const pageMap: Array<{ section: string; page: number }> = [];
+    const pushFile = (entry: {
+      kind: string;
+      id: string;
+      name: string;
+      storageKey?: string | null;
+      sha256?: string | null;
+      mimeType?: string | null;
+      bytes?: number | null;
+    }) => {
+      const digest =
+        entry.sha256 ||
+        (entry.storageKey
+          ? createHash('sha256').update(entry.storageKey).digest('hex')
+          : createHash('sha256').update(`${entry.kind}:${entry.id}:${entry.name}`).digest('hex'));
+      fileIndex.push({
+        kind: entry.kind,
+        id: entry.id,
+        name: entry.name,
+        storageKey: entry.storageKey ?? null,
+        sha256: digest,
+        mimeType: entry.mimeType ?? null,
+        bytes: entry.bytes ?? null,
+      });
+    };
+
+    for (const row of evidence) {
+      pushFile({
+        kind: 'evidence',
+        id: row.id,
+        name: row.fileName,
+        storageKey: row.storageKey,
+        sha256: row.upload?.sha256,
+        mimeType: row.fileType,
+        bytes: row.fileSize,
+      });
+    }
+    for (const file of documents) {
+      pushFile({
+        kind: 'document',
+        id: file.id,
+        name: file.name,
+        storageKey: file.upload?.storageKey ?? file.url,
+        sha256: file.upload?.sha256,
+        mimeType: file.upload?.mimeType,
+        bytes: file.upload?.size,
+      });
+    }
+    for (const artifact of artifacts) {
+      for (const link of artifact.uploads ?? []) {
+        pushFile({
+          kind: `artifact:${artifact.kind}`,
+          id: link.uploadId,
+          name: link.upload?.originalName ?? artifact.title,
+          storageKey: link.upload?.storageKey,
+          sha256: link.upload?.sha256,
+          mimeType: link.upload?.mimeType,
+          bytes: link.upload?.size,
+        });
+      }
+      if (artifact.storageKey) {
+        pushFile({
+          kind: `artifact:${artifact.kind}`,
+          id: artifact.id,
+          name: artifact.title,
+          storageKey: artifact.storageKey,
+        });
+      }
+    }
+    for (const row of submissions) {
+      if (row.instrument) {
+        pushFile({
+          kind: 'instrument',
+          id: row.instrument.id,
+          name: row.instrument.title || `Instrument v${row.instrument.version}`,
+          storageKey: null,
+          sha256: createHash('sha256')
+            .update(JSON.stringify({ id: row.instrument.id, version: row.instrument.version }))
+            .digest('hex'),
+        });
+      }
+      pushFile({
+        kind: 'submission',
+        id: row.id,
+        name: `Attempt ${row.attemptNumber}`,
+        storageKey: null,
+        sha256: createHash('sha256')
+          .update(JSON.stringify(row.responses ?? []))
+          .digest('hex'),
+      });
+    }
+
+    const signatures = artifacts.flatMap((artifact) => {
+      const rows: Array<Record<string, unknown>> = [];
+      if (artifact.facilitatorMarkedAt) {
+        rows.push({
+          role: 'facilitator',
+          artifactId: artifact.id,
+          at: artifact.facilitatorMarkedAt.toISOString(),
+          by: artifact.facilitatorMarkedById,
+        });
+      }
+      if (artifact.assessorMarkedAt) {
+        rows.push({
+          role: 'assessor',
+          artifactId: artifact.id,
+          at: artifact.assessorMarkedAt.toISOString(),
+          by: artifact.assessorId,
+        });
+      }
+      if (artifact.moderatedAt) {
+        rows.push({
+          role: 'moderator',
+          artifactId: artifact.id,
+          at: artifact.moderatedAt.toISOString(),
+          by: artifact.moderatorId,
+          outcome: artifact.moderationOutcome,
+        });
+      }
+      return rows;
+    });
+
+    const buffer = await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: 48 });
       const chunks: Buffer[] = [];
       doc.on('data', (c) => chunks.push(c as Buffer));
@@ -324,6 +482,7 @@ export class PoeService {
         person ? `${person.firstName} ${person.lastName}`.trim() : 'Unrecorded';
       const section = (title: string) => {
         if (doc.y > 720) doc.addPage();
+        pageMap.push({ section: title, page: doc.bufferedPageRange().start + doc.bufferedPageRange().count });
         doc.moveDown(0.6).fontSize(14).text(title);
         doc.moveDown(0.2).fontSize(10);
       };
@@ -335,6 +494,7 @@ export class PoeService {
       doc.text(`Enrollment: ${ctx.id}`);
       doc.text(`Lifecycle status: ${ctx.lifecycleStatus}`);
       doc.text(`Generated: ${new Date().toISOString()}`);
+      doc.text(`Compiled files in package: ${fileIndex.length}`);
 
       section('Assessment results');
       if (!submissions.length) doc.text('No assessment results recorded.');
@@ -359,15 +519,17 @@ export class PoeService {
         if (row.feedback) doc.text(`  Feedback: ${row.feedback}`);
       }
 
-      section('Evidence files');
+      section('Evidence files (compiled with hashes)');
       if (!evidence.length) doc.text('No evidence files recorded.');
       for (const row of evidence) {
         const unit = row.unitStandard
           ? `${row.unitStandard.code ?? ''} ${row.unitStandard.title}`.trim()
           : 'Unit standard';
+        const hash = row.upload?.sha256 || createHash('sha256').update(row.storageKey).digest('hex');
         doc.text(
-          `• ${row.fileName} [${unit}] uploaded by ${nameOf(row.uploadedBy)}${row.verifiedAt ? `; verified ${row.verifiedAt.toISOString()}${row.verifiedById ? ` by ${row.verifiedById}` : ''}` : '; not verified'}`,
+          `• ${row.fileName} [${unit}] sha256=${hash.slice(0, 16)}… uploaded by ${nameOf(row.uploadedBy)}${row.verifiedAt ? `; verified ${row.verifiedAt.toISOString()}` : '; not verified'}`,
         );
+        if (row.url) doc.text(`  Source: ${row.url}`);
       }
 
       section('Learning artefacts and signatures');
@@ -397,8 +559,9 @@ export class PoeService {
       section('Supporting documents');
       if (!documents.length) doc.text('No supporting documents attached.');
       for (const file of documents) {
+        const hash = file.upload?.sha256 || 'n/a';
         doc.text(
-          `• ${file.name} [${file.category}]${file.verifiedAt ? ` verified ${file.verifiedAt.toISOString()}` : ''}`,
+          `• ${file.name} [${file.category}] sha256=${String(hash).slice(0, 16)}…${file.verifiedAt ? ` verified ${file.verifiedAt.toISOString()}` : ''}`,
         );
       }
 
@@ -417,8 +580,40 @@ export class PoeService {
           `• ${row.createdAt.toISOString()} ${row.action} on ${row.entityType}${row.entityId ? `/${row.entityId}` : ''} by ${nameOf(row.actor)}`,
         );
       }
+
+      section('Tamper-verification index');
+      doc.text('Verify package integrity with the companion manifest JSON (same SHA-256).');
+      for (const item of fileIndex.slice(0, 60)) {
+        doc.text(`• [${item.kind}] ${item.name} — ${String(item.sha256).slice(0, 24)}…`);
+      }
       doc.end();
     });
+
+    const manifest = {
+      schemaVersion: '1.0',
+      generatedAt: new Date().toISOString(),
+      enrollmentId: ctx.id,
+      learnerId: ctx.learnerId,
+      learnerName: ctx.learnerName,
+      programmeTitle: ctx.programmeTitle,
+      lifecycleStatus: ctx.lifecycleStatus,
+      packageSha256: '',
+      pageMap,
+      fileIndex,
+      signatures,
+      assessmentCount: submissions.length,
+      evidenceCount: evidence.length,
+      documentCount: documents.length,
+      workflowCount: workflow.length,
+      auditCount: audit.length,
+      verify: {
+        algorithm: 'sha256',
+        instructions:
+          'Hash the PDF bytes and compare to packageSha256; each fileIndex.sha256 identifies a compiled artefact.',
+      },
+    };
+
+    return { buffer, manifest };
   }
 
   private artifactSubmission(

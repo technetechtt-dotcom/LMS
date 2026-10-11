@@ -299,7 +299,13 @@ export class ComplianceService {
         orderBy: { scheduledFor: 'asc' },
       }),
     ]);
-    await this.reconcileScheduleLifecycle(schedules);
+    // Display-only overdue projection; reminder delivery runs in ComplianceReminderWorker.
+    const now = new Date();
+    for (const row of schedules) {
+      if (row.status === 'SCHEDULED' && row.scheduledFor < now) {
+        row.status = 'OVERDUE';
+      }
+    }
     const fromDocs = docs.map((d) => this.mapSetaSubmission(d));
     const fromGateway = gateway.map((g) => ({
       id: g.id,
@@ -317,29 +323,36 @@ export class ComplianceService {
     return [...schedules.map((row) => this.mapSchedule(row)), ...fromGateway, ...fromDocs];
   }
 
-  private async reconcileScheduleLifecycle(
-    rows: Array<{
-      id: string;
-      kind: string;
-      type: string;
-      reference: string | null;
-      status: string;
-      scheduledFor: Date;
-      reminderSentAt: Date | null;
-      createdById: string;
-      organisationId?: string;
-    }>,
-  ) {
+  /** Background worker entry: persist overdue status and send due reminders. */
+  async processDueReminders(): Promise<{ overdue: number; reminded: number }> {
     const now = new Date();
     const soon = new Date(now.getTime() + 7 * 86_400_000);
-    for (const row of rows) {
+    const schedules = await this.prisma.complianceSchedule.findMany({
+      where: {
+        status: { in: ['SCHEDULED', 'OVERDUE', 'REMINDED'] },
+        OR: [
+          { status: 'SCHEDULED', scheduledFor: { lt: now } },
+          {
+            reminderSentAt: null,
+            scheduledFor: { lte: soon },
+            status: { in: ['SCHEDULED', 'OVERDUE'] },
+          },
+        ],
+      },
+      take: 500,
+    });
+    let overdue = 0;
+    let reminded = 0;
+    for (const row of schedules) {
       if (row.status === 'SCHEDULED' && row.scheduledFor < now) {
         await this.prisma.complianceSchedule.update({
           where: { id: row.id },
           data: { status: 'OVERDUE' },
         });
         row.status = 'OVERDUE';
-      } else if (
+        overdue += 1;
+      }
+      if (
         (row.status === 'SCHEDULED' || row.status === 'OVERDUE') &&
         !row.reminderSentAt &&
         row.scheduledFor <= soon
@@ -348,12 +361,15 @@ export class ComplianceService {
         if (!sent) continue;
         await this.prisma.complianceSchedule.update({
           where: { id: row.id },
-          data: { status: row.status === 'OVERDUE' ? 'OVERDUE' : 'REMINDED', reminderSentAt: now },
+          data: {
+            status: row.status === 'OVERDUE' ? 'OVERDUE' : 'REMINDED',
+            reminderSentAt: now,
+          },
         });
-        if (row.status === 'SCHEDULED') row.status = 'REMINDED';
-        row.reminderSentAt = now;
+        reminded += 1;
       }
     }
+    return { overdue, reminded };
   }
 
   private async sendScheduleReminder(row: {

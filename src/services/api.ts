@@ -878,7 +878,13 @@ export const privacyService = {
 
   progressIncident: async (
     id: string,
-    body: { status: string; description?: string },
+    body: {
+      status: string;
+      description?: string;
+      assignedToId?: string;
+      resolutionNotes?: string;
+      evidenceDocumentIds?: string[];
+    },
   ): Promise<ApiResponse<Record<string, unknown>>> =>
     remotePostJson<Record<string, unknown>>(
       `/privacy/incidents/${encodeURIComponent(id)}`,
@@ -902,6 +908,20 @@ export const privacyService = {
     const raw = await apiFetchJSON<unknown>('/privacy/exports');
     const data = unwrapData(raw);
     return { data: Array.isArray(data) ? data : [], success: true };
+  },
+
+  downloadExport: async (
+    id: string,
+  ): Promise<ApiResponse<{ downloadUrl: string; storageKey?: string }>> => {
+    const raw = await apiFetchJSON<unknown>(
+      `/privacy/exports/${encodeURIComponent(id)}/download`,
+    );
+    return { data: unwrapData(raw) as { downloadUrl: string; storageKey?: string }, success: true };
+  },
+
+  retentionEnforcement: async (): Promise<ApiResponse<Record<string, unknown>>> => {
+    const raw = await apiFetchJSON<unknown>('/privacy/retention-enforcement');
+    return { data: unwrapData(raw) as Record<string, unknown>, success: true };
   },
 
   requestAdminExport: async (
@@ -1652,7 +1672,16 @@ export const programmeService = {
     const raw = await apiFetchJSON<Record<string, unknown>>(
       `/programmes/${encodeURIComponent(programmeId)}/completion-requirements`,
     );
-    return { data: unwrapData(raw) as any, success: true };
+    return {
+      data: unwrapData(raw) as {
+        requireAllAssessmentsC: boolean;
+        requireWorkbook: boolean;
+        requireSummative: boolean;
+        minVerifiedWorkplaceHours: number;
+        minAttendanceRatePercent: number;
+      },
+      success: true,
+    };
   },
 
   updateCompletionRequirements: async (
@@ -2379,6 +2408,27 @@ export const enrollmentService = {
       { method: 'DELETE' },
     );
   },
+
+  transition: async (
+    enrollmentId: string,
+    action:
+      | 'START_TRAINING'
+      | 'MOVE_TO_WORKPLACE'
+      | 'START_ASSESSMENT'
+      | 'SUBMIT_FOR_MODERATION'
+      | 'COMPLETE_ENROLLMENT'
+      | 'REOPEN'
+      | 'SUSPEND'
+      | 'WITHDRAW'
+      | 'REJECT'
+      | 'CANCEL'
+      | 'REINSTATE',
+    reason?: string,
+  ): Promise<ApiResponse<{ id: string; status: string }>> =>
+    remotePostJson<{ id: string; status: string }>(
+      `/enrollments/${encodeURIComponent(enrollmentId)}/transition`,
+      { action, reason },
+    ),
 };
 
 export const messagingService = {

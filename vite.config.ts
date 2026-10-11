@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { buildVersionPlugin } from './build-version-plugin'
@@ -5,6 +6,10 @@ import { buildVersionPlugin } from './build-version-plugin'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react(), buildVersionPlugin()],
+  test: {
+    environment: 'node',
+    include: ['src/**/*.spec.ts', 'src/**/*.spec.tsx'],
+  },
   build: {
     rollupOptions: {
       output: {

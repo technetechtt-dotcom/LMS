@@ -55,16 +55,28 @@ export class RemedialService {
         deletedAt: null,
         ...enrollmentOrgWhere(organisationId),
       },
-      select: { id: true, learnerId: true },
+      select: { id: true, learnerId: true, programmeId: true },
     });
     if (!enrollment) throw new NotFoundException('Enrollment not found');
     assertEnrollmentAccess(user, enrollment, 'Remedial assignment');
     if (dto.materialId) {
       const material = await this.prisma.learningMaterial.findFirst({
-        where: { id: dto.materialId, deletedAt: null, organisationId },
+        where: {
+          id: dto.materialId,
+          deletedAt: null,
+          organisationId,
+          OR: [
+            { programmeId: enrollment.programmeId },
+            { programmeId: null },
+          ],
+        },
         select: { id: true },
       });
-      if (!material) throw new BadRequestException('Material not found in organisation');
+      if (!material) {
+        throw new BadRequestException(
+          'Material does not belong to this programme and organisation',
+        );
+      }
     }
     return this.prisma.remedialAssignment.create({
       data: {
