@@ -23,6 +23,7 @@ export function MessagingPage() {
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [composeRecipientId, setComposeRecipientId] = useState('');
+  const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
   const [recipientOptions, setRecipientOptions] = useState<
     Array<{ value: string; label: string }>
@@ -72,7 +73,7 @@ export function MessagingPage() {
         peerId: isIncoming ? m.fromId : m.toId,
         user: peerName,
         role: isIncoming ? m.fromRole : 'User',
-        subject: 'Message',
+        subject: m.subject?.trim() || 'Message',
         preview: m.content.slice(0, 80),
         time: new Date(m.createdAt).toLocaleString(),
         unread: isIncoming && !m.isRead,
@@ -193,9 +194,12 @@ export function MessagingPage() {
       const res = await messagingService.send(
         composeRecipientId,
         composeBody.trim(),
+        undefined,
+        composeSubject.trim() || undefined,
       );
       setMessages((prev) => [...prev, res.data]);
       setComposeBody('');
+      setComposeSubject('');
       setComposeRecipientId('');
       setIsComposeOpen(false);
       toast.success('Message sent successfully');
@@ -393,6 +397,17 @@ export function MessagingPage() {
                 : [{ value: '', label: 'Loading users…' }]
             }
           />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Subject
+            </label>
+            <input
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-brand-navy focus:ring-brand-navy"
+              value={composeSubject}
+              onChange={(e) => setComposeSubject(e.target.value)}
+              placeholder="Message subject"
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Message

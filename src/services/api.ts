@@ -952,6 +952,15 @@ export const remedialService = {
     remotePostJson(`/remedial-assignments/${encodeURIComponent(id)}/acknowledge`, {}),
   complete: async (id: string) =>
     remotePostJson(`/remedial-assignments/${encodeURIComponent(id)}/complete`, {}),
+  staffOverride: async (
+    id: string,
+    action: 'acknowledge' | 'complete',
+    reason: string,
+  ) =>
+    remotePostJson(`/remedial-assignments/${encodeURIComponent(id)}/staff-override`, {
+      action,
+      reason,
+    }),
 };
 
 export type PoeArtifactKind = 'WORKBOOK' | 'SUMMATIVE' | 'LEARNER_GUIDE';
@@ -1151,6 +1160,16 @@ export const complianceService = {
     remotePostJson<SETASubmission>(
       `/compliance/schedules/${encodeURIComponent(id)}`,
       { status },
+      'PATCH',
+    ),
+
+  reschedule: async (
+    id: string,
+    scheduledFor: string,
+  ): Promise<ApiResponse<SETASubmission>> =>
+    remotePostJson<SETASubmission>(
+      `/compliance/schedules/${encodeURIComponent(id)}`,
+      { scheduledFor },
       'PATCH',
     ),
 
@@ -2375,11 +2394,13 @@ export const messagingService = {
     toId: string,
     content: string,
     attachments?: File[],
+    subject?: string,
   ): Promise<ApiResponse<Message>> => {
     if (attachments?.length) {
       const fd = new FormData();
       fd.append('toId', toId);
       fd.append('content', content);
+      if (subject?.trim()) fd.append('subject', subject.trim());
       attachments.forEach((f, i) => {
         fd.append(`attachment_${i}`, f);
       });
@@ -2390,7 +2411,11 @@ export const messagingService = {
       const data = unwrapData(raw as ApiResponse<Message>);
       return { data, success: true };
     }
-    return remotePostJson<Message>('/messages', { toId, content });
+    return remotePostJson<Message>('/messages', {
+      toId,
+      content,
+      ...(subject?.trim() ? { subject: subject.trim() } : {}),
+    });
   },
 
   markThreadRead: async (fromId: string): Promise<ApiResponse<{ success: boolean }>> => {
@@ -2493,14 +2518,14 @@ export const api = {
   messages: {
     send: async (to: string, subject: string, body: string) =>
       messagingService
-        .send(to, `${subject}: ${body}`)
+        .send(to, body, undefined, subject)
         .then((r) => ({ success: r.success, id: r.data.id })),
     fetch: async () =>
       messagingService.getConversations().then((r) =>
         r.data.map((m) => ({
           id: m.id,
           from: m.fromName,
-          subject: '',
+          subject: m.subject || '',
           body: m.content,
           time: m.createdAt,
           unread: !m.isRead,

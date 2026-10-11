@@ -66,6 +66,9 @@ type SubmissionRow = {
   response: string;
   action: string;
   fileUrl?: string;
+  kind?: string;
+  lifecycleStatus?: string;
+  scheduledFor?: string;
 };
 
 function formatDate(value?: string | null): string {
@@ -116,6 +119,13 @@ function mapSubmissionStatus(status: SubmissionStatus | string): {
       return { label: 'Upcoming', variant: 'info' };
     case 'rejected':
       return { label: 'Rejected', variant: 'danger' };
+    case 'completed':
+      return { label: 'Completed', variant: 'success' };
+    case 'cancelled':
+      return { label: 'Cancelled', variant: 'neutral' };
+    case 'scheduled':
+    case 'reminded':
+      return { label: status === 'reminded' ? 'Reminded' : 'Scheduled', variant: 'info' };
     default:
       return { label: String(status), variant: 'neutral' };
   }
@@ -149,6 +159,9 @@ function toSubmissionRow(sub: SETASubmission): SubmissionRow {
     response: sub.setaResponse || '-',
     action: canView ? 'View Details' : 'Submit',
     fileUrl: sub.fileUrl,
+    kind: sub.kind,
+    lifecycleStatus: sub.lifecycleStatus,
+    scheduledFor: sub.scheduledFor,
   };
 }
 
@@ -191,6 +204,9 @@ export function FacilitatorSETACompliancePage() {
     notes: '',
   });
   const [schedulingAudit, setSchedulingAudit] = useState(false);
+  const [rescheduleId, setRescheduleId] = useState<string | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [updatingSchedule, setUpdatingSchedule] = useState(false);
 
   const handleScheduleSubmission = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -240,6 +256,38 @@ export function FacilitatorSETACompliancePage() {
       toast.error(err instanceof Error ? err.message : 'Failed to schedule audit');
     } finally {
       setSchedulingAudit(false);
+    }
+  };
+
+  const isOpenSchedule = (sub: SubmissionRow) =>
+    Boolean(sub.kind) &&
+    !['COMPLETED', 'CANCELLED'].includes(String(sub.lifecycleStatus ?? '').toUpperCase()) &&
+    !['completed', 'cancelled'].includes(sub.status.toLowerCase());
+
+  const updateSchedule = async (
+    id: string,
+    action: 'COMPLETED' | 'CANCELLED' | 'RESCHEDULE',
+  ) => {
+    setUpdatingSchedule(true);
+    try {
+      if (action === 'RESCHEDULE') {
+        if (!rescheduleDate) {
+          toast.error('Choose a new date');
+          return;
+        }
+        await complianceService.reschedule(id, rescheduleDate);
+        toast.success('Schedule rescheduled');
+        setRescheduleId(null);
+        setRescheduleDate('');
+      } else {
+        await complianceService.transitionSchedule(id, action);
+        toast.success(action === 'COMPLETED' ? 'Schedule completed' : 'Schedule cancelled');
+      }
+      await loadCompliance();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not update schedule');
+    } finally {
+      setUpdatingSchedule(false);
     }
   };
 
@@ -437,6 +485,7 @@ export function FacilitatorSETACompliancePage() {
   }, [documents, submissions]);
 
   const audits = submissions.map((s) => ({
+    id: s.id,
     type: s.type,
     ref: s.ref,
     date: s.due,
@@ -445,6 +494,9 @@ export function FacilitatorSETACompliancePage() {
     outcome: s.response === '-' ? s.status : s.response,
     outcomeVariant: s.statusVariant,
     fileUrl: s.fileUrl,
+    kind: s.kind,
+    lifecycleStatus: s.lifecycleStatus,
+    scheduledFor: s.scheduledFor,
   }));
 
   const verificationReqs = [
@@ -1061,21 +1113,49 @@ export function FacilitatorSETACompliancePage() {
                         {sub.response}
                       </td>
                       <td className="px-6 py-4">
-                        <Button
-                      size="sm"
-                      variant="primary"
-                      onClick={() => {
-                        if (sub.action === 'View Details') {
-                          openDocUrl(sub.fileUrl, 'submission');
-                        } else {
-                          setUploadName(sub.type);
-                          setUploadCategory('seta-submission');
-                          setUploadOpen(true);
-                        }
-                      }}>
-                      
-                          {sub.action}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            onClick={() => {
+                              if (sub.action === 'View Details') {
+                                openDocUrl(sub.fileUrl, 'submission');
+                              } else {
+                                setUploadName(sub.type);
+                                setUploadCategory('seta-submission');
+                                setUploadOpen(true);
+                              }
+                            }}>
+                            {sub.action}
+                          </Button>
+                          {isOpenSchedule(sub) && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={updatingSchedule}
+                                onClick={() => void updateSchedule(sub.id, 'COMPLETED')}>
+                                Complete
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={updatingSchedule}
+                                onClick={() => void updateSchedule(sub.id, 'CANCELLED')}>
+                                Cancel
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setRescheduleId(sub.id);
+                                  setRescheduleDate(sub.scheduledFor?.slice(0, 10) || '');
+                                }}>
+                                Reschedule
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                 ))}
@@ -1146,8 +1226,8 @@ export function FacilitatorSETACompliancePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {audits.map((audit, i) =>
-                <tr key={i} className="hover:bg-gray-50">
+                  {audits.map((audit) =>
+                <tr key={audit.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
                         <p className="text-sm font-medium text-gray-900">
                           {audit.type}
@@ -1180,6 +1260,7 @@ export function FacilitatorSETACompliancePage() {
                         </Badge>
                       </td>
                       <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-2">
                         <button
                       className="text-sm text-brand-blue hover:underline"
                       onClick={() => {
@@ -1199,6 +1280,34 @@ export function FacilitatorSETACompliancePage() {
                       }}>
                           View Report
                         </button>
+                        {isOpenSchedule(audit) && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={updatingSchedule}
+                              onClick={() => void updateSchedule(audit.id, 'COMPLETED')}>
+                              Complete
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={updatingSchedule}
+                              onClick={() => void updateSchedule(audit.id, 'CANCELLED')}>
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setRescheduleId(audit.id);
+                                setRescheduleDate(audit.scheduledFor?.slice(0, 10) || '');
+                              }}>
+                              Reschedule
+                            </Button>
+                          </>
+                        )}
+                        </div>
                       </td>
                     </tr>
                 )}
@@ -1427,6 +1536,33 @@ export function FacilitatorSETACompliancePage() {
             placeholder="e.g. Learner POEs, Assessment Practices, Facilitator Qualifications"
           />
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(rescheduleId)}
+        onClose={() => {
+          if (updatingSchedule) return;
+          setRescheduleId(null);
+        }}
+        title="Reschedule compliance item"
+        footer={
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setRescheduleId(null)} disabled={updatingSchedule}>
+              Cancel
+            </Button>
+            <Button
+              isLoading={updatingSchedule}
+              onClick={() => rescheduleId && void updateSchedule(rescheduleId, 'RESCHEDULE')}>
+              Save new date
+            </Button>
+          </div>
+        }>
+        <Input
+          label="New scheduled date"
+          type="date"
+          value={rescheduleDate}
+          onChange={(e) => setRescheduleDate(e.target.value)}
+        />
       </Modal>
     </>
   );

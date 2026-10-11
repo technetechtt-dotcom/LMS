@@ -103,6 +103,9 @@ export class LearnersService {
         return progress >= 80;
       });
     }
+    if (['withdrawn', 'suspended', 'rejected', 'cancelled'].includes(status)) {
+      return rows.filter((row) => row.status === status);
+    }
     return rows;
   }
 

@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Document, UploadRecord } from '@prisma/client';
 import { FileStorageService } from '../common/file-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
 import { requireOrganisationId } from '../common/tenant/tenant-scope';
+import { NotificationsService } from '../notifications/notifications.service';
 import { resolveSetaAdapter } from './seta-adapters';
 import { NLRD_CERTIFICATION, NLRD_SCHEMA_VERSION } from './nlrd-schema';
 import type { StagedUploadFile } from '../common/quarantine-upload';
@@ -15,6 +16,7 @@ export class ComplianceService {
     private readonly prisma: PrismaService,
     private readonly files: FileStorageService,
     private readonly config: ConfigService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   async listDecisions(user?: AuthUser) {
@@ -318,9 +320,14 @@ export class ComplianceService {
   private async reconcileScheduleLifecycle(
     rows: Array<{
       id: string;
+      kind: string;
+      type: string;
+      reference: string | null;
       status: string;
       scheduledFor: Date;
       reminderSentAt: Date | null;
+      createdById: string;
+      organisationId?: string;
     }>,
   ) {
     const now = new Date();
@@ -333,18 +340,58 @@ export class ComplianceService {
         });
         row.status = 'OVERDUE';
       } else if (
-        row.status === 'SCHEDULED' &&
+        (row.status === 'SCHEDULED' || row.status === 'OVERDUE') &&
         !row.reminderSentAt &&
         row.scheduledFor <= soon
       ) {
+        const sent = await this.sendScheduleReminder(row);
+        if (!sent) continue;
         await this.prisma.complianceSchedule.update({
           where: { id: row.id },
-          data: { status: 'REMINDED', reminderSentAt: now },
+          data: { status: row.status === 'OVERDUE' ? 'OVERDUE' : 'REMINDED', reminderSentAt: now },
         });
-        row.status = 'REMINDED';
+        if (row.status === 'SCHEDULED') row.status = 'REMINDED';
         row.reminderSentAt = now;
       }
     }
+  }
+
+  private async sendScheduleReminder(row: {
+    id: string;
+    kind: string;
+    type: string;
+    reference: string | null;
+    scheduledFor: Date;
+    createdById: string;
+  }): Promise<boolean> {
+    if (!this.notifications) return false;
+    const schedule = await this.prisma.complianceSchedule.findUnique({
+      where: { id: row.id },
+      select: { organisationId: true },
+    });
+    if (!schedule) return false;
+    const staff = await this.prisma.userOrganisation.findMany({
+      where: {
+        organisationId: schedule.organisationId,
+        deletedAt: null,
+        role: { code: { in: ['ADMIN', 'QA_OFFICER', 'FACILITATOR'] } },
+      },
+      select: { userId: true },
+    });
+    const recipients = new Set(staff.map((item) => item.userId));
+    recipients.add(row.createdById);
+    const due = row.scheduledFor.toISOString().slice(0, 10);
+    const title = `Compliance ${row.kind.toLowerCase()} reminder`;
+    const body = `${row.type} (${row.reference ?? row.id.slice(0, 8)}) is due ${due}.`;
+    await Promise.all(
+      [...recipients].map((userId) =>
+        this.notifications!.notify(userId, 'compliance', title, body, {
+          scheduleId: row.id,
+          kind: row.kind,
+        }),
+      ),
+    );
+    return true;
   }
 
   async scheduleSubmission(
@@ -416,7 +463,7 @@ export class ComplianceService {
 
   async transitionSchedule(
     id: string,
-    body: { status: 'COMPLETED' | 'CANCELLED' },
+    body: { status?: 'COMPLETED' | 'CANCELLED'; scheduledFor?: string },
     user?: AuthUser,
   ) {
     const organisationId = requireOrganisationId(user);
@@ -424,6 +471,29 @@ export class ComplianceService {
       where: { id, organisationId },
     });
     if (!row) throw new BadRequestException('Compliance schedule not found');
+    if (body.scheduledFor) {
+      if (row.status === 'COMPLETED' || row.status === 'CANCELLED') {
+        throw new BadRequestException('Closed schedules cannot be rescheduled');
+      }
+      const scheduledFor = new Date(body.scheduledFor);
+      if (Number.isNaN(scheduledFor.getTime())) {
+        throw new BadRequestException('scheduledFor must be a valid date');
+      }
+      const updated = await this.prisma.complianceSchedule.update({
+        where: { id },
+        data: {
+          scheduledFor,
+          status: 'SCHEDULED',
+          reminderSentAt: null,
+          completedAt: null,
+          cancelledAt: null,
+        },
+      });
+      return this.mapSchedule(updated);
+    }
+    if (body.status !== 'COMPLETED' && body.status !== 'CANCELLED') {
+      throw new BadRequestException('status must be COMPLETED or CANCELLED');
+    }
     if (row.status === 'COMPLETED' || row.status === 'CANCELLED') {
       throw new BadRequestException('Schedule is already closed');
     }

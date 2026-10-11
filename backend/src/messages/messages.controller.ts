@@ -47,17 +47,18 @@ export class MessagesController {
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @ApiConsumes('multipart/form-data', 'application/json')
   @UseInterceptors(
-    AnyFilesInterceptor(quarantineUploadOptions({ maxFiles: 2, maxFields: 4 })),
+    AnyFilesInterceptor(quarantineUploadOptions({ maxFiles: 2, maxFields: 6 })),
   )
   async send(
     @Req() req: Request & { user?: AuthUser },
-    @Body() body: { toId?: string; content?: string },
+    @Body() body: { toId?: string; content?: string; subject?: string },
     @UploadedFiles() files?: Express.Multer.File[],
   ) {
     const toId = body.toId ?? (req.body as { toId?: string }).toId ?? '';
     const content = body.content ?? (req.body as { content?: string }).content ?? '';
+    const subject = body.subject ?? (req.body as { subject?: string }).subject ?? '';
     try {
-      const data = await this.messages.send(req.user, toId, content, files as never);
+      const data = await this.messages.send(req.user, toId, content, files as never, subject);
       return { success: true, data };
     } finally {
       await Promise.all((files ?? []).map((file) => this.fileStorage.discardStaged(file as never)));

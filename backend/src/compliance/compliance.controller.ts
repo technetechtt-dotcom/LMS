@@ -75,11 +75,11 @@ export class ComplianceController {
   @Patch('schedules/:id')
   async transitionSchedule(
     @Param('id') id: string,
-    @Body() body: { status: 'COMPLETED' | 'CANCELLED' },
+    @Body() body: { status?: 'COMPLETED' | 'CANCELLED'; scheduledFor?: string },
     @Req() req: Request & { user?: AuthUser },
   ) {
-    if (body.status !== 'COMPLETED' && body.status !== 'CANCELLED') {
-      throw new BadRequestException('status must be COMPLETED or CANCELLED');
+    if (!body.scheduledFor && body.status !== 'COMPLETED' && body.status !== 'CANCELLED') {
+      throw new BadRequestException('Provide COMPLETED, CANCELLED, or scheduledFor');
     }
     const data = await this.compliance.transitionSchedule(id, body, req.user);
     return { success: true, data };

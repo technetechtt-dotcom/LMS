@@ -180,7 +180,10 @@ export class EnrollmentsService {
     if (toState === 'COMPLETED') {
       statusData.completedAt = now;
     }
-    if (toState === 'ENROLLED' && dto.action === 'REOPEN') {
+    if (
+      toState === 'ENROLLED' &&
+      (dto.action === 'REOPEN' || dto.action === 'REINSTATE')
+    ) {
       statusData.completedAt = null;
     }
 

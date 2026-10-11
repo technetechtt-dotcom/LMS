@@ -53,6 +53,12 @@ function displayStatus(s: Learner['status']): string {
       return 'Completed';
     case 'withdrawn':
       return 'Withdrawn';
+    case 'suspended':
+      return 'Suspended';
+    case 'rejected':
+      return 'Rejected';
+    case 'cancelled':
+      return 'Cancelled';
     default:
       return 'Active';
   }
@@ -245,11 +251,14 @@ export function LearnersPage() {
     header: 'STATUS',
     accessorKey: 'status' as const,
     cell: (row: LearnerTableRow) => {
-      const variants: Record<string, 'success' | 'danger' | 'neutral'> = {
+      const variants: Record<string, 'success' | 'danger' | 'neutral' | 'warning'> = {
         Active: 'success',
         'At Risk': 'danger',
         Completed: 'neutral',
         Withdrawn: 'neutral',
+        Suspended: 'warning',
+        Rejected: 'danger',
+        Cancelled: 'neutral',
       };
       return (
         <Badge variant={variants[row.status] ?? 'neutral'}>{row.status}</Badge>

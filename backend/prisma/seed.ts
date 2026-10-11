@@ -685,18 +685,17 @@ async function main() {
     last: string;
     status: LearnerLifecycleStatus;
   }> = [
-    { email: 'learner.rejected@skillforge.co.za', first: 'Rejected', last: 'Learner', status: LearnerLifecycleStatus.ENROLLED },
-    { email: 'learner.suspended@skillforge.co.za', first: 'Suspended', last: 'Learner', status: LearnerLifecycleStatus.TRAINING },
+    { email: 'learner.rejected@skillforge.co.za', first: 'Rejected', last: 'Learner', status: LearnerLifecycleStatus.REJECTED },
+    { email: 'learner.suspended@skillforge.co.za', first: 'Suspended', last: 'Learner', status: LearnerLifecycleStatus.SUSPENDED },
     { email: 'learner.completed@skillforge.co.za', first: 'Completed', last: 'Learner', status: LearnerLifecycleStatus.COMPLETED },
-    { email: 'learner.withdrawn@skillforge.co.za', first: 'Withdrawn', last: 'Learner', status: LearnerLifecycleStatus.ENROLLED },
+    { email: 'learner.withdrawn@skillforge.co.za', first: 'Withdrawn', last: 'Learner', status: LearnerLifecycleStatus.WITHDRAWN },
+    { email: 'learner.cancelled@skillforge.co.za', first: 'Cancelled', last: 'Learner', status: LearnerLifecycleStatus.CANCELLED },
   ];
   const extraLearnerRole = await prisma.role.findFirst({ where: { code: 'LEARNER' } });
   for (const extra of extraStates) {
     const extraUser = await prisma.user.upsert({
       where: { email: extra.email },
-      update: extra.status === LearnerLifecycleStatus.TRAINING && extra.email.includes('suspended')
-        ? { isActive: false }
-        : {},
+      update: extra.email.includes('suspended') ? { isActive: false } : {},
       create: {
         email: extra.email,
         passwordHash,
@@ -742,12 +741,17 @@ async function main() {
           },
         },
       }));
-    if (extra.email.includes('withdrawn')) {
-      await prisma.enrollment.update({
-        where: { id: extraEnr.id },
-        data: { deletedAt: extraEnr.deletedAt ?? new Date() },
-      });
-    }
+    await prisma.enrollment.update({
+      where: { id: extraEnr.id },
+      data: {
+        status: extra.status,
+        deletedAt: null,
+        completedAt:
+          extra.status === LearnerLifecycleStatus.COMPLETED
+            ? extraEnr.completedAt ?? new Date()
+            : extraEnr.completedAt,
+      },
+    });
   }
 
   const cohortA =

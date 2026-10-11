@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { AuthUser } from '../common/types/request-with-user';
-import { CreateRemedialAssignmentDto } from './remedial.dto';
+import { CreateRemedialAssignmentDto, StaffOverrideRemedialDto } from './remedial.dto';
 import { RemedialService } from './remedial.service';
 
 @ApiTags('Remedial assignments')
@@ -29,6 +29,7 @@ export class RemedialController {
     return this.remedial.create(dto, req.user);
   }
 
+  @Roles('LEARNER')
   @Post(':id/acknowledge')
   acknowledge(
     @Param('id') id: string,
@@ -37,11 +38,22 @@ export class RemedialController {
     return this.remedial.acknowledge(id, req.user);
   }
 
+  @Roles('LEARNER')
   @Post(':id/complete')
   complete(
     @Param('id') id: string,
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.remedial.complete(id, req.user);
+  }
+
+  @Roles('ADMIN', 'FACILITATOR', 'QA_OFFICER', 'ASSESSOR')
+  @Post(':id/staff-override')
+  staffOverride(
+    @Param('id') id: string,
+    @Body() dto: StaffOverrideRemedialDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.remedial.staffOverride(id, dto, req.user);
   }
 }

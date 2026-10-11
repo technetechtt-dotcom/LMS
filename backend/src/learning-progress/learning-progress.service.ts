@@ -112,16 +112,31 @@ export class LearningProgressService {
   }
 
   async record(dto: RecordLearningProgressDto, user?: AuthUser) {
-    await this.loadEnrollment(dto.enrollmentId, user);
+    const { organisationId, enrollment } = await this.loadEnrollment(
+      dto.enrollmentId,
+      user,
+    );
     if (!dto.materialId && !dto.moduleKey) {
       throw new BadRequestException('materialId or moduleKey is required');
     }
     if (dto.materialId) {
       const material = await this.prisma.learningMaterial.findFirst({
-        where: { id: dto.materialId, deletedAt: null },
-        select: { id: true, moduleKey: true, moduleCode: true, moduleLabel: true },
+        where: {
+          id: dto.materialId,
+          deletedAt: null,
+          organisationId,
+          OR: [
+            { programmeId: enrollment.programmeId },
+            { programmeId: null },
+          ],
+        },
+        select: { id: true, moduleKey: true, moduleCode: true, moduleLabel: true, programmeId: true },
       });
-      if (!material) throw new NotFoundException('Material not found');
+      if (!material) {
+        throw new BadRequestException(
+          'Material does not belong to this programme and organisation',
+        );
+      }
       dto.moduleKey =
         dto.moduleKey ||
         material.moduleKey ||

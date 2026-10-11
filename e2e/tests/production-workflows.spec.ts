@@ -423,12 +423,14 @@ test.describe('production workflow acceptance', () => {
       headers: headers('learner'),
       multipart: {
         toId: users.get('facilitator')!.id,
+        subject: 'Workplace evidence',
         content: 'E2E message with evidence attachment',
         attachment: {
           name: 'message-evidence.txt', mimeType: 'text/plain', buffer: Buffer.from('message attachment'),
         },
       },
     })));
+    expect(message.subject).toBe('Workplace evidence');
     expect(message.attachments).toHaveLength(1);
     const inbox = rowsOf(await jsonOk(await api.get('/messages', { headers: headers('facilitator') })));
     expect(inbox.some((item) => item.id === message.id)).toBe(true);
@@ -658,5 +660,63 @@ test.describe('production workflow acceptance', () => {
       headers: headers('facilitator', provisionedOrganisation.id),
     });
     expect([403, 404]).toContain(facilitatorCrossProgramme.status());
+  });
+
+  test('compliance schedules can be completed and rescheduled', async () => {
+    const created = dataOf(await jsonOk(await api.post('/compliance/seta-submissions', {
+      headers: headers('qa'),
+      data: {
+        type: 'Learner Registration Batch',
+        reference: `E2E-SCHED-${Date.now()}`,
+        dueDate: new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10),
+      },
+    })));
+    const rescheduled = dataOf(await jsonOk(await api.patch(
+      `/compliance/schedules/${created.id}`,
+      {
+        headers: headers('qa'),
+        data: { scheduledFor: new Date(Date.now() + 10 * 86_400_000).toISOString() },
+      },
+    )));
+    expect(String(rescheduled.lifecycleStatus || rescheduled.status).toUpperCase()).toMatch(/SCHEDULED|UPCOMING/);
+    const completed = dataOf(await jsonOk(await api.patch(
+      `/compliance/schedules/${created.id}`,
+      { headers: headers('qa'), data: { status: 'COMPLETED' } },
+    )));
+    expect(String(completed.lifecycleStatus || completed.status).toUpperCase()).toMatch(/COMPLETED/);
+  });
+
+  test('exceptional learner lifecycle states are first-class', async () => {
+    const stamp = Date.now();
+    const roles = rowsOf(await jsonOk(await api.get('/users/roles', { headers: headers('admin') })));
+    const learnerRole = roles.find((role) => role.code === 'LEARNER');
+    await jsonOk(await api.post('/users', {
+      headers: headers('admin'),
+      data: {
+        email: `lifecycle-${stamp}@example.test`,
+        firstName: 'Lifecycle',
+        lastName: 'States',
+        roleId: learnerRole!.id,
+        programmeId: programme.id,
+      },
+    }));
+    const learners = rowsOf(await jsonOk(await api.get('/learners', { headers: headers('admin') })));
+    const target = learners.find((item) => item.email === `lifecycle-${stamp}@example.test`);
+    expect(target?.id).toBeTruthy();
+    const suspended = dataOf(await jsonOk(await api.post(
+      `/enrollments/${target.id}/transition`,
+      { headers: headers('admin'), data: { action: 'SUSPEND', reason: 'E2E safety hold' } },
+    )));
+    expect(suspended.status).toBe('SUSPENDED');
+    const withdrawn = dataOf(await jsonOk(await api.post(
+      `/enrollments/${target.id}/transition`,
+      { headers: headers('admin'), data: { action: 'WITHDRAW', reason: 'E2E withdrawal' } },
+    )));
+    expect(withdrawn.status).toBe('WITHDRAWN');
+    const reinstated = dataOf(await jsonOk(await api.post(
+      `/enrollments/${target.id}/transition`,
+      { headers: headers('admin'), data: { action: 'REINSTATE', reason: 'E2E hold lifted' } },
+    )));
+    expect(reinstated.status).toBe('ENROLLED');
   });
 });

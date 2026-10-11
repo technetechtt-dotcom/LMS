@@ -23,6 +23,8 @@ type EnrollmentCtx = {
   learnerId: string;
   learnerName: string;
   organisationId: string | null;
+  programmeTitle: string;
+  lifecycleStatus: string;
 };
 
 @Injectable()
@@ -44,7 +46,7 @@ export class PoeService {
         ...enrollmentOrgWhere(organisationId),
         ...enrollmentActorWhere(user),
       },
-      include: { learner: true },
+      include: { learner: true, programme: true },
     });
     if (!row) throw new NotFoundException('Learner enrolment not found');
     assertEnrollmentAccess(user, row, 'PoE');
@@ -53,6 +55,8 @@ export class PoeService {
       learnerId: row.learnerId,
       learnerName: `${row.learner.firstName} ${row.learner.lastName}`.trim(),
       organisationId: row.sdioOrganisationId,
+      programmeTitle: row.programme.title,
+      lifecycleStatus: row.status,
     };
   }
 
@@ -250,47 +254,168 @@ export class PoeService {
   }
 
   private async buildPoePdf(ctx: EnrollmentCtx): Promise<Buffer> {
-    const artifacts = await this.prisma.poeLearningArtifact.findMany({
-      where: { enrollmentId: ctx.id, deletedAt: null },
-      orderBy: { createdAt: 'asc' },
-    });
-    const documents = await this.prisma.document.findMany({
-      where: { enrollmentId: ctx.id, deletedAt: null },
-      orderBy: { createdAt: 'asc' },
-      take: 50,
-    });
+    const [artifacts, documents, submissions, evidence, workflow, audit] =
+      await Promise.all([
+        this.prisma.poeLearningArtifact.findMany({
+          where: { enrollmentId: ctx.id, deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+          include: {
+            facilitatorMarkedBy: { select: { firstName: true, lastName: true } },
+            assessor: { select: { firstName: true, lastName: true } },
+            moderator: { select: { firstName: true, lastName: true } },
+          },
+        }),
+        this.prisma.document.findMany({
+          where: { enrollmentId: ctx.id, deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+          take: 80,
+        }),
+        this.prisma.assessmentSubmission.findMany({
+          where: { enrollmentId: ctx.id },
+          include: {
+            assessment: {
+              include: { unitStandard: { select: { title: true, code: true } } },
+            },
+            instrument: { select: { title: true, passMark: true } },
+          },
+          orderBy: { submittedAt: 'asc' },
+        }),
+        this.prisma.evidence.findMany({
+          where: { enrollmentId: ctx.id, deletedAt: null },
+          include: {
+            uploadedBy: { select: { firstName: true, lastName: true } },
+            unitStandard: { select: { title: true, code: true } },
+          },
+          orderBy: { uploadedAt: 'asc' },
+        }),
+        this.prisma.enrollmentWorkflow.findMany({
+          where: { enrollmentId: ctx.id },
+          orderBy: { changedAt: 'asc' },
+        }),
+        this.prisma.auditLog.findMany({
+          where: {
+            organisationId: ctx.organisationId ?? undefined,
+            OR: [
+              { entityId: ctx.id },
+              { entityId: ctx.learnerId },
+              { entityType: { contains: ctx.id } },
+            ],
+          },
+          include: { actor: { select: { firstName: true, lastName: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: 40,
+        }),
+      ]);
+    const assessmentIds = [...new Set(submissions.map((row) => row.assessmentId))];
+    const moderation = assessmentIds.length
+      ? await this.prisma.moderation.findMany({
+          where: { assessmentId: { in: assessmentIds }, deletedAt: null },
+          orderBy: [{ assessmentId: 'asc' }, { round: 'asc' }],
+        })
+      : [];
+
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: 48 });
       const chunks: Buffer[] = [];
       doc.on('data', (c) => chunks.push(c as Buffer));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
+      const nameOf = (person?: { firstName: string; lastName: string } | null) =>
+        person ? `${person.firstName} ${person.lastName}`.trim() : 'Unrecorded';
+      const section = (title: string) => {
+        if (doc.y > 720) doc.addPage();
+        doc.moveDown(0.6).fontSize(14).text(title);
+        doc.moveDown(0.2).fontSize(10);
+      };
+
       doc.fontSize(20).text('Official Portfolio of Evidence');
-      doc.moveDown(0.5);
+      doc.moveDown(0.4);
       doc.fontSize(12).text(`Learner: ${ctx.learnerName}`);
+      doc.text(`Programme: ${ctx.programmeTitle}`);
       doc.text(`Enrollment: ${ctx.id}`);
+      doc.text(`Lifecycle status: ${ctx.lifecycleStatus}`);
       doc.text(`Generated: ${new Date().toISOString()}`);
-      doc.moveDown();
-      doc.fontSize(14).text('Learning artefacts');
-      doc.moveDown(0.3);
-      doc.fontSize(10);
-      if (!artifacts.length) {
-        doc.text('No PoE artefacts recorded.');
-      }
-      for (const artifact of artifacts) {
+
+      section('Assessment results');
+      if (!submissions.length) doc.text('No assessment results recorded.');
+      for (const row of submissions) {
+        const title =
+          row.instrument?.title ||
+          row.assessment.unitStandard.title ||
+          row.assessment.unitStandard.code ||
+          'Assessment';
         doc.text(
-          `• ${artifact.kind} — ${artifact.title} (${artifact.status}${artifact.moderationOutcome ? `, ${artifact.moderationOutcome}` : ''})`,
+          `• ${title} — attempt ${row.attemptNumber}, ${row.status}, score ${row.percentage ?? row.score ?? 'n/a'}${row.instrument?.passMark != null ? ` (pass ${row.instrument.passMark}%)` : ''}`,
+        );
+        if (row.feedback) doc.text(`  Feedback: ${row.feedback}`);
+      }
+
+      section('Moderation');
+      if (!moderation.length) doc.text('No moderation rounds recorded.');
+      for (const row of moderation) {
+        doc.text(
+          `• Assessment ${row.assessmentId.slice(0, 8)} round ${row.round}: ${row.decision}${row.moderatedAt ? ` at ${row.moderatedAt.toISOString()}` : ''}`,
+        );
+        if (row.feedback) doc.text(`  Feedback: ${row.feedback}`);
+      }
+
+      section('Evidence files');
+      if (!evidence.length) doc.text('No evidence files recorded.');
+      for (const row of evidence) {
+        const unit = row.unitStandard
+          ? `${row.unitStandard.code ?? ''} ${row.unitStandard.title}`.trim()
+          : 'Unit standard';
+        doc.text(
+          `• ${row.fileName} [${unit}] uploaded by ${nameOf(row.uploadedBy)}${row.verifiedAt ? `; verified ${row.verifiedAt.toISOString()}${row.verifiedById ? ` by ${row.verifiedById}` : ''}` : '; not verified'}`,
         );
       }
-      doc.moveDown();
-      doc.fontSize(14).text('Supporting documents');
-      doc.moveDown(0.3);
-      doc.fontSize(10);
-      if (!documents.length) {
-        doc.text('No supporting documents attached.');
+
+      section('Learning artefacts and signatures');
+      if (!artifacts.length) doc.text('No PoE artefacts recorded.');
+      for (const artifact of artifacts) {
+        doc.text(`• ${artifact.kind} — ${artifact.title} (${artifact.status}${artifact.moderationOutcome ? `, ${artifact.moderationOutcome}` : ''})`);
+        if (artifact.facilitatorMarkedAt) {
+          doc.text(
+            `  Blue pen / facilitator: ${nameOf(artifact.facilitatorMarkedBy)} at ${artifact.facilitatorMarkedAt.toISOString()}`,
+          );
+          if (artifact.facilitatorFeedback) doc.text(`    ${artifact.facilitatorFeedback}`);
+        }
+        if (artifact.assessorMarkedAt) {
+          doc.text(
+            `  Red pen / assessor: ${nameOf(artifact.assessor)} at ${artifact.assessorMarkedAt.toISOString()}`,
+          );
+          if (artifact.assessorFeedback) doc.text(`    ${artifact.assessorFeedback}`);
+        }
+        if (artifact.moderatedAt) {
+          doc.text(
+            `  Green pen / moderator: ${nameOf(artifact.moderator)} at ${artifact.moderatedAt.toISOString()}`,
+          );
+          if (artifact.moderatorFeedback) doc.text(`    ${artifact.moderatorFeedback}`);
+        }
       }
+
+      section('Supporting documents');
+      if (!documents.length) doc.text('No supporting documents attached.');
       for (const file of documents) {
-        doc.text(`• ${file.name} [${file.category}]`);
+        doc.text(
+          `• ${file.name} [${file.category}]${file.verifiedAt ? ` verified ${file.verifiedAt.toISOString()}` : ''}`,
+        );
+      }
+
+      section('Enrollment lifecycle');
+      if (!workflow.length) doc.text('No workflow transitions recorded.');
+      for (const row of workflow) {
+        doc.text(
+          `• ${row.action}: ${row.fromState} → ${row.toState} at ${row.changedAt.toISOString()}${row.reason ? ` (${row.reason})` : ''}`,
+        );
+      }
+
+      section('Audit history');
+      if (!audit.length) doc.text('No enrollment audit events recorded.');
+      for (const row of audit) {
+        doc.text(
+          `• ${row.createdAt.toISOString()} ${row.action} on ${row.entityType}${row.entityId ? `/${row.entityId}` : ''} by ${nameOf(row.actor)}`,
+        );
       }
       doc.end();
     });

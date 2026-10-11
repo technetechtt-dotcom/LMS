@@ -11,6 +11,8 @@ import { CompletionGateService } from '../enrollments/completion-gate.service';
 import { EnrollmentsService } from '../enrollments/enrollments.service';
 import { InvitationsService } from '../invitations/invitations.service';
 import { WorkplaceLogsService } from '../workplace-logs/workplace-logs.service';
+import { LearningProgressService } from '../learning-progress/learning-progress.service';
+import { RemedialService } from '../remedial/remedial.service';
 import { UsersService } from '../users/users.service';
 import { PoeWorkflowService } from '../poe/poe-workflow.service';
 import {
@@ -802,5 +804,66 @@ describe('integrity DB E2E', () => {
       },
     });
     expect(fa.cohortId).toBe(cohort.id);
+  });
+
+  it('rejects learning progress against material from another organisation', async () => {
+    const progress = new LearningProgressService(prisma);
+    const foreignMaterial = await prisma.learningMaterial.create({
+      data: {
+        organisationId: orgB,
+        title: `Foreign material-${suffix}`,
+        url: 'https://example.test/foreign.pdf',
+        uploadedById: adminId,
+      },
+    });
+    await expect(
+      progress.record(
+        {
+          enrollmentId,
+          materialId: foreignMaterial.id,
+          kind: 'MATERIAL_READ',
+        },
+        asLearner(),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('requires an audited staff override for remedial completion', async () => {
+    const remedial = new RemedialService(prisma);
+    const assignment = await prisma.remedialAssignment.create({
+      data: {
+        enrollmentId,
+        title: `Remedial ${suffix}`,
+        assignedById: facilitatorId,
+      },
+    });
+    await expect(remedial.acknowledge(assignment.id, asFacilitator())).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    const overridden = await remedial.staffOverride(
+      assignment.id,
+      { action: 'complete', reason: 'Documented workplace absence' },
+      asFacilitator(),
+    );
+    expect(overridden.staffOverrideAction).toBe('complete');
+    expect(
+      await prisma.auditLog.findFirst({
+        where: { entityId: assignment.id, action: 'STAFF_OVERRIDE_COMPLETE' },
+      }),
+    ).toBeTruthy();
+  });
+
+  it('represents suspended, withdrawn and reinstated learner states', async () => {
+    const extra = await prisma.enrollment.create({
+      data: {
+        learnerId,
+        programmeId,
+        sdioOrganisationId: orgA,
+        status: 'ENROLLED',
+      },
+    });
+    expect((await enrollments.transition(extra.id, { action: 'SUSPEND', reason: 'Safety hold' }, adminId, asAdmin())).status).toBe('SUSPENDED');
+    expect((await enrollments.transition(extra.id, { action: 'WITHDRAW', reason: 'Learner request' }, adminId, asAdmin())).status).toBe('WITHDRAWN');
+    expect((await enrollments.transition(extra.id, { action: 'REINSTATE', reason: 'Appeal upheld' }, adminId, asAdmin())).status).toBe('ENROLLED');
   });
 });

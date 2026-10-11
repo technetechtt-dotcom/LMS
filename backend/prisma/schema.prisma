@@ -21,6 +21,10 @@ enum LearnerLifecycleStatus {
   ASSESSMENT
   MODERATION
   COMPLETED
+  SUSPENDED
+  WITHDRAWN
+  REJECTED
+  CANCELLED
 }
 
 enum CompetencyResult {
@@ -49,6 +53,11 @@ enum WorkflowAction {
   SUBMIT_FOR_MODERATION
   COMPLETE_ENROLLMENT
   REOPEN
+  SUSPEND
+  WITHDRAW
+  REJECT
+  CANCEL
+  REINSTATE
 }
 
 /// Knowledge PoE artefact classification (guide, homework, formal assessment).
@@ -1354,6 +1363,10 @@ model RemedialAssignment {
   assignedById   String            @db.Uuid
   acknowledgedAt DateTime?
   completedAt    DateTime?
+  staffOverrideAt DateTime?
+  staffOverrideById String?         @db.Uuid
+  staffOverrideReason String?
+  staffOverrideAction String?
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   enrollment     Enrollment        @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)

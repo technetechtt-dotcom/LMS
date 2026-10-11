@@ -1,4 +1,4 @@
-import { IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 
 export class CreateRemedialAssignmentDto {
   @IsUUID()
@@ -18,4 +18,13 @@ export class CreateRemedialAssignmentDto {
   @IsOptional()
   @IsDateString()
   dueAt?: string;
+}
+
+export class StaffOverrideRemedialDto {
+  @IsIn(['acknowledge', 'complete'])
+  action!: 'acknowledge' | 'complete';
+
+  @IsString()
+  @MinLength(8)
+  reason!: string;
 }

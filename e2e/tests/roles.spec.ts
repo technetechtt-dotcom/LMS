@@ -266,4 +266,22 @@ test.describe('qa officer', () => {
     await page.goto('/qa-dashboard');
     await expect(page.getByRole('heading', { name: /qa/i }).first()).toBeVisible();
   });
+
+  test('privacy operations hides admin-only retention save', async ({ page }) => {
+    await login(page, 'qa@skillforge.co.za');
+    await page.goto('/privacy-operations');
+    await expect(page.getByRole('heading', { name: /privacy operations/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /save policy/i })).toHaveCount(0);
+    await expect(page.getByText(/read-only for qa officers/i)).toBeVisible();
+  });
+});
+
+test.describe('facilitator workplace logbook', () => {
+  test('staff workplace logbook loads without a learner-linked account', async ({ page }) => {
+    await login(page, 'facilitator@skillforge.co.za');
+    await page.goto('/workplace-logbook');
+    await expect(page.getByRole('heading', { name: /workplace logbook/i })).toBeVisible();
+    await expect(page.getByText(/review workplace hours/i)).toBeVisible();
+    await expect(page.getByLabel('Activity')).toHaveCount(0);
+  });
 });

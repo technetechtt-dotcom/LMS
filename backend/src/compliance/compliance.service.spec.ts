@@ -159,4 +159,55 @@ describe('ComplianceService persisted decisions and internal exports', () => {
       }),
     );
   });
+
+  it('does not mark a schedule reminded unless a reminder is sent', async () => {
+    const now = new Date();
+    const due = new Date(now.getTime() + 2 * 86_400_000);
+    const update = jest.fn();
+    const notify = jest.fn().mockResolvedValue(undefined);
+    const service = new ComplianceService(
+      {
+        document: { findMany: jest.fn().mockResolvedValue([]) },
+        setaGatewaySubmission: { findMany: jest.fn().mockResolvedValue([]) },
+        complianceSchedule: {
+          findMany: jest.fn().mockResolvedValue([
+            {
+              id: 'sched-1',
+              kind: 'SUBMISSION',
+              type: 'NLRD batch',
+              reference: 'SETA-1',
+              scheduledFor: due,
+              status: 'SCHEDULED',
+              notes: null,
+              conductor: 'admin@example.com',
+              reminderSentAt: null,
+              completedAt: null,
+              cancelledAt: null,
+              createdById: 'admin-1',
+              createdAt: now,
+              updatedAt: now,
+            },
+          ]),
+          findUnique: jest.fn().mockResolvedValue({ organisationId: 'organisation-1' }),
+          update,
+        },
+        userOrganisation: {
+          findMany: jest.fn().mockResolvedValue([{ userId: 'admin-1' }]),
+        },
+      } as never,
+      {} as never,
+      {} as never,
+      { notify } as never,
+    );
+
+    const rows = await service.listSetaSubmissions(admin);
+    expect(notify).toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'sched-1' },
+        data: expect.objectContaining({ status: 'REMINDED' }),
+      }),
+    );
+    expect(rows[0]).toEqual(expect.objectContaining({ lifecycleStatus: 'REMINDED' }));
+  });
 });

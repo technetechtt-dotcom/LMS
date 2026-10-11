@@ -56,7 +56,7 @@ export class MessagesService {
     };
     to: { firstName: string; lastName: string };
   }) {
-    const meta = (row.metadata as { attachments?: unknown } | null) ?? {};
+    const meta = (row.metadata as { attachments?: unknown; subject?: string } | null) ?? {};
     return {
       id: row.id,
       fromId: row.fromId,
@@ -64,6 +64,7 @@ export class MessagesService {
       fromRole: roleFromMemberships(row.from.memberships),
       toId: row.toId,
       toName: `${row.to.firstName} ${row.to.lastName}`.trim(),
+      subject: typeof meta.subject === 'string' ? meta.subject : '',
       content: row.content,
       isRead: row.isRead,
       attachments: Array.isArray(meta.attachments) ? meta.attachments : [],
@@ -103,6 +104,7 @@ export class MessagesService {
     toId: string,
     content: string,
     files?: StagedUploadFile[],
+    subject?: string,
   ) {
     const fromId = actor?.userId;
     if (!fromId) throw new BadRequestException('Authentication required');
@@ -138,6 +140,7 @@ export class MessagesService {
       uploadId: string;
       checksum: string;
     }> = [];
+    const trimmedSubject = subject?.trim() || undefined;
     let row;
     try {
       if (files?.length && this.files) {
@@ -164,7 +167,10 @@ export class MessagesService {
           fromId,
           toId,
           content: content.trim(),
-          metadata: attachments.length ? { attachments } : undefined,
+          metadata: {
+            ...(trimmedSubject ? { subject: trimmedSubject } : {}),
+            ...(attachments.length ? { attachments } : {}),
+          },
         },
         include: {
           from: {
@@ -187,9 +193,9 @@ export class MessagesService {
     await this.notifications?.notify(
       toId,
       'message',
-      'New message',
+      trimmedSubject || 'New message',
       content.trim().slice(0, 180),
-      { messageId: row.id, fromId },
+      { messageId: row.id, fromId, subject: trimmedSubject },
     );
 
     return this.mapMessage(row);

@@ -78,6 +78,10 @@ export type SubmissionStatus =
 'overdue' |
 'upcoming' |
 'accepted' |
+'completed' |
+'cancelled' |
+'scheduled' |
+'reminded' |
 'rejected';
 
 export type NotificationType =
@@ -167,7 +171,7 @@ export interface Learner extends BaseEntity {
   setaStatus: SETAComplianceStatus;
   enrollmentDate: string;
   expectedCompletionDate: string;
-  status: 'active' | 'completed' | 'withdrawn' | 'at_risk';
+  status: 'active' | 'completed' | 'withdrawn' | 'at_risk' | 'suspended' | 'rejected' | 'cancelled';
   academicRisk?: 'low' | 'medium' | 'high' | string;
   isManualRiskFlag?: boolean;
   riskFactors?: string[];
@@ -469,6 +473,9 @@ export interface SETASubmission extends BaseEntity {
   submittedAt?: string;
   setaResponse?: string;
   fileUrl?: string;
+  kind?: string;
+  lifecycleStatus?: string;
+  scheduledFor?: string;
 }
 
 export interface AuditRecord extends BaseEntity {
@@ -523,6 +530,7 @@ export interface Message extends BaseEntity {
   fromRole: UserRole;
   toId: string;
   toName: string;
+  subject?: string;
   content: string;
   isRead: boolean;
   attachments?: MessageAttachment[];

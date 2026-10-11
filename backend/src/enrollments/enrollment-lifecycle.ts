@@ -14,8 +14,38 @@ export const ENROLLMENT_TRANSITIONS: Record<
   START_ASSESSMENT: { from: ['WORKPLACE', 'TRAINING'], to: 'ASSESSMENT' },
   SUBMIT_FOR_MODERATION: { from: ['ASSESSMENT'], to: 'MODERATION' },
   COMPLETE_ENROLLMENT: { from: ['MODERATION', 'ASSESSMENT'], to: 'COMPLETED' },
+  SUSPEND: {
+    from: ['ENROLLED', 'TRAINING', 'WORKPLACE', 'ASSESSMENT', 'MODERATION'],
+    to: 'SUSPENDED',
+  },
+  WITHDRAW: {
+    from: ['ENROLLED', 'TRAINING', 'WORKPLACE', 'ASSESSMENT', 'MODERATION', 'SUSPENDED'],
+    to: 'WITHDRAWN',
+  },
+  REJECT: {
+    from: ['ENROLLED', 'TRAINING', 'ASSESSMENT', 'MODERATION'],
+    to: 'REJECTED',
+  },
+  CANCEL: {
+    from: ['ENROLLED', 'TRAINING', 'WORKPLACE', 'ASSESSMENT', 'MODERATION', 'SUSPENDED'],
+    to: 'CANCELLED',
+  },
+  REINSTATE: {
+    from: ['SUSPENDED', 'WITHDRAWN', 'REJECTED', 'CANCELLED'],
+    to: 'ENROLLED',
+  },
   REOPEN: {
-    from: ['COMPLETED', 'MODERATION', 'ASSESSMENT', 'WORKPLACE', 'TRAINING'],
+    from: [
+      'COMPLETED',
+      'MODERATION',
+      'ASSESSMENT',
+      'WORKPLACE',
+      'TRAINING',
+      'SUSPENDED',
+      'WITHDRAWN',
+      'REJECTED',
+      'CANCELLED',
+    ],
     to: 'ENROLLED',
   },
 };

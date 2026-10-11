@@ -24,10 +24,15 @@ describe('WorkplaceLogsService mentor allocation', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           enrollment: expect.objectContaining({
-            metadata: {
-              path: ['workplaceMentorId'],
-              equals: 'mentor-1',
-            },
+            OR: [
+              { workplaceMentorId: 'mentor-1' },
+              {
+                metadata: {
+                  path: ['workplaceMentorId'],
+                  equals: 'mentor-1',
+                },
+              },
+            ],
           }),
         }),
       }),

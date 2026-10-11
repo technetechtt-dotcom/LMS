@@ -5,8 +5,11 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Input } from '../components/ui/Input';
 import { privacyService } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 export function PrivacyOperationsPage() {
+  const { user } = useAuth();
+  const canEditRetention = user?.role === 'Admin';
   const [dsars, setDsars] = useState<Array<Record<string, unknown>>>([]);
   const [incidents, setIncidents] = useState<Array<Record<string, unknown>>>([]);
   const [policies, setPolicies] = useState<Array<Record<string, unknown>>>([]);
@@ -131,25 +134,31 @@ export function PrivacyOperationsPage() {
 
       <Card className="p-5 space-y-3">
         <h2 className="font-semibold">Retention and exports</h2>
-        <div className="flex flex-wrap items-end gap-2">
-          <Input
-            label="Upload retention days"
-            type="number"
-            value={String(retentionDays)}
-            onChange={(e) => setRetentionDays(Number(e.target.value))}
-          />
-          <Button
-            onClick={() =>
-              privacyService
-                .upsertRetention({ entityType: 'UPLOAD', retainDays: retentionDays })
-                .then(() => {
-                  toast.success('Retention policy saved');
-                  return load();
-                })
-            }>
-            Save policy
-          </Button>
-        </div>
+        {canEditRetention ? (
+          <div className="flex flex-wrap items-end gap-2">
+            <Input
+              label="Upload retention days"
+              type="number"
+              value={String(retentionDays)}
+              onChange={(e) => setRetentionDays(Number(e.target.value))}
+            />
+            <Button
+              onClick={() =>
+                privacyService
+                  .upsertRetention({ entityType: 'UPLOAD', retainDays: retentionDays })
+                  .then(() => {
+                    toast.success('Retention policy saved');
+                    return load();
+                  })
+              }>
+              Save policy
+            </Button>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">
+            Retention policy is read-only for QA Officers. Ask an Admin to change it.
+          </p>
+        )}
         <p className="text-sm text-gray-500">
           {policies.length} retention {policies.length === 1 ? 'policy' : 'policies'} • {exports.length} export jobs
         </p>

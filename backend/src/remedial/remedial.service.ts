@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/types/request-with-user';
 import {
@@ -7,7 +7,7 @@ import {
   isLearnerOnly,
   requireOrganisationId,
 } from '../common/tenant/tenant-scope';
-import { CreateRemedialAssignmentDto } from './remedial.dto';
+import { CreateRemedialAssignmentDto, StaffOverrideRemedialDto } from './remedial.dto';
 
 @Injectable()
 export class RemedialService {
@@ -79,6 +79,7 @@ export class RemedialService {
   }
 
   async acknowledge(id: string, user?: AuthUser) {
+    this.assertLearnerActor(user);
     const row = await this.findScoped(id, user);
     if (row.acknowledgedAt) return row;
     return this.prisma.remedialAssignment.update({
@@ -88,6 +89,7 @@ export class RemedialService {
   }
 
   async complete(id: string, user?: AuthUser) {
+    this.assertLearnerActor(user);
     const row = await this.findScoped(id, user);
     return this.prisma.remedialAssignment.update({
       where: { id },
@@ -96,6 +98,59 @@ export class RemedialService {
         completedAt: new Date(),
       },
     });
+  }
+
+  async staffOverride(id: string, dto: StaffOverrideRemedialDto, user?: AuthUser) {
+    if (!user?.userId) throw new BadRequestException('Authentication required');
+    if (isLearnerOnly(user)) {
+      throw new ForbiddenException('Learners must acknowledge or complete their own work');
+    }
+    const reason = dto.reason?.trim() ?? '';
+    if (reason.length < 8) {
+      throw new BadRequestException('A staff override requires a reason of at least 8 characters');
+    }
+    const row = await this.findScoped(id, user);
+    const now = new Date();
+    const updated = await this.prisma.remedialAssignment.update({
+      where: { id },
+      data: {
+        acknowledgedAt: row.acknowledgedAt ?? now,
+        completedAt: dto.action === 'complete' ? now : row.completedAt,
+        staffOverrideAt: now,
+        staffOverrideById: user.userId,
+        staffOverrideReason: reason,
+        staffOverrideAction: dto.action,
+      },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        organisationId: requireOrganisationId(user),
+        actorId: user.userId,
+        entityType: 'RemedialAssignment',
+        entityId: id,
+        action: `STAFF_OVERRIDE_${dto.action.toUpperCase()}`,
+        beforeValue: {
+          acknowledgedAt: row.acknowledgedAt,
+          completedAt: row.completedAt,
+        },
+        afterValue: {
+          action: dto.action,
+          reason,
+          acknowledgedAt: updated.acknowledgedAt,
+          completedAt: updated.completedAt,
+        },
+      },
+    });
+    return updated;
+  }
+
+  private assertLearnerActor(user?: AuthUser) {
+    if (!user?.userId) throw new BadRequestException('Authentication required');
+    if (!isLearnerOnly(user)) {
+      throw new ForbiddenException(
+        'Staff must use the audited staff-override endpoint to acknowledge or complete remedial work',
+      );
+    }
   }
 
   private async findScoped(id: string, user?: AuthUser) {

@@ -15,6 +15,8 @@ type Assignment = {
   dueAt?: string | null;
   acknowledgedAt?: string | null;
   completedAt?: string | null;
+  staffOverrideAt?: string | null;
+  staffOverrideReason?: string | null;
   enrollmentId: string;
   material?: { id: string; title: string } | null;
 };
@@ -24,6 +26,8 @@ export function RemedialAssignmentsPage() {
   const [params] = useSearchParams();
   const enrollmentId = params.get('enrollmentId') || linkedLearnerId || undefined;
   const canAssign = ['Admin', 'Facilitator', 'QA Officer', 'Assessor'].includes(user?.role ?? '');
+  const isLearner = user?.role === 'Learner';
+  const [overrideReason, setOverrideReason] = useState('');
   const [rows, setRows] = useState<Assignment[]>([]);
   const [materials, setMaterials] = useState<Array<{ id: string; title: string }>>([]);
   const [form, setForm] = useState({
@@ -128,15 +132,60 @@ export function RemedialAssignmentsPage() {
                 {row.completedAt ? 'Completed' : row.acknowledgedAt ? 'Acknowledged' : 'Assigned'}
               </Badge>
             </div>
-            {!row.acknowledgedAt && (
+            {row.staffOverrideReason && (
+              <p className="text-xs text-amber-700">
+                Staff override: {row.staffOverrideReason}
+              </p>
+            )}
+            {isLearner && !row.acknowledgedAt && (
               <Button size="sm" variant="outline" onClick={() => remedialService.acknowledge(row.id).then(load)}>
                 Acknowledge
               </Button>
             )}
-            {!row.completedAt && (
+            {isLearner && !row.completedAt && (
               <Button size="sm" onClick={() => remedialService.complete(row.id).then(load)}>
                 Mark complete
               </Button>
+            )}
+            {canAssign && !row.completedAt && (
+              <div className="space-y-2">
+                <Input
+                  label="Audited staff override reason"
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  {!row.acknowledgedAt && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        remedialService
+                          .staffOverride(row.id, 'acknowledge', overrideReason)
+                          .then(() => {
+                            setOverrideReason('');
+                            return load();
+                          })
+                          .catch(() => toast.error('Override requires a documented reason'))
+                      }>
+                      Staff acknowledge
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      remedialService
+                        .staffOverride(row.id, 'complete', overrideReason)
+                        .then(() => {
+                          setOverrideReason('');
+                          return load();
+                        })
+                        .catch(() => toast.error('Override requires a documented reason'))
+                    }>
+                    Staff complete
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
         ))}

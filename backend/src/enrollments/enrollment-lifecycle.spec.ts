@@ -19,4 +19,12 @@ describe('enrollment lifecycle state machine', () => {
       resolveEnrollmentTransition('ENROLLED', 'START_TRAINING', 'COMPLETED'),
     ).toThrow(BadRequestException);
   });
+
+  it('supports suspend, withdraw, reject, cancel and reinstate', () => {
+    expect(resolveEnrollmentTransition('TRAINING', 'SUSPEND')).toBe('SUSPENDED');
+    expect(resolveEnrollmentTransition('SUSPENDED', 'WITHDRAW')).toBe('WITHDRAWN');
+    expect(resolveEnrollmentTransition('ASSESSMENT', 'REJECT')).toBe('REJECTED');
+    expect(resolveEnrollmentTransition('ENROLLED', 'CANCEL')).toBe('CANCELLED');
+    expect(resolveEnrollmentTransition('WITHDRAWN', 'REINSTATE')).toBe('ENROLLED');
+  });
 });

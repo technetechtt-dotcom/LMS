@@ -30,8 +30,18 @@ type LearnerMeta = {
 function deriveUiStatus(
   lifecycle: LearnerLifecycleStatus,
   meta: LearnerMeta,
-): 'active' | 'completed' | 'withdrawn' | 'at_risk' {
-  if (meta.withdrawn === true) return 'withdrawn';
+):
+  | 'active'
+  | 'completed'
+  | 'withdrawn'
+  | 'at_risk'
+  | 'suspended'
+  | 'rejected'
+  | 'cancelled' {
+  if (lifecycle === 'SUSPENDED') return 'suspended';
+  if (lifecycle === 'WITHDRAWN' || meta.withdrawn === true) return 'withdrawn';
+  if (lifecycle === 'REJECTED') return 'rejected';
+  if (lifecycle === 'CANCELLED') return 'cancelled';
   if (lifecycle === 'COMPLETED') return 'completed';
   if (meta.atRisk === true) return 'at_risk';
   return 'active';
