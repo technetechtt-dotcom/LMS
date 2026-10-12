@@ -1,4 +1,5 @@
 import { ServiceUnavailableException } from '@nestjs/common';
+import { PATH_METADATA } from '@nestjs/common/constants';
 import { HealthController } from './health.controller';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { FileStorageService } from '../common/file-storage.service';
@@ -34,6 +35,13 @@ describe('HealthController', () => {
     config.get.mockImplementation((key: string) =>
       key === 'APP_VERSION' ? 'test-sha' : key === 'NODE_ENV' ? 'test' : undefined,
     );
+  });
+
+  it('registers both /health and /health/ready on the ready handler', () => {
+    expect(Reflect.getMetadata(PATH_METADATA, HealthController.prototype.ready)).toEqual([
+      'health',
+      'health/ready',
+    ]);
   });
 
   it('exposes a process-only liveness result', () => {

@@ -84,8 +84,8 @@ export class HealthController {
     return body;
   }
 
-  @Get('health')
-  @Get('health/ready')
+  // Nest overwrites stacked @Get metadata — use a path array so both routes register.
+  @Get(['health', 'health/ready'])
   async ready() {
     const checks: Record<string, Check> = {};
     try {
