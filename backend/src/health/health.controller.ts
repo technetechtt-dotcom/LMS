@@ -96,7 +96,7 @@ export class HealthController {
       checks.database = { ok: false, detail: error instanceof Error ? error.message : 'unavailable' };
     }
     try {
-      const latestRequiredMigration = '20261011170000_facilitator_assignment_nullable_start';
+      const latestRequiredMigration = '20261021130000_deactivate_test_accounts';
       const migrationState = await this.prisma.$queryRaw<Array<{
         failed: bigint;
         latest_applied: boolean;

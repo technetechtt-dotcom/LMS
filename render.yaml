@@ -16,6 +16,10 @@ services:
     preDeployCommand: npm run prisma:migrate:deploy:retry
     startCommand: npm run start:prod
     healthCheckPath: /health/live
+    disk:
+      name: lms-evidence
+      mountPath: /var/lms-data
+      sizeGB: 10
     buildFilter:
       paths:
         - backend/**
@@ -54,6 +58,8 @@ services:
         sync: false
       - key: DIRECT_URL
         sync: false
+      - key: UPLOAD_DIR
+        value: /var/lms-data/uploads
       - key: UPLOAD_MAX_MB
         value: "25"
       - key: UPLOAD_RETENTION_DAYS

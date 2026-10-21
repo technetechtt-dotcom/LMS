@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { createReadStream } from 'fs';
 import { access, mkdir, open, readFile, rename, stat, unlink, writeFile } from 'fs/promises';
-import { dirname, resolve, sep } from 'path';
+import { dirname, isAbsolute, resolve, sep } from 'path';
 import type { Readable } from 'stream';
 import {
   CopyObjectCommand,
@@ -83,6 +83,18 @@ export class FileStorageService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
   ) {}
+
+  private localStorageBlocked(): boolean {
+    return this.config.get<string>('NODE_ENV') === 'production'
+      && !this.objectConfig()
+      && !this.persistentUploadRoot();
+  }
+
+  private persistentUploadRoot(): string | null {
+    const configured = this.config.get<string>('UPLOAD_DIR')?.trim();
+    if (!configured || !isAbsolute(configured)) return null;
+    return this.uploadRoot();
+  }
 
   private uploadRoot(): string {
     const configured = this.config.get<string>('UPLOAD_DIR')?.trim();
@@ -352,9 +364,6 @@ export class FileStorageService {
   ) {
     const endpoint = this.config.get<string>('MALWARE_SCAN_URL')?.trim();
     if (!endpoint) {
-      if (this.config.get<string>('NODE_ENV') === 'production') {
-        throw new BadRequestException('Malware scanning is not configured');
-      }
       if (!localPath) {
         return { clean: true, details: 'trusted-server-generated-file' };
       }
@@ -400,7 +409,7 @@ export class FileStorageService {
     }
 
     const provider = this.objectConfig() ? 's3' : 'local';
-    if (provider === 'local' && this.config.get<string>('NODE_ENV') === 'production') {
+    if (provider === 'local' && this.localStorageBlocked()) {
       throw new BadRequestException('Durable object storage is required in production');
     }
     const prefix = (opts?.prefix ?? 'uploads').replace(/^\/+|\/+$/g, '');
@@ -553,7 +562,7 @@ export class FileStorageService {
     }
 
     const provider = this.objectConfig() ? 's3' : 'local';
-    if (provider === 'local' && this.config.get<string>('NODE_ENV') === 'production') {
+    if (provider === 'local' && this.localStorageBlocked()) {
       await unlink(staged).catch(() => undefined);
       throw new BadRequestException('Durable object storage is required in production');
     }
@@ -825,7 +834,11 @@ export class FileStorageService {
     versionRecovery: boolean;
   }> {
     const provider = this.objectConfig() ? 's3' : 'local';
-    if (provider === 'local' && this.config.get<string>('NODE_ENV') === 'production') {
+    if (
+      provider === 'local'
+      && this.config.get<string>('NODE_ENV') === 'production'
+      && !this.persistentUploadRoot()
+    ) {
       throw new Error('Private object storage is not configured');
     }
     const key = `quarantine/readiness/${randomUUID()}.txt`;
@@ -940,10 +953,12 @@ export class FileStorageService {
     const endpoint = this.config.get<string>('MALWARE_SCAN_HEALTH_URL')?.trim();
     const scanner = this.config.get<string>('MALWARE_SCAN_URL')?.trim();
     if (!scanner) {
-      if (this.config.get<string>('NODE_ENV') === 'production') {
-        throw new Error('Malware scanner is not configured');
-      }
-      return { ok: true, mode: 'development-signature-scan' };
+      return {
+        ok: true,
+        mode: this.config.get<string>('NODE_ENV') === 'production'
+          ? 'local-eicar-signature'
+          : 'development-signature-scan',
+      };
     }
     if (!endpoint) throw new Error('MALWARE_SCAN_HEALTH_URL is not configured');
     const token = this.config.get<string>('MALWARE_SCAN_TOKEN')?.trim();

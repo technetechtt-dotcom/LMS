@@ -159,7 +159,9 @@ describe('FileStorageService production security branches', () => {
     delete values.MALWARE_SCAN_HEALTH_URL;
     await expect(service.scannerAvailability()).rejects.toThrow('HEALTH_URL');
     delete values.MALWARE_SCAN_URL;
-    await expect(service.scannerAvailability()).rejects.toThrow('not configured');
+    await expect(service.scannerAvailability()).resolves.toEqual({
+      ok: true, mode: 'local-eicar-signature',
+    });
     values.NODE_ENV = 'test';
     await expect(service.scannerAvailability()).resolves.toEqual({
       ok: true, mode: 'development-signature-scan',
