@@ -21,14 +21,21 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | string[] = 'Internal server error';
 
+    let extra: Record<string, unknown> = {};
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const body = exception.getResponse();
       if (typeof body === 'string') {
         message = body;
-      } else if (typeof body === 'object' && body !== null && 'message' in body) {
-        const m = (body as { message?: unknown }).message;
-        message = typeof m === 'string' || Array.isArray(m) ? m : message;
+      } else if (typeof body === 'object' && body !== null) {
+        if ('message' in body) {
+          const m = (body as { message?: unknown }).message;
+          message = typeof m === 'string' || Array.isArray(m) ? m : message;
+        }
+        if ('checks' in body) extra.checks = (body as { checks?: unknown }).checks;
+        if ('status' in body && typeof (body as { status?: unknown }).status === 'string') {
+          extra.status = (body as { status: string }).status;
+        }
       }
     } else if (exception instanceof Error) {
       message = exception.message || message;
@@ -46,6 +53,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       correlationId:
         req.headers['x-request-id'] ?? req.headers['x-correlation-id'],
       ...(isProd ? {} : { path: req.url }),
+      ...extra,
     };
 
     if (status >= 500) {

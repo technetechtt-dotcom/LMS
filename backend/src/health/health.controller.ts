@@ -176,9 +176,13 @@ export class HealthController {
     const blocking = ['database', 'migrations', 'signingSecrets', 'revision'] as const;
     const blockingOk = blocking.every((key) => checks[key]?.ok !== false);
     const fullyOk = Object.values(checks).every((check) => check.ok);
+    const failedBlocking = blocking
+      .filter((key) => checks[key]?.ok === false)
+      .map((key) => `${key}: ${String(checks[key]?.detail ?? 'failed')}`);
     const body = {
       ok: fullyOk,
       status: fullyOk ? 'ready' : blockingOk ? 'degraded' : 'not-ready',
+      message: failedBlocking.join('; '),
       revision: revision || 'unknown',
       checks,
       ts: new Date().toISOString(),
