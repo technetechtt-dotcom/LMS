@@ -56,6 +56,14 @@ describe('HealthController', () => {
     });
   });
 
+  it('stays up when optional integrations are degraded', async () => {
+    mail.availabilityStatus.mockResolvedValue({ ok: false, provider: 'unconfigured' });
+    await expect(controller.ready()).resolves.toMatchObject({
+      ok: false,
+      status: 'degraded',
+    });
+  });
+
   it('returns 503 when the database is unavailable', async () => {
     prisma.$queryRaw.mockReset().mockRejectedValue(new Error('connection failed'));
     await expect(controller.ready()).rejects.toBeInstanceOf(

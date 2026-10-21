@@ -85,6 +85,7 @@ export class MailDeliveryQueueService implements OnApplicationBootstrap, OnAppli
 
   onApplicationBootstrap() {
     if (this.config.get<string>('MAIL_RETRY_WORKER_ENABLED') === 'false') return;
+    this.lastHeartbeatAt = new Date();
     this.timer = setInterval(() => void this.processBatch(), 30_000);
     this.timer.unref();
     void this.processBatch();

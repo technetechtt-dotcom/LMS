@@ -15,7 +15,7 @@ services:
     buildCommand: npm ci --include=dev && npm run build
     preDeployCommand: npm run prisma:migrate:deploy:retry
     startCommand: npm run start:prod
-    healthCheckPath: /health/ready
+    healthCheckPath: /health/live
     buildFilter:
       paths:
         - backend/**

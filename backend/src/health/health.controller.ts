@@ -173,15 +173,17 @@ export class HealthController {
     }
     checks.revision = { ok: Boolean(revision), value: revision || 'unknown' };
     checks.backgroundWorker = this.mailQueue.status();
-    const ok = Object.values(checks).every((check) => check.ok);
+    const blocking = ['database', 'migrations', 'signingSecrets', 'revision'] as const;
+    const blockingOk = blocking.every((key) => checks[key]?.ok !== false);
+    const fullyOk = Object.values(checks).every((check) => check.ok);
     const body = {
-      ok,
-      status: ok ? 'ready' : 'not-ready',
+      ok: fullyOk,
+      status: fullyOk ? 'ready' : blockingOk ? 'degraded' : 'not-ready',
       revision: revision || 'unknown',
       checks,
       ts: new Date().toISOString(),
     };
-    if (!ok) throw new ServiceUnavailableException(body);
+    if (!blockingOk) throw new ServiceUnavailableException(body);
     return body;
   }
 
