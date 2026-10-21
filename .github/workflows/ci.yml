@@ -68,9 +68,9 @@ jobs:
           mkdir -p test-artifacts/logs
           (cd backend && npm run start:prod > ../test-artifacts/logs/backend.log 2>&1) &
           echo $! >> test-artifacts/processes
-          (VITE_API_URL=http://localhost:8787 npm run dev -- --host 127.0.0.1 --port 5173 > test-artifacts/logs/frontend.log 2>&1) &
+          (VITE_API_URL=http://localhost:8787 npm run dev -- --host localhost --port 5173 > test-artifacts/logs/frontend.log 2>&1) &
           echo $! >> test-artifacts/processes
-          (VITE_API_URL=http://localhost:8787 VITE_AUTH_PORTAL=ops npm run dev:ops -- --host 127.0.0.1 > test-artifacts/logs/ops.log 2>&1) &
+          (VITE_API_URL=http://localhost:8787 VITE_AUTH_PORTAL=ops npm run dev:ops -- --host localhost > test-artifacts/logs/ops.log 2>&1) &
           echo $! >> test-artifacts/processes
           for attempt in $(seq 1 60); do
             if curl --fail --silent http://localhost:8787/health/live >/dev/null \

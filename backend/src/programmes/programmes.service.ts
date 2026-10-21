@@ -441,6 +441,7 @@ export class ProgrammesService {
         requireAllAssessmentsC: dto.requireAllAssessmentsC ?? true,
         requireWorkbook: dto.requireWorkbook ?? true,
         requireSummative: dto.requireSummative ?? true,
+        requireModeration: dto.requireModeration ?? true,
         minVerifiedWorkplaceHours: dto.minVerifiedWorkplaceHours ?? 0,
         minAttendanceRatePercent: dto.minAttendanceRatePercent ?? 0,
       },
@@ -469,6 +470,7 @@ export class ProgrammesService {
         requireAllAssessmentsC: true,
         requireWorkbook: true,
         requireSummative: true,
+        requireModeration: true,
         minVerifiedWorkplaceHours: 0,
         minAttendanceRatePercent: 0,
       }

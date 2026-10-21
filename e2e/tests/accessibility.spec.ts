@@ -28,13 +28,17 @@ async function login(page: Page, email: string) {
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: /sign in/i }).click();
   await page.waitForURL((url) => !url.pathname.includes('/login'));
+  const consent = page.locator('[data-consent-state]');
+  await consent.waitFor({ state: 'attached' });
+  await expect(consent).not.toHaveAttribute('data-consent-state', 'loading');
   const notice = page.getByRole('heading', { name: 'Data Protection Consent' });
-  await page.waitForTimeout(500);
-  if (await notice.isVisible()) {
+  if ((await consent.getAttribute('data-consent-state')) === 'required') {
+    await expect(notice).toBeVisible();
     await page.getByRole('checkbox', { name: /processing consent/i }).check();
     await page.getByRole('checkbox', { name: /your rights/i }).check();
     await page.getByRole('checkbox', { name: /third-party sharing/i }).check();
     await page.getByRole('button', { name: /accept & continue/i }).click();
+    await expect(consent).toHaveAttribute('data-consent-state', 'clear');
     await expect(notice).not.toBeVisible();
   }
 }

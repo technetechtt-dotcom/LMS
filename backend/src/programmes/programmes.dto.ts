@@ -207,6 +207,10 @@ export class ProgrammeCompletionRequirementsDto {
   requireSummative?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  requireModeration?: boolean;
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
   minVerifiedWorkplaceHours?: number;

@@ -3,9 +3,9 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { OpsLayout } from '../components/layout/OpsLayout';
 import { ProtectedRoute } from '../components/layout/ProtectedRoute';
 import { OPS_ROLES } from '../config/authPortal';
+import { OpsDashboardPage } from '../pages/ops/OpsDashboardPage';
 
 const OpsLoginPage = lazy(() => import('./OpsLoginPage').then(({ OpsLoginPage }) => ({ default: OpsLoginPage })));
-const OpsDashboardPage = lazy(() => import('../pages/ops/OpsDashboardPage').then(({ OpsDashboardPage }) => ({ default: OpsDashboardPage })));
 const OpsUsersPage = lazy(() => import('../pages/ops/OpsUsersPage').then(({ OpsUsersPage }) => ({ default: OpsUsersPage })));
 const OpsOrganisationsPage = lazy(() => import('../pages/ops/OpsOrganisationsPage').then(({ OpsOrganisationsPage }) => ({ default: OpsOrganisationsPage })));
 const OpsProgrammesPage = lazy(() => import('../pages/ops/OpsProgrammesPage').then(({ OpsProgrammesPage }) => ({ default: OpsProgrammesPage })));
@@ -16,18 +16,26 @@ function OpsHomeRedirect() {
   return <OpsDashboardPage />;
 }
 
+function OpsRouteFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center" role="status" aria-live="polite">
+      <span>Loading Ops Console</span>
+    </div>
+  );
+}
+
 export function OpsApp() {
   return (
     <BrowserRouter>
-      <Suspense
-        fallback={
-          <div className="flex min-h-screen items-center justify-center" role="status" aria-live="polite">
-            <span>Loading Ops Console</span>
-          </div>
-        }
-      >
       <Routes>
-        <Route path="/login" element={<OpsLoginPage />} />
+        <Route
+          path="/login"
+          element={
+            <Suspense fallback={<OpsRouteFallback />}>
+              <OpsLoginPage />
+            </Suspense>
+          }
+        />
         <Route
           path="/"
           element={
@@ -44,7 +52,6 @@ export function OpsApp() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      </Suspense>
     </BrowserRouter>
   );
 }

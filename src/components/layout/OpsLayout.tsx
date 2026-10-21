@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { OpsSidebar } from './OpsSidebar';
@@ -23,7 +23,15 @@ export function OpsLayout() {
         </div>
         <div className="max-w-7xl mx-auto p-6 sm:p-8">
           <ErrorBoundary>
-            <Outlet />
+            <Suspense
+              fallback={
+                <div role="status" aria-live="polite" className="text-sm text-slate-500">
+                  Loading Ops Overview
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
           </ErrorBoundary>
         </div>
       </main>

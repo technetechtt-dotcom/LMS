@@ -8,7 +8,7 @@ import {
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion -- workflow fixtures deliberately inspect heterogeneous API payloads */
 
-const API_URL = process.env.PLAYWRIGHT_API_URL ?? 'http://127.0.0.1:8787';
+const API_URL = process.env.PLAYWRIGHT_API_URL ?? 'http://localhost:8787';
 const PASSWORD = 'Password123!';
 const ORG_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -372,6 +372,7 @@ test.describe('production workflow acceptance', () => {
         requireAllAssessmentsC: false,
         requireWorkbook: false,
         requireSummative: false,
+        requireModeration: false,
         minVerifiedWorkplaceHours: 0,
         minAttendanceRatePercent: 0,
       },

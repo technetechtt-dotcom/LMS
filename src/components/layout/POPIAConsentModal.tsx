@@ -7,8 +7,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { privacyService } from '../../services/api';
+type ConsentPhase = 'loading' | 'required' | 'clear';
+
 export function POPIAConsentModal() {
-  const [isOpen, setIsOpen] = useState(true);
+  const [phase, setPhase] = useState<ConsentPhase>('loading');
   const [consents, setConsents] = useState({
     processing: false,
     rights: false,
@@ -17,14 +19,22 @@ export function POPIAConsentModal() {
   const { logout } = useAuth();
   const navigate = useNavigate();
   useEffect(() => {
+    let cancelled = false;
     void privacyService.getNotice()
-      .then((notice) => setIsOpen(!notice.acknowledged))
-      .catch(() => setIsOpen(true));
+      .then((notice) => {
+        if (!cancelled) setPhase(notice.acknowledged ? 'clear' : 'required');
+      })
+      .catch(() => {
+        if (!cancelled) setPhase('required');
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
   const handleAccept = async () => {
     try {
       await privacyService.acknowledgeNotice();
-      setIsOpen(false);
+      setPhase('clear');
       toast.success('Privacy notice acknowledgement recorded');
     } catch {
       toast.error('Your acknowledgement was not saved');
@@ -32,13 +42,17 @@ export function POPIAConsentModal() {
   };
   const handleDecline = async () => {
     await logout();
-    setIsOpen(false);
+    setPhase('clear');
     navigate('/login', { replace: true });
   };
   const allChecked = consents.processing && consents.rights && consents.sharing;
+  if (phase !== 'required') {
+    return <div data-consent-state={phase} hidden />;
+  }
   return (
+    <div data-consent-state="required">
     <Modal
-      isOpen={isOpen}
+      isOpen
       onClose={() => undefined}
       title=""
       size="lg">
@@ -146,6 +160,7 @@ export function POPIAConsentModal() {
           </button>
         </div>
       </div>
-    </Modal>);
+    </Modal>
+    </div>);
 
 }

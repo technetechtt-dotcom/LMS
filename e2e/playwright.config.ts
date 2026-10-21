@@ -2,8 +2,8 @@ import path from 'path';
 import { defineConfig, devices } from '@playwright/test';
 
 const repoRoot = path.resolve(__dirname, '..');
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:5173';
-const apiURL = process.env.PLAYWRIGHT_API_URL ?? 'http://127.0.0.1:8787';
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5173';
+const apiURL = process.env.PLAYWRIGHT_API_URL ?? 'http://localhost:8787';
 const remoteAcceptance = process.env.PLAYWRIGHT_REMOTE === '1';
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEBSERVER === '1';
 
