@@ -10,8 +10,8 @@ services:
     # Neon LMS project is aws-us-east-1; Ohio (us-east-2) keeps API latency low.
     region: ohio
     branch: main
-    # Releases are triggered by the protected CI/staging workflow.
-    autoDeployTrigger: off
+    # Deploy after required GitHub checks pass. Staging deploy hooks are not configured.
+    autoDeployTrigger: checksPass
     buildCommand: npm ci --include=dev && npm run build
     preDeployCommand: npm run prisma:migrate:deploy:retry
     startCommand: npm run start:prod
@@ -93,7 +93,7 @@ services:
     name: lms-web
     runtime: static
     branch: main
-    autoDeployTrigger: off
+    autoDeployTrigger: checksPass
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     buildFilter:
@@ -155,7 +155,7 @@ services:
     name: lms-ops
     runtime: static
     branch: main
-    autoDeployTrigger: off
+    autoDeployTrigger: checksPass
     buildCommand: npm ci && npm run build:ops
     staticPublishPath: dist-ops
     buildFilter:
