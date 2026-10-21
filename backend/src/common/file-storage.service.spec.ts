@@ -151,6 +151,57 @@ describe('FileStorageService verified local lifecycle', () => {
     expect(prisma.uploadRecord.create).not.toHaveBeenCalled();
   });
 
+  it('stores production uploads on an absolute persistent disk', async () => {
+    const production = new FileStorageService(
+      {
+        get: jest.fn((key: string) => {
+          if (key === 'NODE_ENV') return 'production';
+          if (key === 'UPLOAD_DIR') return root;
+          if (key === 'UPLOAD_MAX_MB') return '2';
+          if (key === 'JWT_SECRET') return 'unit-test-storage-secret';
+          return undefined;
+        }),
+      } as never,
+      prisma as never,
+    );
+    await expect(production.readinessProbe()).resolves.toEqual({
+      ok: true,
+      provider: 'local',
+      versionRecovery: false,
+    });
+    await expect(production.scannerAvailability()).resolves.toEqual({
+      ok: true,
+      mode: 'local-eicar-signature',
+    });
+    await expect(production.upload(
+      'evidence.txt',
+      Buffer.from('clean evidence'),
+      'text/plain',
+    )).resolves.toEqual(expect.objectContaining({
+      status: 'VERIFIED',
+      provider: 'local',
+    }));
+  });
+
+  it('rejects a relative upload directory in production', async () => {
+    const production = new FileStorageService(
+      {
+        get: jest.fn((key: string) =>
+          key === 'NODE_ENV' ? 'production' : key === 'UPLOAD_DIR' ? 'uploads' : undefined,
+        ),
+      } as never,
+      prisma as never,
+    );
+    await expect(production.readinessProbe()).rejects.toThrow(
+      'Private object storage is not configured',
+    );
+    await expect(production.upload(
+      'evidence.txt',
+      Buffer.from('clean'),
+      'text/plain',
+    )).rejects.toThrow('Durable object storage is required');
+  });
+
   it('rejects tampered download tokens and unknown upload states', async () => {
     await expect(service.openDownload('not-a-valid-token')).rejects.toThrow(
       'Invalid download token',
