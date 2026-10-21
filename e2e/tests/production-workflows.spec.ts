@@ -539,11 +539,18 @@ test.describe('production workflow acceptance', () => {
       }));
     }
 
+    const cohort = dataOf(await jsonOk(await api.post(`/programmes/${programme.id}/cohorts`, {
+      headers: headers('admin'),
+      data: { name: `E2E Cohort ${Date.now()}`, startDate: null, endDate: null },
+    })));
+    expect(cohort.learnerCount ?? 0).toBe(0);
+
     const assignment = dataOf(await jsonOk(await api.post('/facilitator-assignments', {
       headers: headers('admin'),
       data: {
         programmeId: programme.id,
         facilitatorId: users.get('facilitator')!.id,
+        cohortId: cohort.id,
       },
     })));
     expect(assignment.id).toBeTruthy();
@@ -553,18 +560,12 @@ test.describe('production workflow acceptance', () => {
 
     const nested = dataOf(await jsonOk(await api.post(`/programmes/${programme.id}/facilitators`, {
       headers: headers('admin'),
-      data: { facilitatorId: users.get('facilitator')!.id },
+      data: { facilitatorId: users.get('facilitator')!.id, cohortId: cohort.id },
     })));
     await jsonOk(await api.delete(
       `/programmes/${programme.id}/facilitators/${nested.id}`,
       { headers: headers('admin') },
     ));
-
-    const cohort = dataOf(await jsonOk(await api.post(`/programmes/${programme.id}/cohorts`, {
-      headers: headers('admin'),
-      data: { name: `E2E Cohort ${Date.now()}`, startDate: null, endDate: null },
-    })));
-    expect(cohort.learnerCount ?? 0).toBe(0);
     const archived = dataOf(await jsonOk(await api.patch(`/cohorts/${cohort.id}`, {
       headers: headers('admin'),
       data: { archived: true, startDate: null },
